@@ -1,5 +1,12 @@
 [theme]
+base = "light"
 primaryColor = "#12305C"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F6F8FB"
+secondaryBackgroundColor = "#F3F6FA"
 textColor = "#1B2A41"
+font = "Archivo:https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+headingFont = "Archivo:https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+baseRadius = "medium"
+
+[server]
+maxUploadSize = 50
