@@ -12,5 +12,7 @@ paginas = [
             icon=":material/school:", url_path="kpis", default=True),
     st.Page("paginas/cuadre_saleu.py", title="Cuadre Sale-U",
             icon=":material/call:", url_path="cuadre-saleu"),
+    st.Page("paginas/cuadre_archivos.py", title="Cuadre de archivos",
+            icon=":material/compare_arrows:", url_path="cuadre-archivos"),
 ]
 st.navigation(paginas, position="top").run()
