@@ -1,0 +1,16 @@
+# Datos de clientes: nunca subirlos al repo
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.zip
+
+# Secretos
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
