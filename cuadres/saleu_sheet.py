@@ -34,6 +34,11 @@ def ya_registrado(valor):
 
 
 def periodo(su):
+    """Periodo del reporte: el «Rango» de su encabezado (el mismo que usa el cuadre); si no lo trae,
+    de la primera a la última fecha de alta de crédito."""
+    rango = su.attrs.get("rango")
+    if rango:
+        return rango[0].date(), rango[1].date()
     fechas = su["_fecha"].dropna()
     if fechas.empty:
         return None, None

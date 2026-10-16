@@ -174,6 +174,13 @@ with st.sidebar:
 ui.hero("Cuadres para reportes",
         "Elige el cuadre, sube los archivos fuente y descarga el resultado en Excel y PDF.")
 
+try:
+    base = conexion.obtener_base()      # una sola lectura del Sheet por ejecución (cuenta en la cuota de Google)
+except Exception as e:
+    base = None
+    st.error(f"No pude abrir el Google Sheet: {e}. Revisa que esté compartido con la cuenta de servicio como "
+             "Editor. Mientras, puedes cuadrar subiendo los archivos.", icon=":material/cloud_off:")
+
 tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs bitácora",
                                    "🟦 Sale-U vs bitácora",
                                    "🔧 BlueService vs Inventario"])
@@ -187,7 +194,6 @@ AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la f
 
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
-    base = conexion.obtener_base()
     st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de la bitácora: capturas de "
                 "Cetelem y Bitácora de F&I, de **todas las financieras** (la base solo registra rechazos).")
     if base is not None:
@@ -268,7 +274,6 @@ with tab_seg:
 
 # ---------------------------------------------------------------- SALE-U
 with tab_su:
-    base = conexion.obtener_base()
     c1, c2 = st.columns(2)
     f_su = c1.file_uploader("Excel de Sale - U", type=["csv", "xlsx"], key="up_su",
                             help="Sube el reporte de Sale - U tal cual se descarga "
