@@ -144,9 +144,12 @@ def leer_saleu(ruta):
         elif "FECHA ALTA" in cu: ren[c] = "Fecha_Alta_Credito"
         elif "ESTATUS DE LEAD" in cu: ren[c] = "Estatus_Lead"
         elif "AUTO DE INTERES" in cu: ren[c] = "Auto_Interes"
+        elif cu == "FUENTE": ren[c] = "Fuente"
+        elif "PLAZO" in cu: ren[c] = "Plazos_SaleU"
+        elif "MONTO MENSUAL" in cu: ren[c] = "Mensualidad_SaleU"
     df = df.rename(columns=ren)
     for c in ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera",
-              "Fecha_Alta_Credito", "Estatus_Lead", "Auto_Interes"]:
+              "Fecha_Alta_Credito", "Estatus_Lead", "Auto_Interes", "Fuente", "Plazos_SaleU", "Mensualidad_SaleU"]:
         if c not in df.columns:
             df[c] = ""
     df = df.fillna("")
@@ -393,13 +396,14 @@ def cruzar(cli, su):
                 "Similitud_nombre": round(sim, 2),
                 "Cliente_SaleU": s["Nombre"], "Tel_SaleU": s["Telefono"],
                 "Asesor_SaleU": s["Asesor"], "Estatus_SaleU": s["Estatus_SaleU"],
-                "Financiera_SaleU": s["Financiera"], "Fecha_alta_SaleU": s["Fecha_Alta_Credito"],
+                "Financiera_SaleU": s["Financiera"], "Fuente_SaleU": s["Fuente"],
+                "Fecha_alta_SaleU": s["Fecha_Alta_Credito"],
                 "Cuadre_estatus": est_cuadre, "Observaciones": "; ".join(obs),
             })
         else:
             base.update({"Resultado": "NO registrado en Sale-U", "Similitud_nombre": None,
                          "Cliente_SaleU": "", "Tel_SaleU": "", "Asesor_SaleU": "",
-                         "Estatus_SaleU": "", "Financiera_SaleU": "", "Fecha_alta_SaleU": "",
+                         "Estatus_SaleU": "", "Financiera_SaleU": "", "Fuente_SaleU": "", "Fecha_alta_SaleU": "",
                          "Cuadre_estatus": "—", "Observaciones": "Dar de alta en Sale-U"})
         filas.append(base)
     cuadre = pd.DataFrame(filas)
@@ -439,9 +443,9 @@ COLORES = {"Coincide (teléfono y nombre)": "C6EFCE",
 def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
     cols_cuadre = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera",
                    "Folios", "Historial", "Estatus_final", "Cliente_SaleU", "Tel_SaleU",
-                   "Asesor_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fecha_alta_SaleU",
+                   "Asesor_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU", "Fecha_alta_SaleU",
                    "Similitud_nombre", "Observaciones"]
-    cols_solo = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera",
+    cols_solo = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fuente",
                  "Fecha_Alta_Credito", "Estatus_Lead", "Auto_Interes", "Veces_registrado", "Observaciones"]
     with pd.ExcelWriter(ruta, engine="openpyxl") as w:
         resumen.to_excel(w, sheet_name="Resumen", index=False)

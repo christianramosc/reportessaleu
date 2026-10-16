@@ -10,7 +10,7 @@ import streamlit as st
 import ui
 import conexion
 from cuadres import fuentes, actualizar, pendientes, saleu_sheet
-from cuadres.base import TAB_HISTORIAL
+from cuadres.base import TAB_HISTORIAL, TAB_FINALIZADOS
 
 ui.hero("Base de seguimiento",
         "Actualiza el Google Sheet de rechazos con las bitácoras de Cetelem y la Bitácora de F&I.")
@@ -73,21 +73,25 @@ with tab_act:
     if act:
         prop = act["prop"]
         st.caption("Cetelem: " + (", ".join(act["meses"]) or "—") + "  ·  F&I: " + (", ".join(act["hojas_fi"]) or "—"))
-        m = st.columns(4)
+        m = st.columns(5)
         m[0].metric("Rechazos nuevos", int((prop["Tipo"] == "Nuevo rechazo").sum()))
         m[1].metric("Correcciones", int((prop["Tipo"] == "Corrección").sum()))
-        m[2].metric("Comentarios", int((prop["Tipo"] == "Comentario").sum()))
-        m[3].metric("Solicitudes en bitácoras", len(act["sol"]))
+        m[2].metric("Datos faltantes", int((prop["Tipo"] == "Dato faltante").sum()),
+                    help="Celdas vacías que se llenan porque el cliente cuadra por teléfono o por nombre con la "
+                         "bitácora, en Rechazos o en Créditos Finalizados.")
+        m[3].metric("Comentarios", int((prop["Tipo"] == "Comentario").sum()))
+        m[4].metric("Solicitudes en bitácoras", len(act["sol"]))
         if prop.empty:
             st.success("La base ya está al día con estas bitácoras.")
         else:
             st.markdown("Revisa los cambios. **Desmarca** los que no quieras aplicar; los desmarcados se anotan "
                         "como *ignorados* y no se vuelven a proponer.")
             vista = st.data_editor(
-                prop[["Aplicar", "Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]].assign(
+                prop[["Aplicar", "Tipo", "Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]].assign(
+                    Hoja=prop["Hoja"].map(lambda h: "Finalizados" if h == TAB_FINALIZADOS else "Rechazos"),
                     Fila=prop["Fila"].map(lambda f: "nueva" if f is None or f != f else str(int(f)))),
                 hide_index=True, width="stretch", height=min(520, 60 + 35 * len(prop)), key="editor_prop",
-                disabled=["Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"],
+                disabled=["Tipo", "Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"],
                 column_config={"Aplicar": st.column_config.CheckboxColumn(width="small"),
                                "Fila": st.column_config.TextColumn(width="small"),
                                "Motivo": st.column_config.TextColumn(width="large")})
@@ -103,6 +107,7 @@ with tab_act:
                         st.session_state["aviso_act"] = r["aviso"]
                     st.session_state["msg_act"] = (
                         f"Listo: {r['nuevos']} rechazo(s) nuevo(s), {r['correcciones']} corrección(es), "
+                        f"{r.get('faltantes', 0)} dato(s) faltante(s) llenado(s), "
                         f"{r['ignorados']} ignorado(s)."
                         + (f" Respaldo previo en la pestaña oculta «{r['respaldo']}»." if r["respaldo"] else "")
                         + (" Descarga el Excel actualizado con el botón de arriba." if isinstance(base, conexion.BaseExcel) else ""))

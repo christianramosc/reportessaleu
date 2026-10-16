@@ -10,7 +10,7 @@ import datetime as dt
 
 import pandas as pd
 
-from cuadres.base import (TAB_RECHAZOS, TAB_BITACORA, TAB_CAPTURAS, TAB_HISTORIAL, norm, letra)
+from cuadres.base import (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, TAB_CAPTURAS, TAB_HISTORIAL, norm, letra)
 from cuadres.fuentes import (name_key, similar, to_folio, to_phone, to_num, to_date, folio_date,
                              BITACORA_COLS, CAP_COLS, CAP_EXTRA, filas_bitacora)
 
@@ -89,12 +89,12 @@ def proponer(base, solicitudes):
     catalogo = _catalogo_asesores(base)
     prop = []
 
-    def add(tipo, row, campo, antes, despues, motivo, aplicar=True, payload=None, sol=None):
+    def add(tipo, row, campo, antes, despues, motivo, aplicar=True, payload=None, sol=None, hoja=TAB_RECHAZOS):
         cli = row["nombre"] if row else (payload or {}).get(C["nombre"], "")
         if (norm(cli), norm(campo), norm(despues)) in ignor:
             return
-        prop.append(dict(Aplicar=aplicar, Tipo=tipo, Fila=row["fila"] if row else None, Cliente=cli, Campo=campo,
-                         Antes=_fmt(antes), Después=_fmt(despues), Motivo=motivo,
+        prop.append(dict(Aplicar=aplicar, Tipo=tipo, Hoja=hoja, Fila=row["fila"] if row else None, Cliente=cli,
+                         Campo=campo, Antes=_fmt(antes), Después=_fmt(despues), Motivo=motivo,
                          _valor=despues, _payload=payload, _sol=sol))
 
     usadas, fila_de_sol = set(), {}
@@ -173,9 +173,22 @@ def proponer(base, solicitudes):
         add("Nuevo rechazo", None, "(fila nueva)", None, desc,
             "Rechazo en " + s["fuentes"] + (". " + "; ".join(nota) if nota else ""), aplicar, payload, s)
 
-    df = pd.DataFrame(prop, columns=["Aplicar", "Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo",
-                                     "_valor", "_payload", "_sol"])
-    orden = {"Nuevo rechazo": 0, "Corrección": 1, "Comentario": 2}
+    # ---------------------------------------------------------------- datos que faltan (por teléfono o nombre)
+    # Cualquier pestaña: si el cliente cuadra con una solicitud de la bitácora por teléfono o por nombre,
+    # las celdas vacías se llenan con su dato (aunque sea otra solicitud del mismo cliente).
+    from cuadres import completar
+    ya = {(p["Hoja"], p["Fila"], norm(p["Campo"])) for p in prop if p["Fila"] is not None}
+    regs = completar.registros_de_solicitudes(solicitudes, lambda v: _asesor(v, catalogo))
+    for c in completar.proponer(base, regs):
+        if (c["Hoja"], c["Fila"], norm(c["Campo"])) in ya:
+            continue
+        ya.add((c["Hoja"], c["Fila"], norm(c["Campo"])))
+        add("Dato faltante", dict(nombre=c["Cliente"], fila=c["Fila"]), c["Campo"], None, c["_valor"], c["Motivo"],
+            hoja=c["Hoja"])
+
+    df = pd.DataFrame(prop, columns=["Aplicar", "Tipo", "Hoja", "Fila", "Cliente", "Campo", "Antes", "Después",
+                                     "Motivo", "_valor", "_payload", "_sol"])
+    orden = {"Nuevo rechazo": 0, "Corrección": 1, "Dato faltante": 2, "Comentario": 3}
     df = df.sort_values(["Tipo", "Fila"], key=lambda s: s.map(orden) if s.name == "Tipo" else s).reset_index(drop=True)
     return df, dict(filas=filas, fila_de_sol=fila_de_sol)
 
@@ -213,15 +226,19 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
     faltan = [C[k] for k in ("fecha", "folio", "nombre") if not col[k]]
     if faltan:
         raise ValueError(f"No encuentro las columnas {', '.join(faltan)} en '{TAB_RECHAZOS}'.")
+    hoja_de = lambda p: p["Hoja"] if "Hoja" in p and p["Hoja"] else TAB_RECHAZOS
     respaldo = base.respaldar(TAB_RECHAZOS) if len(elegidas) else None
+    if any(hoja_de(p) == TAB_FINALIZADOS for _, p in elegidas.iterrows()):
+        base.respaldar(TAB_FINALIZADOS)
 
-    celdas, historial, nuevas_marcas = [], [], []
+    celdas, historial, nuevas_marcas, otras = [], [], [], {}
     for _, p in elegidas[elegidas["Tipo"] != "Nuevo rechazo"].iterrows():
-        c = base.col(TAB_RECHAZOS, p["Campo"])
+        hoja = hoja_de(p)
+        c = base.col(hoja, p["Campo"])
         if not c:
             continue
-        celdas.append((int(p["Fila"]), c, p["_valor"]))
-        historial.append(dict(Origen="App · bitácoras", Hoja=TAB_RECHAZOS, Celda=f"{letra(c)}{int(p['Fila'])}",
+        (celdas if hoja == TAB_RECHAZOS else otras.setdefault(hoja, [])).append((int(p["Fila"]), c, p["_valor"]))
+        historial.append(dict(Origen="App · bitácoras", Hoja=hoja, Celda=f"{letra(c)}{int(p['Fila'])}",
                               Cliente=p["Cliente"], Campo=p["Campo"], Antes=p["Antes"], Después=p["Después"],
                               Motivo=p["Motivo"]))
 
@@ -246,9 +263,11 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
         fila += 1
 
     base.escribir(TAB_RECHAZOS, celdas)
+    for hoja, cs in otras.items():
+        base.escribir(hoja, cs)
     base.marcar(TAB_RECHAZOS, nuevas_marcas, AZUL_NUEVO)
     for _, p in ignoradas.iterrows():
-        historial.append(dict(Origen="Ignorado", Hoja=TAB_RECHAZOS, Celda="", Cliente=p["Cliente"], Campo=p["Campo"],
+        historial.append(dict(Origen="Ignorado", Hoja=hoja_de(p), Celda="", Cliente=p["Cliente"], Campo=p["Campo"],
                               Antes=p["Antes"], Después=p["Después"], Motivo="No se aplicó: " + p["Motivo"]))
     base.anotar_historial(historial)
 
@@ -261,5 +280,7 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
         migrar_formalizado(base)
     except Exception as e:  # solo fórmulas y colores del Resumen/Bitacora: no detiene lo demás
         aviso = f"No pude actualizar el Resumen a «Formalizado»: {e}"
-    return dict(respaldo=respaldo, aviso=aviso, correcciones=int((elegidas["Tipo"] != "Nuevo rechazo").sum()),
-                nuevos=len(nuevos), ignorados=len(ignoradas), celdas=len(celdas))
+    return dict(respaldo=respaldo, aviso=aviso,
+                faltantes=int((elegidas["Tipo"] == "Dato faltante").sum()),
+                correcciones=int(elegidas["Tipo"].isin(["Corrección", "Comentario"]).sum()),
+                nuevos=len(nuevos), ignorados=len(ignoradas), celdas=len(celdas) + sum(map(len, otras.values())))

@@ -88,6 +88,13 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    en *Revision* y el botón le quita la marca.
 
 Reglas que sigue la app al escribir en el Sheet:
+- **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por
+  **teléfono** (mismo celular y al menos una palabra del nombre en común) o por **nombre** con la bitácora o con
+  Sale-U, sus celdas **vacías** se llenan (teléfono, correo, folio, plazo, mensualidad, unidad, asesor, GAP,
+  accesorios y, en Finalizados, el registro en Sale-U). Nunca se sobreescribe un dato. Si la bitácora y Sale-U
+  traen el mismo dato, manda la bitácora (la mensualidad de Sale-U es aproximada). En *Actualizar con
+  bitácoras* salen como "Dato faltante" para que los revises; en el cuadre de Sale-U se escriben solos si la
+  escritura está encendida.
 - **Formalizado** = el crédito terminó en contrato con cualquier financiera (FINANCIADO en Cetelem,
   CONTRATO en la Bitácora de F&I). Así aparece en la *Bitacora* y en el *Resumen*.
 - Lo de Cetelem manda en folio, estatus, mensualidad (máxima), plazo, teléfono, GAP y accesorios.

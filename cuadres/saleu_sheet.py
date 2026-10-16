@@ -9,6 +9,10 @@ de ingreso cae dentro del periodo del reporte:
 Lo que ya dice que SÍ está registrado (p. ej. marcado a mano) nunca se baja a "No Registrado":
 si no aparece en el reporte se deja como registrado y se lista para revisar.
 Los rechazos fuera del periodo del reporte no se tocan (no hay con qué compararlos).
+
+Además (proponer_datos): si un cliente de Rechazos o de Créditos Finalizados cuadra con Sale-U o con la
+bitácora por teléfono o por nombre, se llenan sus celdas vacías (teléfono, correo, folio, plazo,
+mensualidad, asesor…, y en Finalizados el registro en Sale-U). Nunca se sobreescribe un dato.
 """
 
 import datetime as dt
@@ -54,8 +58,8 @@ def proponer(base, su, ini=None, fin=None):
         hallado, como = None, ""
         for s in por_tel.get(tel, []):
             r, _ = cu.similitud_nombre(nom, s["Nombre_norm"])
-            if r >= cu.UMBRAL_NOMBRE_CON_TEL:
-                hallado, como = s, "teléfono y nombre"
+            if r > 0:                   # mismo teléfono y al menos una palabra del nombre en común
+                hallado, como = s, "teléfono"
                 break
         if hallado is None:
             mejor = (0, 0, None)
@@ -84,6 +88,40 @@ def proponer(base, su, ini=None, fin=None):
     df = pd.DataFrame(filas, columns=["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como",
                                       "Revisar", "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU"])
     return df, (ini, fin)
+
+
+def proponer_datos(base, su):
+    """Celdas vacías de Rechazos y Finalizados que se llenan porque el cliente cuadra con Sale-U o con la
+    bitácora (pestaña Bitacora) por teléfono o nombre. Si las dos traen el dato, manda la bitácora
+    (la mensualidad de Sale-U es aproximada)."""
+    from cuadres import completar
+    from cuadres.base import TAB_BITACORA
+    from cuadres.actualizar import _catalogo_asesores, _asesor
+    catalogo = _catalogo_asesores(base)
+    nombre = (lambda v: _asesor(v, catalogo)) if catalogo else None
+    regs = completar.registros_de_saleu(su, nombre)
+    if TAB_BITACORA in base.pestanas():
+        regs += completar.registros_de_bitacora(base.leer(TAB_BITACORA), nombre)
+    return completar.proponer(base, regs)
+
+
+def aplicar_datos(base, datos):
+    """Escribe lo de proponer_datos() y lo anota en el Historial."""
+    if not datos:
+        return 0
+    por_hoja = {}
+    for d in datos:
+        c = base.col(d["Hoja"], d["Campo"])
+        if c:
+            por_hoja.setdefault(d["Hoja"], []).append((d, c))
+    for hoja, items in por_hoja.items():
+        base.respaldar(hoja)
+        base.escribir(hoja, [(int(d["Fila"]), c, d["_valor"]) for d, c in items])
+    base.anotar_historial([dict(Origen="App · cuadre Sale-U", Hoja=hoja, Celda=f"{letra(c)}{int(d['Fila'])}",
+                                Cliente=d["Cliente"], Campo=d["Campo"], Antes="", Después=d["Después"],
+                                Motivo=d["Motivo"])
+                           for hoja, items in por_hoja.items() for d, c in items])
+    return sum(map(len, por_hoja.values()))
 
 
 def aplicar(base, cambios, periodo_txt):
