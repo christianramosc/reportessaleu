@@ -214,6 +214,7 @@ def leer_cetelem(rutas):
                 sub[nombre] = d[col[extra]] if extra in col else ""
             sub["Mes"] = etiqueta
             sub["Financiera"] = "CETELEM"
+            sub["Fuente"] = f"{os.path.basename(ruta)} · {hoja}"
             sub["_orden_mes"] = orden
             sub = sub[sub["Nombre"].str.strip() != ""]
             partes.append(sub)
@@ -229,7 +230,7 @@ def desde_bitacora(sol):
     """sol: fuentes.solicitudes_de_bitacora(). Para Sale-U cuenta el resultado final de cada solicitud."""
     df = sol.rename(columns={"Est_fin": "Estatus", "Fin_fin": "Financiera"})[
         ["Folio", "Estatus", "Nombre", "Telefono", "Vendedor", "Vehiculo", "Monto_Financiar", "Mes",
-         "Financiera", "Fecha", "_anio", "_mes"]].copy()
+         "Financiera", "Fecha", "_anio", "_mes", "Fuente"]].copy()
     df = df[df["Financiera"] != "CONTADO"].copy()          # ventas de contado: no son créditos en Sale-U
     df["Estatus"] = df["Estatus"].replace("", "SIN ESTATUS")
     df["_orden_mes"] = df["_anio"] * 100 + df["_mes"]
@@ -327,6 +328,8 @@ def consolidar_clientes(cet):
             "Ultimo_mes": ult["Mes"],
             "Estatus_final": ult["Estatus"],
             "Vehiculo": ult["Vehiculo"],
+            # de qué bitácora viene (p. ej. "CETELEM JULIO fila 12, RECHAZ fila 5")
+            "Fuente_bitacora": " · ".join(dict.fromkeys(f for f in sub["Fuente"] if f)) if "Fuente" in sub else "",
         })
     return pd.DataFrame(filas)
 
@@ -451,7 +454,7 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
         resumen.to_excel(w, sheet_name="Resumen", index=False)
         cuadre[cols_cuadre].to_excel(w, sheet_name="Cuadre_por_cliente", index=False)
         detalle.to_excel(w, sheet_name="Detalle_por_mes", index=False)
-        faltantes[cols_cuadre[2:9]].to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
+        faltantes[cols_cuadre[2:9] + ["Fuente_bitacora"]].to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
         revisar[cols_cuadre].to_excel(w, sheet_name="Revisar", index=False)
         solo[cols_solo].to_excel(w, sheet_name="Solo_en_SaleU", index=False)
 

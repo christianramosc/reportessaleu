@@ -363,7 +363,7 @@ with tab_su:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             tabla(df, ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial",
-                       "Estatus_final"])
+                       "Estatus_final", "Fuente_bitacora"])
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",
