@@ -165,6 +165,15 @@ def leer_capturas(archivos):
     return df
 
 
+def etiqueta_hoja(v):
+    """Nombre del mes de una captura ("JUNIO 2026"). Si Google lo guardó como fecha (01/06/2026), se regresa a texto."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and 30000 < v < 80000:
+        v = de_serial(v)                     # desde la API de Google llega como número de serie
+    if isinstance(v, (dt.date, dt.datetime)):
+        return f"{ETIQUETA_MES[v.month]} {v.year}"
+    return "" if vacio(v) else str(v).strip()
+
+
 def combinar_capturas(guardadas, nuevas):
     """Las hojas (meses) que vienen en `nuevas` reemplazan completas a las guardadas del mismo mes."""
     if guardadas is None or guardadas.empty:
@@ -412,7 +421,7 @@ def solicitudes_de_bitacora(df):
     Est_sol / Fin_sol (estatus y financiera de la solicitud) y Est_fin / Fin_fin (resultado final),
     con los estatus en mayúsculas sin acentos (RECHAZADO, APROBADO, FORMALIZADO, CONTRAPROPUESTA, ANALISIS)."""
     cols = ["Folio", "Nombre", "Telefono", "Vendedor", "Vehiculo", "Monto_Financiar", "Fecha", "Mes", "_anio", "_mes",
-            "Est_sol", "Fin_sol", "Est_fin", "Fin_fin", "Fuente"]
+            "Est_sol", "Fin_sol", "Est_fin", "Fin_fin", "Fuente", "Plazo", "Mensualidad", "Correo"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
     g = lambda r, c: r[c] if c in r.index else None
@@ -435,7 +444,10 @@ def solicitudes_de_bitacora(df):
             Mes=f"{ETIQUETA_MES[fecha.month][:3]} {fecha.year}" if fecha else "SIN FECHA",
             _anio=fecha.year if fecha else 0, _mes=fecha.month if fecha else 0,
             Est_sol=norm(est_sol), Fin_sol=fin_sol, Est_fin=norm(est_fin or est_sol), Fin_fin=fin_fin,
-            Fuente=txt(g(r, "Fuente en la bitácora")) or ""))
+            Fuente=txt(g(r, "Fuente en la bitácora")) or "",
+            Plazo=int(to_num(g(r, "Plazo"))) if to_num(g(r, "Plazo")) else None,
+            Mensualidad=round(to_num(g(r, "Mensualidad")), 2) if to_num(g(r, "Mensualidad")) else None,
+            Correo=mail(g(r, "Correo")) or ""))
     return pd.DataFrame(filas, columns=cols)
 
 

@@ -52,6 +52,8 @@ def capturas_guardadas(base):
     if base is None or TAB_CAPTURAS not in base.pestanas():
         return pd.DataFrame(columns=fuentes.CAP_COLS + fuentes.CAP_EXTRA)
     df = base.leer(TAB_CAPTURAS).drop(columns="_fila", errors="ignore")
+    if "Hoja" in df.columns:
+        df["Hoja"] = df["Hoja"].map(fuentes.etiqueta_hoja)
     fecha = df.get("Fecha de carga")
     df = df.drop(columns="Fecha de carga", errors="ignore").fillna("").astype(str)
     df["Fecha de carga"] = fecha if fecha is not None else ""

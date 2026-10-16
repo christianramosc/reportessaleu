@@ -210,7 +210,8 @@ def leer_cetelem(rutas):
             orden, etiqueta = detectar_mes(ruta, hoja)
             sub = pd.DataFrame({k: d[col[v]] for k, v in req.items()})
             for extra, nombre in [("VEHICULO", "Vehiculo"),
-                                  ("MONTO TOTAL A FINANCIAR", "Monto_Financiar")]:
+                                  ("MONTO TOTAL A FINANCIAR", "Monto_Financiar"), ("PLAZO (MESES)", "Plazo"),
+                                  ("MENSUALIDAD MAXIMA", "Mensualidad"), ("CORREO ELECTRONICO", "Correo")]:
                 sub[nombre] = d[col[extra]] if extra in col else ""
             sub["Mes"] = etiqueta
             sub["Financiera"] = "CETELEM"
@@ -229,7 +230,7 @@ def desde_bitacora(sol):
     """sol: fuentes.solicitudes_de_bitacora(). Para Sale-U cuenta el resultado final de cada solicitud."""
     df = sol.rename(columns={"Est_fin": "Estatus", "Fin_fin": "Financiera"})[
         ["Folio", "Estatus", "Nombre", "Telefono", "Vendedor", "Vehiculo", "Monto_Financiar", "Mes",
-         "Financiera", "Fecha", "_anio", "_mes"]].copy()
+         "Financiera", "Fecha", "_anio", "_mes", "Plazo", "Mensualidad", "Correo"]].copy()
     df = df[df["Financiera"] != "CONTADO"].copy()          # ventas de contado: no son créditos en Sale-U
     df["Estatus"] = df["Estatus"].replace("", "SIN ESTATUS")
     df["_orden_mes"] = df["_anio"] * 100 + df["_mes"]
@@ -309,6 +310,13 @@ def consolidar_clientes(cet):
         destino["filas"].append(i)
         cet.at[i, "id_c"] = destino["id"]
 
+    def ultimo(sub, col):
+        """Último dato no vacío de la columna (la solicitud más reciente que lo trae)."""
+        if col not in sub:
+            return ""
+        vals = [v for v in sub[col] if v is not None and v == v and str(v).strip() not in ("", "nan", "None")]
+        return vals[-1] if vals else ""
+
     filas = []
     for c in clientes:
         sub = cet.loc[c["filas"]]
@@ -327,8 +335,23 @@ def consolidar_clientes(cet):
             "Ultimo_mes": ult["Mes"],
             "Estatus_final": ult["Estatus"],
             "Vehiculo": ult["Vehiculo"],
+            # datos de contacto y del crédito para la hoja «Faltan en Sale-U»
+            "Financiera_ultima": ult["Financiera"],
+            "Plazo": _numero(ultimo(sub, "Plazo"), entero=True),
+            "Unidad": ultimo(sub, "Vehiculo"),
+            "Mensualidad": _numero(ultimo(sub, "Mensualidad")),
+            "Correo": str(ultimo(sub, "Correo")).strip().lower(),
         })
     return pd.DataFrame(filas)
+
+
+def _numero(v, entero=False):
+    s = re.sub(r"[^\d.]", "", str(v or ""))
+    try:
+        n = float(s) if s else None
+    except ValueError:
+        return None
+    return (int(n) if entero else round(n, 2)) if n else None
 
 
 # =============================================================================
@@ -452,20 +475,28 @@ COLORES = {"Coincide (teléfono y nombre)": "C6EFCE",
            "No cuadra": "FFC7CE", "Revisar": "FFEB9C", "OK": "C6EFCE"}
 
 
+COLS_FALTANTES = ["Nombre", "Celular", "Financiera", "Plazo", "Unidad", "Mensualidad", "Correo"]
+
+
+def tabla_faltantes(faltantes):
+    """Hoja «Faltan en Sale-U»: los datos del cliente para darlo de alta."""
+    return pd.DataFrame({
+        "Nombre": faltantes["Cliente_bitacora"], "Celular": faltantes["Tel_bitacora"],
+        "Financiera": faltantes["Financiera_ultima"], "Plazo": faltantes["Plazo"], "Unidad": faltantes["Unidad"],
+        "Mensualidad": faltantes["Mensualidad"], "Correo": faltantes["Correo"]}, columns=COLS_FALTANTES)
+
+
 def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
     cols_cuadre = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera",
                    "Folios", "Historial", "Estatus_final", "Cliente_SaleU", "Tel_SaleU",
                    "Asesor_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU", "Fecha_alta_SaleU",
                    "Similitud_nombre", "Observaciones"]
-    cols_solo = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fuente",
-                 "Fecha_Alta_Credito", "Estatus_Lead", "Auto_Interes", "Veces_registrado", "Observaciones"]
     with pd.ExcelWriter(ruta, engine="openpyxl") as w:
         resumen.to_excel(w, sheet_name="Resumen", index=False)
         cuadre[cols_cuadre].to_excel(w, sheet_name="Cuadre_por_cliente", index=False)
         detalle.to_excel(w, sheet_name="Detalle_por_mes", index=False)
-        faltantes[cols_cuadre[2:9]].to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
+        tabla_faltantes(faltantes).to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
         revisar[cols_cuadre].to_excel(w, sheet_name="Revisar", index=False)
-        solo[cols_solo].to_excel(w, sheet_name="Solo_en_SaleU", index=False)
 
     wb = load_workbook(ruta)
     borde = Side(style="thin", color="BFBFBF")
@@ -483,6 +514,10 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
         for i, col in enumerate(ws.columns, 1):
             largo = max(len(str(c.value)) if c.value is not None else 0 for c in col)
             ws.column_dimensions[get_column_letter(i)].width = min(max(largo + 2, 10), 55)
+        if ws.title == "Faltan_en_SaleU":
+            for (celda,) in ws.iter_rows(min_row=2, min_col=COLS_FALTANTES.index("Mensualidad") + 1,
+                                         max_col=COLS_FALTANTES.index("Mensualidad") + 1):
+                celda.number_format = '"$"#,##0.00'
         ws.freeze_panes = "A2"
         if ws.max_row > 1:
             ws.auto_filter.ref = ws.dimensions
@@ -538,9 +573,9 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, m
         por_vend = faltantes.groupby("Vendedor").size().sort_values(ascending=False)
         el.append(Paragraph("Por vendedor: " + " · ".join(f"<b>{v}</b>: {n}" for v, n in por_vend.items()), txt))
         el.append(Spacer(1, 6))
-    el.append(tabla(faltantes.sort_values(["Vendedor", "Cliente_bitacora"]),
-                    ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial"],
-                    [5.2, 2.4, 4.8, 2.6, 3.2, 7.0], "#C00000"))
+    el.append(tabla(tabla_faltantes(faltantes.sort_values(["Vendedor", "Cliente_bitacora"])).astype(object).where(
+                        lambda d: d.notna(), ""),
+                    COLS_FALTANTES, [5.6, 2.4, 3.0, 1.4, 4.6, 2.2, 5.0], "#C00000"))
 
     el += [PageBreak(), Paragraph(f"2. Estatus que no cuadra ({len(no_cuadra)})", h2),
            Paragraph("El cliente sí está en Sale-U, pero su estatus no corresponde con la bitácora.", txt),
@@ -554,12 +589,6 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, m
            Spacer(1, 6),
            tabla(revisar_cruce, ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_SaleU",
                                  "Tel_SaleU", "Observaciones"], [4.5, 4.8, 2.4, 4.5, 2.4, 6.6], "#BF8F00")]
-
-    el += [PageBreak(), Paragraph(f"4. En Sale-U sin solicitud en la bitácora ({len(solo_cet)})", h2),
-           Paragraph("Pueden ser solicitudes de meses no incluidos en el cuadre, o registros mal "
-                     "clasificados en Sale-U.", txt), Spacer(1, 6),
-           tabla(solo_cet, ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Fecha_Alta_Credito", "Observaciones"],
-                 [5.5, 2.6, 5.5, 2.5, 3.2, 5.9], "#7F7F7F")]
     doc.build(el)
 
 

@@ -126,32 +126,6 @@ def ejecutar_seg_base(base, bitacora):
     return res
 
 
-def agregar_hoja(xlsx_bytes, nombre, df):
-    """Agrega una hoja con encabezado del mismo estilo al Excel del cuadre."""
-    import io
-    from openpyxl import load_workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
-    from openpyxl.utils import get_column_letter
-    wb = load_workbook(io.BytesIO(xlsx_bytes))
-    ws = wb.create_sheet(nombre[:31])
-    ws.append(list(df.columns))
-    for fila in df.itertuples(index=False):
-        ws.append(["" if v is None else v for v in fila])
-    for c in ws[1]:
-        c.font = Font(name="Arial", bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="1F3864")
-        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for fila in ws.iter_rows(min_row=2):
-        for c in fila:
-            c.font = Font(name="Arial", size=10)
-    for i, col in enumerate(ws.columns, 1):
-        ws.column_dimensions[get_column_letter(i)].width = min(max(max(len(str(c.value or "")) for c in col) + 2, 10), 55)
-    ws.freeze_panes = "A2"
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
-
 def ejecutar_su_base(base, archivo_su, bitacora, escribir):
     """Cuadre Sale-U contra la bitácora (todas las financieras) + registro en Sale-U escrito en la base."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -166,12 +140,6 @@ def ejecutar_su_base(base, archivo_su, bitacora, escribir):
     periodo = f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}"
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
-    # La misma lista que en el Sheet: rechazos del periodo que quedan «No Registrado»
-    sin_saleu = cambios[cambios["Después"] == saleu_sheet.NO_REGISTRADO]
-    if res.get("xlsx_bytes"):
-        res["xlsx_bytes"] = agregar_hoja(res["xlsx_bytes"], "Rechazos_No_Registrado", sin_saleu.assign(
-            Fecha_ingreso=sin_saleu["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""))[
-            ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"]].rename(columns={"Fila": "Fila en el Sheet"}))
     res["escritos"] = saleu_sheet.aplicar(base, cambios, periodo) if escribir else 0
     res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
                                 columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
@@ -392,34 +360,29 @@ with tab_su:
         m[4].metric("Estatus no cuadra", valor_resumen(r, "Estatus que no cuadra"))
         descargas(res, "su")
 
-        t1, t2, t3, t4, t5 = st.tabs([
+        t1, t2, t4, t5 = st.tabs([
             f"Faltan en Sale-U ({len(res['faltantes'])})",
             f"A revisar ({len(res['revisar'])})",
-            f"Solo en Sale-U ({len(res['solo_cet'])})",
             "Cuadre completo", "Resumen"])
         with t1:
             if "registro" in res:
-                rech = res["faltantes"]["Historial"].str.contains("RECHAZADO").sum()
+                rech = int(res["faltantes"]["Historial"].str.contains("RECHAZADO").sum())
                 n_hoja = int((res["registro"]["Después"] == saleu_sheet.NO_REGISTRADO).sum())
-                st.caption(f"De estos, **{rech}** tienen un rechazo en la bitácora. En el Sheet quedan **{n_hoja}** "
-                           "rechazos del periodo como *No Registrado* (hoja **Rechazos_No_Registrado** del Excel). "
-                           "Pueden variar un poco si la fecha o el nombre del rechazo en la base no es igual al de la "
-                           "bitácora.")
+                st.caption(f"De estos, **{rech}** tienen un rechazo en la Bitácora de F&I. En el Sheet quedan "
+                           f"**{n_hoja}** rechazos del periodo como *No Registrado*.")
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
-            tabla(df, ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial",
-                       "Estatus_final", "Observaciones"])
+            vista = cu.tabla_faltantes(df).assign(Vendedor=df["Vendedor"].values, Historial=df["Historial"].values,
+                                                  Observaciones=df["Observaciones"].values)
+            vista["Mensualidad"] = vista["Mensualidad"].map(lambda v: f"${v:,.2f}" if v == v and v else "")
+            vista["Plazo"] = vista["Plazo"].map(lambda v: str(int(v)) if v == v and v else "")
+            tabla(vista, cu.COLS_FALTANTES + ["Vendedor", "Historial", "Observaciones"])
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",
                                    "Observaciones"], ["Resultado", "Cuadre_estatus"])
-        with t3:
-            st.caption("Registros en Sale-U que no aparecen en la bitácora (pueden ser de meses anteriores). "
-                       "Los de financieras que la bitácora no trae se ven en el Excel descargable.")
-            tabla(res["solo_cet"], ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fuente",
-                                    "Fecha_Alta_Credito", "Observaciones"])
         with t4:
             df = filtro_vendedor(res["cuadre"], "fv_su_todo")
             tabla(df, ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor",
