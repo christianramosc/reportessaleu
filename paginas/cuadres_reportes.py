@@ -15,10 +15,13 @@ import pandas as pd
 import streamlit as st
 
 import ui
+import conexion
 
 from cuadres import seguimiento as cs
 from cuadres import saleu as cu
 from cuadres import blueservice as cb
+from cuadres import fuentes, saleu_sheet
+from cuadres.base import a_excel, norm
 
 st.markdown("""
 <style>
@@ -118,6 +121,45 @@ def ejecutar(modulo, archivo_base, capturas):
     return res
 
 
+def capturas_para_cuadre(base, subidas):
+    """Capturas de Cetelem: las guardadas en la base + las que se suban ahora (mismo mes = la nueva)."""
+    guardadas = conexion.capturas_guardadas(base)
+    nuevas = fuentes.leer_capturas([(f.name, f.getvalue()) for f in subidas or []])
+    return fuentes.combinar_capturas(guardadas, nuevas) if not nuevas.empty else guardadas
+
+
+def ejecutar_seg_base(base, capturas):
+    """Cuadre de seguimiento leyendo las pestañas de Colima directo de la base."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hojas = [h for h in base.pestanas() if cs.FILTRO_HOJAS in norm(h) and not h.startswith("_")]
+        ruta_seg = os.path.join(tmp, "Seguimiento_base.xlsx")
+        with open(ruta_seg, "wb") as f:
+            f.write(a_excel(base, hojas))
+        rutas_cet = fuentes.capturas_a_archivos(capturas, tmp)
+        res = cs.procesar(ruta_seg, rutas_cet, carpeta=tmp)
+        res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
+        res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
+    return res
+
+
+def ejecutar_su_base(base, archivo_su, capturas, escribir):
+    """Cuadre Sale-U contra las capturas guardadas + registro en Sale-U escrito en la base."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta_su = guardar_temporal([archivo_su], tmp)[0]
+        res = {}
+        if not capturas.empty:
+            res = cu.procesar(ruta_su, fuentes.capturas_a_archivos(capturas, tmp), carpeta=tmp)
+            res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
+            res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
+        su = cu.leer_saleu(ruta_su)
+    cambios, (ini, fin) = saleu_sheet.proponer(base, su)
+    periodo = f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}"
+    res["registro"] = cambios
+    res["periodo_saleu"] = periodo
+    res["escritos"] = saleu_sheet.aplicar(base, cambios, periodo) if escribir else 0
+    return res
+
+
 # =============================================================================
 # Barra lateral: ajustes
 # =============================================================================
@@ -160,24 +202,43 @@ AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la f
 
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
-    c1, c2 = st.columns(2)
+    base = conexion.obtener_base()
     st.info("Este cuadre toma **solo las solicitudes RECHAZADAS** de las capturas de Cetelem, porque el "
             "Excel de seguimiento únicamente registra rechazos.")
-    f_seg = c1.file_uploader("Seguimiento Rechazos Financiera MG", type=["xlsx"], key="up_seg",
-                             help="Sube el archivo con el formato 'Seguimiento Rechazos Financiera MG.xlsx'. "
-                                  "Solo se leen las pestañas de COLIMA.")
-    c1.caption("📄 Formato: **Seguimiento Rechazos Financiera MG.xlsx**")
-    f_cet = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
-                             key="up_cet_seg", help=AYUDA_CAPTURAS)
-    c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM.")
+    if base is not None:
+        guardadas = conexion.capturas_guardadas(base)
+        meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
+        c1, c2 = st.columns(2)
+        c1.success(f"Seguimiento: se lee de **{base.titulo}**.", icon=":material/cloud_done:")
+        c1.caption("Capturas de Cetelem guardadas en la base: " + (", ".join(meses) if meses else "ninguna"))
+        f_cet = c2.file_uploader("Capturas mensuales CETELEM (opcional)", type=["xlsx"], accept_multiple_files=True,
+                                 key="up_cet_seg", help="Solo si quieres incluir un mes que todavía no está en la base. "
+                                 + AYUDA_CAPTURAS)
+        if st.button("Hacer cuadre", type="primary", disabled=not (meses or f_cet), key="btn_seg"):
+            with st.spinner("Cruzando folios, teléfonos y nombres…"):
+                try:
+                    st.session_state["res_seg"] = ejecutar_seg_base(base, capturas_para_cuadre(base, f_cet))
+                except Exception as e:
+                    st.session_state.pop("res_seg", None)
+                    st.error(f"No se pudo hacer el cuadre: {e}")
+    else:
+        c1, c2 = st.columns(2)
+        f_seg = c1.file_uploader("Seguimiento Rechazos Financiera MG", type=["xlsx"], key="up_seg",
+                                 help="Sube el archivo con el formato 'Seguimiento Rechazos Financiera MG.xlsx'. "
+                                      "Solo se leen las pestañas de COLIMA.")
+        c1.caption("📄 Formato: **Seguimiento Rechazos Financiera MG.xlsx** · Conecta el Google Sheet (ver README) "
+                   "para no tener que subirlo.")
+        f_cet = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
+                                 key="up_cet_seg", help=AYUDA_CAPTURAS)
+        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM.")
 
-    if st.button("Hacer cuadre", type="primary", disabled=not (f_seg and f_cet), key="btn_seg"):
-        with st.spinner("Cruzando folios, teléfonos y nombres…"):
-            try:
-                st.session_state["res_seg"] = ejecutar(cs, f_seg, f_cet)
-            except Exception as e:
-                st.session_state.pop("res_seg", None)
-                st.error(f"No se pudo hacer el cuadre: {e}")
+        if st.button("Hacer cuadre", type="primary", disabled=not (f_seg and f_cet), key="btn_seg"):
+            with st.spinner("Cruzando folios, teléfonos y nombres…"):
+                try:
+                    st.session_state["res_seg"] = ejecutar(cs, f_seg, f_cet)
+                except Exception as e:
+                    st.session_state.pop("res_seg", None)
+                    st.error(f"No se pudo hacer el cuadre: {e}")
 
     res = st.session_state.get("res_seg")
     if res:
@@ -224,25 +285,62 @@ with tab_seg:
 
 # ---------------------------------------------------------------- SALE-U
 with tab_su:
+    base = conexion.obtener_base()
     c1, c2 = st.columns(2)
     f_su = c1.file_uploader("Excel de Sale - U", type=["csv", "xlsx"], key="up_su",
                             help="Sube el reporte de Sale - U tal cual se descarga "
                                  "(reporteLeadsconCredito…), sin abrirlo ni guardarlo antes en Excel.")
     c1.caption("📄 Archivo: **reporte de Sale - U** (reporteLeadsconCredito), tal cual se descarga.")
-    f_cet2 = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
-                              key="up_cet_su", help=AYUDA_CAPTURAS)
-    c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM.")
+    if base is not None:
+        guardadas = conexion.capturas_guardadas(base)
+        meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
+        c2.success(f"Capturas de Cetelem desde **{base.titulo}**: " + (", ".join(meses) if meses else "ninguna"),
+                   icon=":material/cloud_done:")
+        f_cet2 = c2.file_uploader("Capturas mensuales CETELEM (opcional)", type=["xlsx"], accept_multiple_files=True,
+                                  key="up_cet_su", help="Solo si quieres incluir un mes que todavía no está en la base.")
+        escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
+                             help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
+                                  "del periodo del reporte de Sale-U. Lo demás no se toca.")
+        if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
+            with st.spinner("Cruzando teléfonos y nombres…"):
+                try:
+                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, capturas_para_cuadre(base, f_cet2), escribir)
+                except Exception as e:
+                    st.session_state.pop("res_su", None)
+                    st.error(f"No se pudo hacer el cuadre: {e}")
+    else:
+        f_cet2 = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
+                                  key="up_cet_su", help=AYUDA_CAPTURAS)
+        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM.")
 
-    if st.button("Hacer cuadre", type="primary", disabled=not (f_su and f_cet2), key="btn_su"):
-        with st.spinner("Cruzando teléfonos y nombres…"):
-            try:
-                st.session_state["res_su"] = ejecutar(cu, f_su, f_cet2)
-            except Exception as e:
-                st.session_state.pop("res_su", None)
-                st.error(f"No se pudo hacer el cuadre: {e}")
+        if st.button("Hacer cuadre", type="primary", disabled=not (f_su and f_cet2), key="btn_su"):
+            with st.spinner("Cruzando teléfonos y nombres…"):
+                try:
+                    st.session_state["res_su"] = ejecutar(cu, f_su, f_cet2)
+                except Exception as e:
+                    st.session_state.pop("res_su", None)
+                    st.error(f"No se pudo hacer el cuadre: {e}")
 
     res = st.session_state.get("res_su")
-    if res:
+    if res and "registro" in res:
+        reg = res["registro"]
+        cambian = reg[reg["Cambia"]]
+        st.markdown(f"**Registro en Sale-U en el Sheet** · periodo del reporte {res['periodo_saleu']}")
+        k = st.columns(3)
+        k[0].metric("Rechazos del periodo revisados", len(reg))
+        k[1].metric("Registrados en Sale-U", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
+        k[2].metric("Celdas actualizadas en el Sheet", res["escritos"])
+        if res["escritos"]:
+            st.success(f"Se actualizó «Cliente con Registro en SalesU» en {res['escritos']} fila(s); quedó en el Historial.")
+        elif len(cambian):
+            st.warning(f"{len(cambian)} fila(s) cambiarían, pero la escritura en el Sheet estaba apagada.")
+        with st.expander(f"Ver detalle ({len(cambian)} cambio(s) de {len(reg)} revisados)"):
+            tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
+                  ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",
+                   "Financiera_SaleU"])
+        if isinstance(base, conexion.BaseExcel):
+            st.info("Modo Excel: descarga el archivo actualizado en la página «Base de seguimiento».")
+    if res and "resumen" in res:
         r = res["resumen"]
         st.success(f"Capturas: {', '.join(res['meses'])}")
         m = st.columns(5)

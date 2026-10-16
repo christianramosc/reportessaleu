@@ -35,5 +35,7 @@ paginas = [
             icon=":material/school:", url_path="kpis", default=True),
     st.Page("paginas/cuadres_reportes.py", title="Cuadres para reportes",
             icon=":material/fact_check:", url_path="cuadres"),
+    st.Page("paginas/base_seguimiento.py", title="Base de seguimiento",
+            icon=":material/database:", url_path="base"),
 ]
 st.navigation(paginas, position="top").run()
