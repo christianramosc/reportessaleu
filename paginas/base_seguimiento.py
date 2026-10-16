@@ -9,7 +9,7 @@ import streamlit as st
 
 import ui
 import conexion
-from cuadres import fuentes, actualizar, pendientes
+from cuadres import fuentes, actualizar, pendientes, saleu_sheet
 from cuadres.base import TAB_HISTORIAL
 
 ui.hero("Base de seguimiento",
@@ -156,6 +156,27 @@ with tab_pend:
                         st.error(f"No se pudo limpiar: {e}")
 
 with tab_hist:
+    if st.session_state.get("msg_rest"):
+        st.success(st.session_state.pop("msg_rest"))
+    try:
+        bajas = saleu_sheet.bajas_por_error(base)
+    except Exception:
+        bajas = None
+    if bajas is not None and not bajas.empty:
+        with st.container(border=True):
+            st.warning(f"**{len(bajas)} rechazo(s) decían Registrado / Sí y un cuadre de Sale-U con la versión "
+                       "anterior de la app los bajó a «No Registrado».** Puedes regresarlos a *Registrado*.",
+                       icon=":material/undo:")
+            st.dataframe(bajas[["Fila", "Cliente", "Antes", "Fecha"]].rename(columns={"Fecha": "Cuándo se bajó"}),
+                         hide_index=True, width="stretch", height=min(380, 60 + 35 * len(bajas)))
+            if st.button(f"Restaurar {len(bajas)} a Registrado", type="primary", key="btn_restaurar_su"):
+                with st.spinner("Escribiendo en el Sheet…"):
+                    try:
+                        n = saleu_sheet.restaurar(base, bajas)
+                        st.session_state["msg_rest"] = f"Listo: {n} rechazo(s) regresaron a Registrado; quedó en el Historial."
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo restaurar: {e}")
     if TAB_HISTORIAL in base.pestanas():
         h = base.leer(TAB_HISTORIAL).drop(columns="_fila", errors="ignore")
         if h.empty:
