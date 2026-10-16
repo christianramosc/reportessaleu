@@ -23,14 +23,6 @@ from cuadres import blueservice as cb
 from cuadres import fuentes, saleu_sheet
 from cuadres.base import a_excel, norm
 
-st.markdown("""
-<style>
-  div[data-testid="stMetric"] {background: #F5F7FB; border-left: 4px solid #1F3864;
-                               padding: .6rem .9rem; border-radius: 6px;}
-  div[data-testid="stMetric"].alerta {border-left-color: #C00000;}
-</style>""", unsafe_allow_html=True)
-
-
 # =============================================================================
 # Utilidades
 # =============================================================================
@@ -83,7 +75,7 @@ def filtro_vendedor(df, clave, columna="Vendedor"):
     if df.empty or columna not in df.columns:
         return df
     opciones = sorted(v for v in df[columna].dropna().unique() if str(v).strip())
-    elegidos = st.multiselect("Filtrar por vendedor", opciones, key=clave)
+    elegidos = st.multiselect("Filtrar por vendedor", opciones, key=clave, placeholder="Todos los vendedores")
     return df[df[columna].isin(elegidos)] if elegidos else df
 
 
@@ -119,13 +111,6 @@ def ejecutar(modulo, archivo_base, capturas):
         res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
         res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
     return res
-
-
-def capturas_para_cuadre(base, subidas):
-    """Capturas de Cetelem: las guardadas en la base + las que se suban ahora (mismo mes = la nueva)."""
-    guardadas = conexion.capturas_guardadas(base)
-    nuevas = fuentes.leer_capturas([(f.name, f.getvalue()) for f in subidas or []])
-    return fuentes.combinar_capturas(guardadas, nuevas) if not nuevas.empty else guardadas
 
 
 def ejecutar_seg_base(base, capturas):
@@ -174,11 +159,6 @@ with st.sidebar:
         m.UMBRAL_NOMBRE_FUERTE, m.UMBRAL_NOMBRE_CON_TEL = fuerte, con_tel
 
     st.divider()
-    st.subheader("Seguimiento Rechazos")
-    cs.FILTRO_HOJAS = st.text_input("Pestañas que contengan", cs.FILTRO_HOJAS).strip().upper() or "COLIMA"
-    st.caption("Solo se cuadran las solicitudes RECHAZADAS de las capturas de Cetelem.")
-
-    st.divider()
     st.subheader("Sale-U")
     st.caption("Cómo debe verse en Sale-U una contrapropuesta de Cetelem:")
     contra = st.selectbox("Contrapropuesta", ["No se juzga (revisar)", "Aceptado", "Rechazado"])
@@ -192,10 +172,12 @@ with st.sidebar:
 ui.hero("Cuadres para reportes",
         "Elige el cuadre, sube los archivos fuente y descarga el resultado en Excel y PDF.")
 
-tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento Rechazos Financiera MG vs Capturas CETELEM",
-                                   "🟦 Sale - U Aprobados y Rechazados CETELEM",
+tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs Cetelem",
+                                   "🟦 Sale-U vs Cetelem",
                                    "🔧 BlueService vs Inventario"])
 
+AGREGAR_MES = ("Para agregar un mes nuevo, súbelo en **Base de seguimiento → Actualizar con bitácoras**; "
+               "ahí se guarda y lo usan todos los cuadres.")
 AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la financiera CETELEM "
                   "(un Excel por mes, ej. JULIO_2026_FINAL.xlsx, AGOSTO_2026_FINAL.xlsx). "
                   "Puedes subir varios meses a la vez.")
@@ -203,21 +185,18 @@ AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la f
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
     base = conexion.obtener_base()
-    st.info("Este cuadre toma **solo las solicitudes RECHAZADAS** de las capturas de Cetelem, porque el "
-            "Excel de seguimiento únicamente registra rechazos.")
+    st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de las capturas de Cetelem "
+                "(la base solo registra rechazos).")
     if base is not None:
         guardadas = conexion.capturas_guardadas(base)
         meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
-        c1, c2 = st.columns(2)
-        c1.success(f"Seguimiento: se lee de **{base.titulo}**.", icon=":material/cloud_done:")
-        c1.caption("Capturas de Cetelem guardadas en la base: " + (", ".join(meses) if meses else "ninguna"))
-        f_cet = c2.file_uploader("Capturas mensuales CETELEM (opcional)", type=["xlsx"], accept_multiple_files=True,
-                                 key="up_cet_seg", help="Solo si quieres incluir un mes que todavía no está en la base. "
-                                 + AYUDA_CAPTURAS)
-        if st.button("Hacer cuadre", type="primary", disabled=not (meses or f_cet), key="btn_seg"):
+        st.success(f"Seguimiento: se lee de **{base.titulo}** · Capturas de Cetelem guardadas: "
+                   + (", ".join(meses) if meses else "ninguna"), icon=":material/cloud_done:")
+        st.caption(AGREGAR_MES)
+        if st.button("Hacer cuadre", type="primary", disabled=not meses, key="btn_seg"):
             with st.spinner("Cruzando folios, teléfonos y nombres…"):
                 try:
-                    st.session_state["res_seg"] = ejecutar_seg_base(base, capturas_para_cuadre(base, f_cet))
+                    st.session_state["res_seg"] = ejecutar_seg_base(base, guardadas)
                 except Exception as e:
                     st.session_state.pop("res_seg", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
@@ -260,8 +239,8 @@ with tab_seg:
         with t1:
             df = filtro_vendedor(res["faltantes"], "fv_seg")
             if not df.empty:
-                st.bar_chart(df.groupby("Estatus_final_Cetelem").size().rename("Clientes"),
-                             color="#C00000", height=220)
+                st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
+                             height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             tabla(df, ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial",
                        "Estatus_final_Cetelem", "Observaciones"])
         with t2:
@@ -296,15 +275,14 @@ with tab_su:
         meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
         c2.success(f"Capturas de Cetelem desde **{base.titulo}**: " + (", ".join(meses) if meses else "ninguna"),
                    icon=":material/cloud_done:")
-        f_cet2 = c2.file_uploader("Capturas mensuales CETELEM (opcional)", type=["xlsx"], accept_multiple_files=True,
-                                  key="up_cet_su", help="Solo si quieres incluir un mes que todavía no está en la base.")
+        c2.caption(AGREGAR_MES)
         escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
                              help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
                                   "del periodo del reporte de Sale-U. Lo demás no se toca.")
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
             with st.spinner("Cruzando teléfonos y nombres…"):
                 try:
-                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, capturas_para_cuadre(base, f_cet2), escribir)
+                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, guardadas, escribir)
                 except Exception as e:
                     st.session_state.pop("res_su", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
@@ -360,7 +338,7 @@ with tab_su:
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
-                             height=220, horizontal=True)
+                             height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             tabla(df, ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial",
                        "Estatus_final_Cetelem"])
         with t2:
@@ -432,7 +410,8 @@ with tab_bs:
         with t2:
             df = res["falta_inv"]
             if not df.empty:
-                sit = st.multiselect("Filtrar por situación", sorted(df["Situacion"].unique()), key="f_sit")
+                sit = st.multiselect("Filtrar por situación", sorted(df["Situacion"].unique()), key="f_sit",
+                                     placeholder="Todas las situaciones")
                 if sit:
                     df = df[df["Situacion"].isin(sit)]
                 st.bar_chart(res["falta_inv"].groupby("Situacion").size().rename("Unidades"),

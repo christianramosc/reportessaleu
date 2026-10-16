@@ -4,7 +4,7 @@ App de Streamlit con una página por herramienta:
 
 1. **KPIs de capacitación**: avance de capacitación de Ventas y Posventa.
 2. **Base de seguimiento**: mantiene al día el Google Sheet *Seguimiento Rechazos MG Colima*. Subes las
-   bitácoras mensuales de Cetelem, la app lee la *Copia de Financiamiento*, te muestra los cambios propuestos
+   bitácoras mensuales de Cetelem, la app lee la *Bitácora de F&I*, te muestra los cambios propuestos
    (rechazos nuevos, mensualidades, folios, GAP, plazo, teléfono, Sale-U, "ya compró") y aplica los que
    marques. Antes de escribir guarda un respaldo oculto y todo queda en la pestaña **Historial**.
 3. **Cuadres para reportes**: cuadra las capturas mensuales de **Cetelem** (se piden al F&I) y el inventario.
@@ -31,7 +31,7 @@ paginas/cuadres_reportes.py    # página de cuadres
 paginas/base_seguimiento.py    # página para actualizar la base con las bitácoras
 conexion.py                    # conexión con el Google Sheet (o modo Excel)
 cuadres/base.py                # leer/escribir el Sheet (Google o .xlsx), respaldo e Historial
-cuadres/fuentes.py             # bitácoras de Cetelem y Copia de Financiamiento → solicitudes
+cuadres/fuentes.py             # bitácoras de Cetelem y Bitácora de F&I → solicitudes
 cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
 cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision
@@ -64,7 +64,7 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 4. En la cuenta creada: **Claves → Agregar clave → JSON**. Se descarga un archivo `.json` (guárdalo bien,
    es la llave; nunca lo subas al repo).
 5. En el Google Sheet *Seguimiento Rechazos MG Colima*: **Compartir** con el `client_email` del JSON como
-   **Editor**. En la *Copia de Financiamiento* (la original de F&I): compartir como **Lector**.
+   **Editor**. En la *Bitácora de F&I* (la original): compartir como **Lector**.
 6. En Streamlit Cloud: **Settings → Secrets**, pega el contenido de `.streamlit/secrets.toml.example`
    con tus enlaces y los datos del JSON (cada campo del JSON va en la sección `[gcp_service_account]`).
 7. Abre la página **Base de seguimiento**: debe decir *Conectado a …*.

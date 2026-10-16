@@ -3,7 +3,7 @@
 Página: Base de seguimiento
 
 Nutre el Google Sheet de seguimiento con las bitácoras mensuales de Cetelem y la
-Copia de Financiamiento: propone cambios, los muestras, eliges y se aplican.
+Bitácora de F&I: propone cambios, los muestra, eliges y se aplican.
 """
 import streamlit as st
 
@@ -13,7 +13,7 @@ from cuadres import fuentes, actualizar, pendientes
 from cuadres.base import TAB_HISTORIAL
 
 ui.hero("Base de seguimiento",
-        "Actualiza el Google Sheet de rechazos con las bitácoras de Cetelem y la Copia de Financiamiento.")
+        "Actualiza el Google Sheet de rechazos con las bitácoras de Cetelem y la Bitácora de F&I.")
 
 base = conexion.panel_base()
 if base is None:
@@ -37,12 +37,12 @@ with tab_act:
     try:
         tablas_fi, titulo_fi = conexion.tablas_financiamiento(base)
     except Exception as e:
-        c2.warning(f"No pude leer la Copia de Financiamiento de Google: {e}")
+        c2.warning(f"No pude leer la Bitácora de F&I de Google: {e}")
     if tablas_fi is not None:
-        c2.info(f"Copia de Financiamiento: se lee de Google Sheets (**{titulo_fi}**).", icon=":material/link:")
+        c2.info(f"Bitácora de F&I: se lee de Google Sheets (**{titulo_fi}**).", icon=":material/link:")
     else:
-        f_fi = c2.file_uploader("Copia de Financiamiento (opcional)", type=["xlsx"], key="up_fi_base",
-                                help="Bitácora de F&I. Si configuras FINANCIAMIENTO_SHEET_URL en los secrets, "
+        f_fi = c2.file_uploader("Bitácora de F&I (opcional)", type=["xlsx"], key="up_fi_base",
+                                help="La bitácora de todos los créditos (todas las financieras). Si configuras FINANCIAMIENTO_SHEET_URL en los secrets, "
                                      "se lee sola desde Google Sheets.")
         if f_fi is not None:
             tablas_fi, titulo_fi = fuentes.tablas_de_excel(f_fi.getvalue()), f_fi.name
@@ -82,11 +82,12 @@ with tab_act:
             st.markdown("Revisa los cambios. **Desmarca** los que no quieras aplicar; los desmarcados se anotan "
                         "como *ignorados* y no se vuelven a proponer.")
             vista = st.data_editor(
-                prop[["Aplicar", "Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]],
+                prop[["Aplicar", "Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]].assign(
+                    Fila=prop["Fila"].map(lambda f: "nueva" if f is None or f != f else str(int(f)))),
                 hide_index=True, width="stretch", height=min(520, 60 + 35 * len(prop)), key="editor_prop",
                 disabled=["Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"],
                 column_config={"Aplicar": st.column_config.CheckboxColumn(width="small"),
-                               "Fila": st.column_config.NumberColumn(format="%d", width="small"),
+                               "Fila": st.column_config.TextColumn(width="small"),
                                "Motivo": st.column_config.TextColumn(width="large")})
             prop = prop.assign(Aplicar=vista["Aplicar"].values)
         n = int(prop["Aplicar"].sum()) if not prop.empty else 0
@@ -132,7 +133,11 @@ with tab_pend:
             k[3].metric("Revisar a mano", int(cuenta.get("Revisar a mano", 0)))
             orden = {"Resuelto": 0, "Quitar marca": 1, "Sigue pendiente": 2, "Revisar a mano": 3}
             vista = pend.sort_values("Resultado", key=lambda x: x.map(orden))
-            st.dataframe(vista[["Resultado", "Hoja", "Celda", "Cliente", "Campo", "Detalle", "Problema"]],
+            colores = {"Resuelto": "#C6EFCE", "Quitar marca": "#C6EFCE", "Sigue pendiente": "#FFEB9C",
+                       "Revisar a mano": "#EDEFF3"}
+            st.dataframe(vista[["Resultado", "Hoja", "Celda", "Cliente", "Campo", "Detalle", "Problema"]].style.map(
+                             lambda v: f"background-color: {colores.get(v, '')}" if v in colores else "",
+                             subset=["Resultado"]),
                          hide_index=True, width="stretch", height=min(520, 60 + 35 * len(vista)))
             n = int(pend["Resultado"].isin(["Resuelto", "Quitar marca"]).sum())
             if st.button(f"Limpiar {n} pendiente(s) resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar"):
@@ -154,7 +159,8 @@ with tab_hist:
             st.info("Todavía no hay cambios registrados.")
         else:
             h = h.iloc[::-1]
-            origen = st.multiselect("Origen", sorted(h["Origen"].dropna().astype(str).unique()), key="f_hist")
+            origen = st.multiselect("Origen", sorted(h["Origen"].dropna().astype(str).unique()), key="f_hist",
+                                    placeholder="Todos los orígenes")
             if origen:
                 h = h[h["Origen"].isin(origen)]
             st.dataframe(h.head(500).astype(str), hide_index=True, width="stretch", height=520)

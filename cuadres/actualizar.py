@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Actualizar la base de seguimiento con las bitácoras de Cetelem y la "Copia de Financiamiento".
+Actualizar la base de seguimiento con las bitácoras de Cetelem y la "Bitácora de F&I".
 
   proponer(base, solicitudes)  → tabla de cambios propuestos (nada se escribe todavía)
   aplicar(base, propuestas, …) → respalda, escribe lo elegido, anota el Historial y

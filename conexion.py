@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Conexión de la app con la base de seguimiento (Google Sheet) y la Copia de Financiamiento.
+"""Conexión de la app con la base de seguimiento (Google Sheet) y la Bitácora de F&I.
 
 Secrets (Streamlit Cloud → Settings → Secrets, o .streamlit/secrets.toml):
     SEGUIMIENTO_SHEET_URL   = "https://docs.google.com/spreadsheets/d/…"   # base de seguimiento
@@ -59,7 +59,7 @@ def capturas_guardadas(base):
 
 
 def tablas_financiamiento(base):
-    """(tablas, titulo) de la Copia de Financiamiento si está configurada en Google; si no (None, None)."""
+    """(tablas, titulo) de la Bitácora de F&I si está configurada en Google; si no (None, None)."""
     url = _secret("FINANCIAMIENTO_SHEET_URL")
     if url and isinstance(base, BaseGoogle):
         return fuentes.tablas_de_google(base.cliente, url)
