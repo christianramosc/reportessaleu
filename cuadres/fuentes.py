@@ -496,7 +496,3 @@ def registros_fi_de_tabla(df):
             key=name_key(cliente)))
     return out
 
-
-def es_de_fi(solicitud):
-    """La solicitud consolidada viene (también) de la Bitácora de F&I."""
-    return any(not o["origen"].startswith("CETELEM") for o in solicitud["origenes"])

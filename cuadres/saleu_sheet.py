@@ -33,6 +33,69 @@ def ya_registrado(valor):
     return n in ("REGISTRADO", "REGISTRADA") or n == "SI" or n.startswith("SI ")
 
 
+# =============================================================================
+# El Sheet (MG Colima Rechazos + Créditos Finalizados) como base del cuadre de Sale-U
+# =============================================================================
+ESTATUS_FINALIZADO = "FINALIZADO"
+
+
+def solicitudes_del_sheet(base):
+    """Clientes de «MG Colima Rechazos» (todas las financieras) y «MG Colima Créditos Finalizados» con la forma de
+    fuentes.solicitudes_de_bitacora(), para cuadrarlos contra Sale-U. Los de Finalizados no traen fecha ni
+    financiera: entran siempre al cuadre (columna _siempre), sin importar el periodo del reporte."""
+    from cuadres.fuentes import (solicitudes_de_bitacora, to_folio, to_phone, to_num, to_date, txt, mail, vacio,
+                                 ETIQUETA_MES)
+    from cuadres.base import TAB_FINALIZADOS
+    cols = list(solicitudes_de_bitacora(None).columns) + ["Hoja", "Fila", "_siempre"]
+    filas = []
+
+    def fila(hoja, n, nombre, tel, fecha=None, folio=None, vendedor=None, unidad=None, fin=None, estatus="",
+             plazo=None, mens=None, correo=None, siempre=False):
+        f = to_date(fecha)
+        fin = (txt(fin) or "").upper() or "SIN FINANCIERA"
+        tel, folio, plazo, mens = to_phone(tel), to_folio(folio), to_num(plazo), to_num(mens)
+        filas.append(dict(
+            Folio=str(folio) if folio else "", Nombre=" ".join(str(nombre).split()).upper(),
+            Telefono=str(tel) if tel else "", Vendedor=(txt(vendedor) or "").upper() or "(sin vendedor)",
+            Vehiculo=txt(unidad) or "", Monto_Financiar="", Fecha=f,
+            Mes=f"{ETIQUETA_MES[f.month][:3]} {f.year}" if f else "SIN FECHA",
+            _anio=f.year if f else 0, _mes=f.month if f else 0, Est_sol=estatus, Fin_sol=fin, Est_fin=estatus,
+            Fin_fin=fin, Fuente=f"{hoja} fila {n}", Plazo=int(plazo) if plazo else None,
+            Mensualidad=round(mens, 2) if mens else None, Correo=mail(correo) or "",
+            Hoja=hoja, Fila=n, _siempre=siempre))
+
+    pestanas = set(base.pestanas())
+    if TAB_RECHAZOS in pestanas:
+        df = base.leer(TAB_RECHAZOS)
+        col = {k: next((c for c in df.columns if norm(c) == norm(v)), None) for k, v in C.items()}
+        for _, r in df.iterrows():
+            g = lambda k: r[col[k]] if col[k] else None
+            if vacio(g("nombre")) or not str(g("nombre")).strip():
+                continue
+            fila("Rechazos", int(r["_fila"]), g("nombre"), g("cel"), g("fecha"), g("folio"), g("asesor"),
+                 g("unidad"), g("fin"), norm(g("status")) or "RECHAZADO", g("plazo"), g("mens"), g("correo"))
+    if TAB_FINALIZADOS in pestanas:
+        df = base.leer(TAB_FINALIZADOS)
+        col = lambda n: next((c for c in df.columns if norm(c) == n), None)
+        c_nom, c_tel, c_cor, c_ase = col("NOMBRE"), col("TELEFONO"), col("CORREO"), col("ASESOR")
+        for _, r in df.iterrows() if c_nom else []:
+            if vacio(r[c_nom]) or not str(r[c_nom]).strip():
+                continue
+            fila("Finalizados", int(r["_fila"]), r[c_nom], r[c_tel] if c_tel else None,
+                 vendedor=r[c_ase] if c_ase else None, correo=r[c_cor] if c_cor else None,
+                 estatus=ESTATUS_FINALIZADO, siempre=True)
+    return pd.DataFrame(filas, columns=cols)
+
+
+def describir_sheet(sol):
+    """'128 en Rechazos (CETELEM 76, BBVA 36, …) · 32 en Finalizados'"""
+    if sol.empty:
+        return "sin registros"
+    r, f = sol[sol["Hoja"] == "Rechazos"], sol[sol["Hoja"] == "Finalizados"]
+    fins = ", ".join(f"{k} {v}" for k, v in r["Fin_sol"].value_counts().items())
+    return f"{len(r)} en Rechazos ({fins}) · {len(f)} en Créditos Finalizados"
+
+
 def periodo(su):
     """Periodo del reporte: el «Rango» de su encabezado (el mismo que usa el cuadre); si no lo trae,
     de la primera a la última fecha de alta de crédito."""

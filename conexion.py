@@ -97,35 +97,6 @@ def registros_fi_guardados(base):
     return fuentes.registros_fi_de_tabla(df), fecha
 
 
-def registros_fi(base):
-    """(registros, de dónde): la Bitácora de F&I de Google si está configurada; si no, la copia guardada."""
-    try:
-        tablas, titulo = tablas_financiamiento(base)
-    except Exception:
-        tablas, titulo = None, None
-    if tablas is not None:
-        regs, _ = fuentes.registros_financiamiento(tablas)
-        if regs:
-            return regs, f"Google Sheets ({titulo})"
-    regs, fecha = registros_fi_guardados(base)
-    if regs:
-        cuando = f", cargada el {fecha:%d/%m/%Y}" if hasattr(fecha, "strftime") else ""
-        return regs, f"copia guardada en el Sheet{cuando}"
-    return [], None
-
-
-def bitacora_fi(base):
-    """(solicitudes, de dónde) para el cuadre de Sale-U: las solicitudes de la Bitácora de F&I (todas las
-    financieras), con el estatus oficial de Cetelem cuando también están en sus capturas."""
-    regs_fi, origen = registros_fi(base)
-    if not regs_fi:
-        return fuentes.solicitudes_de_bitacora(None), None
-    regs = fuentes.registros_capturas(capturas_guardadas(base)) + regs_fi
-    sol = [s for s in fuentes.consolidar(regs) if fuentes.es_de_fi(s)]
-    df = pd.DataFrame(fuentes.filas_bitacora(sol, {}), columns=fuentes.BITACORA_COLS)
-    return _unificar_vendedores(base, fuentes.solicitudes_de_bitacora(df)), origen
-
-
 def describir_bitacora(sol):
     """'121 solicitudes · may 2026 – oct 2026 · CETELEM 102, SCOTIA 3, …'"""
     if sol.empty:

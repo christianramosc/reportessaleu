@@ -13,9 +13,10 @@ App de Streamlit con una página por herramienta:
    *Cliente con Registro en SalesU* en el Sheet:
    - **Seguimiento de rechazos vs bitácora** (solo pestañas de COLIMA). Cuadra solo las solicitudes
      **rechazadas** de cualquier financiera; cruza por folio, teléfono y nombre.
-   - **Sale-U vs bitácora**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Toma
-     las solicitudes de la bitácora dentro del periodo del reporte (sin ventas de contado), cruza por teléfono
-     y nombre y compara estatus y financiera.
+   - **Sale-U vs el Sheet**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Compara
+     contra los clientes del Sheet: *MG Colima Rechazos* (todas las financieras, fecha de ingreso dentro del
+     periodo del reporte) y *MG Colima Créditos Finalizados* (todos; no traen fecha). Cruza por teléfono y nombre
+     y compara estatus y financiera.
    - **BlueService vs Inventario** (`PDIs_MG_Colima.xlsx` vs Excel de inventario, hoja ALMACEN o la que
      elijas). Cruza por VIN, detecta VIN mal capturados con el dígito verificador y dice en qué otra hoja
      aparece cada unidad.
@@ -77,14 +78,13 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    por Google, la Bitácora de F&I → *Revisar cambios* → desmarca lo que no quieras → *Aplicar*. Esto también
    actualiza la pestaña *Bitacora*, que es la que usan los cuadres. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
    proponer.
-2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra la
-   **Bitácora de F&I** (la de Google si está configurada; si no, la copia que se guarda en la pestaña
-   *Bitacora F&I* cada vez que la subes en Base de seguimiento). Un cliente está en Sale-U si coincide el
+2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra el
+   **Sheet**: *MG Colima Rechazos* (todas las financieras) y *MG Colima Créditos Finalizados*. Por eso conviene
+   hacer antes el paso 1: así los rechazos de la Bitácora de F&I y de Cetelem ya están en el Sheet. Un cliente está en Sale-U si coincide el
    teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
    criterio que usa la columna *Cliente con Registro en SalesU*. La hoja *Faltan_en_SaleU* del Excel trae
-   nombre, celular, financiera, plazo, unidad, mensualidad y correo de cada cliente para darlo de alta.
-   Para que la app lea la Bitácora de F&I sola, pon su link en `FINANCIAMIENTO_SHEET_URL` (secrets) y
-   compártela como **Lector** con el `client_email` de la cuenta de servicio. Además del Excel/PDF,
+   nombre, celular, financiera, estatus (RECHAZADO o FINALIZADO), plazo, unidad, mensualidad y correo de cada
+   cliente para darlo de alta. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
    Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
    el reporte se deja igual y se lista para que lo confirmes.
