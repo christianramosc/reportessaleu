@@ -137,6 +137,12 @@ class _BaseComun:
         if celdas:
             self._marcar(pestana, celdas, color)
 
+    def quitar_marca(self, pestana, celdas):
+        """Deja las celdas [(fila, columna)] sin relleno y sin nota."""
+        if celdas:
+            self._marcar(pestana, celdas, "#FFFFFF")
+            self._quitar_notas(pestana, celdas)
+
     def anotar_historial(self, registros):
         """registros: dicts con las llaves de HISTORIAL_COLS (Fecha se llena sola)."""
         if not registros:
@@ -228,6 +234,9 @@ class BaseGoogle(_BaseComun):
                     for f, c in celdas]
         self._hoja(pestana).batch_format(formatos)
 
+    def _quitar_notas(self, pestana, celdas):
+        self._hoja(pestana).clear_notes([f"{letra(c)}{f}" for f, c in celdas])
+
     def respaldar(self, pestana):
         """Copia oculta de la pestaña antes de escribir; conserva las últimas RESPALDOS_A_GUARDAR."""
         prefijo = f"_resp {pestana[:20]} "
@@ -288,10 +297,16 @@ class BaseExcel(_BaseComun):
 
     def _marcar(self, pestana, celdas, color):
         from openpyxl.styles import PatternFill
-        relleno = PatternFill("solid", fgColor="FF" + color.lstrip("#").upper())
+        relleno = (PatternFill(fill_type=None) if color.upper() in ("#FFFFFF", "FFFFFF")
+                   else PatternFill("solid", fgColor="FF" + color.lstrip("#").upper()))
         ws = self.libro[pestana]
         for f, c in celdas:
             ws.cell(f, c).fill = relleno
+
+    def _quitar_notas(self, pestana, celdas):
+        ws = self.libro[pestana]
+        for f, c in celdas:
+            ws.cell(f, c).comment = None
 
     def respaldar(self, pestana):
         nombre = f"_resp {pestana[:12]} " + datetime.now().strftime("%m%d %H%M%S")
