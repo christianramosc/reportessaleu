@@ -68,7 +68,13 @@ def _catalogo_asesores(base):
     if "Catalogos" not in base.pestanas():
         return []
     cat = base.leer("Catalogos")
-    return [str(v).strip() for v in cat.iloc[:, 0].tolist() if str(v).strip() not in ("", "None", "nan")] if not cat.empty else []
+    return [str(v).strip() for v in cat.iloc[:, 0].tolist() if es_valor_catalogo(v)] if not cat.empty else []
+
+
+def es_valor_catalogo(v):
+    """Descarta celdas vacías y las notas que trae la pestaña Catalogos («Agrega nuevos valores debajo…»)."""
+    t = str(v if v is not None else "").strip()
+    return bool(t) and t not in ("None", "nan") and len(t) <= 60 and not any(ch in t for ch in "();:")
 
 
 def _asesor(corto, catalogo):
@@ -328,11 +334,16 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi))
     base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"]))
     base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)
+    aviso = None
     try:
-        aviso = None
         migrar_formalizado(base)
     except Exception as e:  # solo fórmulas y colores del Resumen/Bitacora: no detiene lo demás
         aviso = f"No pude actualizar el Resumen a «Formalizado»: {e}"
+    try:
+        from cuadres import dashboard
+        dashboard.construir(base)            # el Resumen toma financieras/asesores nuevos
+    except Exception as e:
+        aviso = f"No pude rehacer el dashboard del Resumen: {e}"
     return dict(respaldo=respaldo, aviso=aviso,
                 faltantes=int((elegidas["Tipo"] == "Dato faltante").sum()),
                 correcciones=int(elegidas["Tipo"].isin(["Corrección", "Comentario"]).sum()),

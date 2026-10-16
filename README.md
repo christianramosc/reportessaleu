@@ -39,6 +39,7 @@ cuadres/fuentes.py             # bitácoras de Cetelem y Bitácora de F&I → so
 cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
 cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision
+cuadres/dashboard.py           # dashboard de la pestaña Resumen (KPI, lectura, gráficas)
 cuadres/seguimiento.py         # cuadre vs Excel de seguimiento
 cuadres/saleu.py               # cuadre vs Sale-U
 cuadres/blueservice.py         # cuadre BlueService vs Inventario
@@ -102,6 +103,13 @@ conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos
 («CARLA» → «CARLA YOVET CARDENAS AHUMADA») cuando corresponde a un solo asesor. Toda la pestaña queda con el mismo
 estilo (Calibri 9, encabezado gris), fechas dd/mm/aaaa y montos con $. El cuadre de *Seguimiento* usa solo lo que
 viene de las bitácoras; el de *Sale-U* sí cuenta los formalizados (los toma de las capturas y la copia de F&I).
+
+**La pestaña *Resumen*** es un dashboard: indicadores del año (rechazos, % con primer seguimiento, contacto
+efectivo, % registrado en Sale-U, seguimientos vencidos, pendientes en Revision), una *Lectura del periodo* con frases
+que interpretan la situación, 8 gráficas (rechazos por mes y financiera, seguimiento, por financiera, por asesor,
+registro en Sale-U, pendientes, bitácora por estatus y % de rechazo) y, debajo, las tablas de donde salen. Todo son
+fórmulas: se actualiza solo y el año se cambia en la celda B2. La app lo rehace cada vez que aplicas bitácoras (para
+tomar financieras y asesores nuevos) o con *Base de seguimiento → Dashboard (Resumen)*.
 
 Reglas que sigue la app al escribir en el Sheet:
 - **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por
