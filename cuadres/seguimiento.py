@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-cuadre_seguimiento_cetelem.py
------------------------------
-Cuadre mensual: capturas de CETELEM (JULIO_2026_FINAL.xlsx, AGOSTO..., etc.)
-vs. el Excel de seguimiento (Seguimiento_Rechazos_Financiera_MG.xlsx),
+cuadre de seguimiento de rechazos
+---------------------------------
+Cuadre: rechazos de la bitácora (todas las financieras: capturas de Cetelem + Bitácora de F&I,
+consolidadas en la pestaña "Bitacora" de la base) vs. la base de seguimiento,
 tomando SOLO las pestañas cuyo nombre contiene "COLIMA".
+Sin base, también acepta los Excel mensuales de Cetelem (JULIO_2026_FINAL.xlsx, …).
 
 Orden de cruce (por cliente, de lo más confiable a lo menos):
   0) Mismo folio (y coincide teléfono o nombre)
@@ -24,6 +25,7 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 from openpyxl import load_workbook
+from cuadres.fuentes import financiera_igual
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from reportlab.lib.pagesizes import letter, landscape
@@ -44,16 +46,16 @@ UMBRAL_NOMBRE_FUERTE = 0.80
 UMBRAL_NOMBRE_POSIBLE = 0.60
 SIMILITUD_PALABRA = 0.80
 
-# El Excel de seguimiento solo registra rechazos: de las capturas de Cetelem
-# solo se cuadran las solicitudes con estos estatus.
+# La base de seguimiento solo registra rechazos: de la bitácora solo se cuadran estos estatus.
 ESTATUS_A_CUADRAR = {"RECHAZADO"}
 
-# En qué pestaña debería estar cada estatus de Cetelem (texto que contiene el nombre de la hoja).
+# En qué pestaña debería estar cada estatus (texto que contiene el nombre de la hoja).
 # None = debe estar capturado, pero no se juzga en qué pestaña.
 HOJA_ESPERADA = {
     "RECHAZADO": "RECHAZO",
     "FINANCIADO": "FINALIZADO",
     "FINANCIADOS": "FINALIZADO",
+    "FORMALIZADO": "FINALIZADO",
     "APROBADO": None,
     "CONTRAPROPUESTA": None,
 }
@@ -176,7 +178,7 @@ def leer_cetelem(rutas):
             d = pd.read_excel(ruta, sheet_name=hoja, dtype=str).fillna("")
             d.columns = d.columns.str.strip()
             c = {k: buscar_col(d.columns, v) for k, v in [
-                ("Folio", "FOLIO"), ("Estatus_Cetelem", "STATUS"), ("Nombre", "NOMBRE COMPLETO"),
+                ("Folio", "FOLIO"), ("Estatus", "STATUS"), ("Nombre", "NOMBRE COMPLETO"),
                 ("Telefono", "TELEFONO MOVIL"), ("Vendedor", "NOMBRE DEL VENDEDOR")]}
             if None in c.values():
                 print(f"  ⚠ Hoja '{hoja}' de {ruta} sin formato de captura Cetelem, se omite.")
@@ -184,10 +186,22 @@ def leer_cetelem(rutas):
             anio, mes, etiqueta = detectar_mes(ruta, hoja)
             sub = pd.DataFrame({k: d[v] for k, v in c.items()})
             sub["Mes"], sub["_anio"], sub["_mes"] = etiqueta, anio, mes
+            sub["Financiera"] = "CETELEM"
             partes.append(sub[sub["Nombre"].str.strip() != ""])
     df = pd.concat(partes, ignore_index=True)
-    df["Estatus_Cetelem"] = df["Estatus_Cetelem"].str.strip().str.upper()
+    df["Estatus"] = df["Estatus"].str.strip().str.upper()
     df["Nombre"] = df["Nombre"].str.split().str.join(" ")
+    df["Folio_norm"] = df["Folio"].map(normalizar_folio)
+    df["Tel_norm"] = df["Telefono"].map(normalizar_tel)
+    df["Nombre_norm"] = df["Nombre"].map(normalizar_nombre)
+    return df.sort_values(["_anio", "_mes", "Folio"]).reset_index(drop=True)
+
+
+def desde_bitacora(sol):
+    """sol: fuentes.solicitudes_de_bitacora(). Estatus y financiera de cada solicitud."""
+    df = sol.rename(columns={"Est_sol": "Estatus", "Fin_sol": "Financiera"})[
+        ["Folio", "Estatus", "Nombre", "Telefono", "Vendedor", "Mes", "_anio", "_mes", "Financiera"]].copy()
+    df = df[df["Financiera"] != "CONTADO"].copy()          # ventas de contado: no hay crédito que rechazar
     df["Folio_norm"] = df["Folio"].map(normalizar_folio)
     df["Tel_norm"] = df["Telefono"].map(normalizar_tel)
     df["Nombre_norm"] = df["Nombre"].map(normalizar_nombre)
@@ -253,7 +267,7 @@ def leer_seguimiento(ruta, anio_ref):
 
 
 # =============================================================================
-# 3. CLIENTES ÚNICOS DE CETELEM
+# 3. CLIENTES ÚNICOS DE LA BITÁCORA
 # =============================================================================
 def consolidar_clientes(cet):
     grupos = []
@@ -278,12 +292,14 @@ def consolidar_clientes(cet):
         sub = cet.loc[g["filas"]]
         ult = sub.iloc[-1]
         filas.append({
-            "id_c": g["id"], "Cliente_Cetelem": ult["Nombre"], "Nombre_norm": ult["Nombre_norm"],
-            "Tel_Cetelem": ult["Tel_norm"] or ult["Telefono"], "tels": {t for t in g["tels"] if t},
+            "id_c": g["id"], "Cliente_bitacora": ult["Nombre"], "Nombre_norm": ult["Nombre_norm"],
+            "Tel_bitacora": ult["Tel_norm"] or ult["Telefono"], "tels": {t for t in g["tels"] if t},
             "folios": set(sub["Folio_norm"]) - {""}, "Vendedor": ult["Vendedor"],
             "Folios": ", ".join(dict.fromkeys(sub["Folio"])),
-            "Historial": " → ".join(f"{m}: {e}" for m, e in zip(sub["Mes"], sub["Estatus_Cetelem"])),
-            "Estatus_final_Cetelem": ult["Estatus_Cetelem"],
+            "Financiera": ", ".join(dict.fromkeys(sub["Financiera"])),
+            "financieras": set(sub["Financiera"]),
+            "Historial": " → ".join(f"{m}: {e} ({f})" for m, e, f in zip(sub["Mes"], sub["Estatus"], sub["Financiera"])),
+            "Estatus_final": ult["Estatus"],
         })
     return pd.DataFrame(filas)
 
@@ -297,12 +313,12 @@ TIPOS = {0: "Coincide por folio", 1: "Coincide (teléfono y nombre)",
 
 
 def cruzar(cli, seg):
-    # Solo filas de Cetelem (o sin financiera, como la pestaña de finalizados) son candidatas,
-    # salvo que el folio coincida.
+    # Solo filas de la misma financiera (o sin financiera, como la pestaña de finalizados) son
+    # candidatas, salvo que el folio coincida.
     candidatos = []
     for _, c in cli.iterrows():
         for _, s in seg.iterrows():
-            es_cet = s["Fin_norm"] == "" or "CETELEM" in s["Fin_norm"]
+            es_cet = s["Fin_norm"] == "" or any(financiera_igual(s["Fin_norm"], f) for f in c["financieras"])
             folio = bool(s["Folio_norm"]) and s["Folio_norm"] in c["folios"]
             sim, n = similitud_nombre(c["Nombre_norm"], s["Nombre_norm"])
             tel = bool(s["Tel_norm"]) and s["Tel_norm"] in c["tels"]
@@ -337,13 +353,13 @@ def cruzar(cli, seg):
             extras.setdefault(ic, []).append(is_)
             usados_s.add(is_)
 
-    tel_dueno = {t: r["Cliente_Cetelem"] for _, r in cli.iterrows() for t in r["tels"]}
+    tel_dueno = {t: r["Cliente_bitacora"] for _, r in cli.iterrows() for t in r["tels"]}
     S = seg.set_index("id_s")
     filas = []
     for _, c in cli.iterrows():
-        base = {k: c[k] for k in ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios",
-                                  "Historial", "Estatus_final_Cetelem"]}
-        esperada = HOJA_ESPERADA.get(c["Estatus_final_Cetelem"])
+        base = {k: c[k] for k in ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios",
+                                  "Historial", "Estatus_final"]}
+        esperada = HOJA_ESPERADA.get(c["Estatus_final"])
         if c["id_c"] not in principal:
             base.update({"Resultado": "NO capturado en seguimiento", "Cuadre_pestana": "—",
                          "Pestanas_encontrado": "", "Cliente_seguimiento": "", "Tel_seguimiento": "",
@@ -363,16 +379,16 @@ def cruzar(cli, seg):
         if sim < UMBRAL_NOMBRE_CON_TEL:
             obs.append(f"Nombre en seguimiento distinto: {s['Nombre']}")
         if s["Folio_norm"] and s["Folio_norm"] not in c["folios"]:
-            obs.append(f"Folio en seguimiento {s['Folio_norm']} no coincide con Cetelem")
+            obs.append(f"Folio en seguimiento {s['Folio_norm']} no coincide con la bitácora")
         if nivel == 0 and s["Tel_norm"] and s["Tel_norm"] not in c["tels"]:
-            obs.append(f"Teléfono en seguimiento {s['Telefono']} ≠ Cetelem {c['Tel_Cetelem']}")
+            obs.append(f"Teléfono en seguimiento {s['Telefono']} ≠ bitácora {c['Tel_bitacora']}")
         if nivel in (2, 4):
-            if s["Tel_norm"] in tel_dueno and tel_dueno[s["Tel_norm"]] != c["Cliente_Cetelem"]:
+            if s["Tel_norm"] in tel_dueno and tel_dueno[s["Tel_norm"]] != c["Cliente_bitacora"]:
                 obs.append(f"El teléfono capturado pertenece a {tel_dueno[s['Tel_norm']]}")
             else:
-                obs.append(f"Teléfono en seguimiento {s['Telefono'] or '(vacío)'} ≠ Cetelem {c['Tel_Cetelem']}")
-        if s["Fin_norm"] and "CETELEM" not in s["Fin_norm"]:
-            obs.append(f"Capturado con financiera {s['Financiera']}")
+                obs.append(f"Teléfono en seguimiento {s['Telefono'] or '(vacío)'} ≠ bitácora {c['Tel_bitacora']}")
+        if s["Fin_norm"] and not any(financiera_igual(s["Fin_norm"], f) for f in c["financieras"]):
+            obs.append(f"Capturado con financiera {s['Financiera']} (en la bitácora: {c['Financiera']})")
         dup = int(S.loc[todas, "Veces_capturado"].sum())
         if dup > 1:
             obs.append(f"Capturado {dup} veces")
@@ -380,12 +396,12 @@ def cruzar(cli, seg):
 
         if esperada is None:
             cuadre = "Revisar"
-            obs.append(f"Cetelem en {c['Estatus_final_Cetelem'].lower()}: confirmar pestaña")
+            obs.append(f"En la bitácora: {c['Estatus_final'].lower()}, confirmar pestaña")
         elif any(esperada in quitar_acentos(h).upper() for h in hojas):
             cuadre = "OK"
         else:
             cuadre = "No cuadra"
-            obs.append(f"Cetelem {c['Estatus_final_Cetelem']} pero está en '{', '.join(hojas)}'")
+            obs.append(f"En la bitácora {c['Estatus_final']} pero está en '{', '.join(hojas)}'")
 
         base.update({
             "Resultado": TIPOS[nivel], "Cuadre_pestana": cuadre, "Pestanas_encontrado": ", ".join(hojas),
@@ -397,15 +413,19 @@ def cruzar(cli, seg):
     return pd.DataFrame(filas), seg[~seg["id_s"].isin(usados_s)].copy()
 
 
-def clasificar_sobrantes(solo, ini, fin):
+SOLO_PERIODO = "En seguimiento pero NO en la bitácora del periodo"
+
+
+def clasificar_sobrantes(solo, ini, fin, cubiertas):
+    """cubiertas: financieras que trae la bitácora (las demás no se pueden cuadrar)."""
     def clas(r):
-        if r["Fin_norm"] and "CETELEM" not in r["Fin_norm"]:
-            return "Otra financiera (no aplica)"
+        if r["Fin_norm"] and not any(financiera_igual(r["Fin_norm"], f) for f in cubiertas):
+            return "Financiera que no está en la bitácora (no aplica)"
         if pd.isna(r["Fecha_ingreso"]):
             return "Sin fecha (no se puede ubicar en el periodo)"
         if ini <= r["Fecha_ingreso"] <= fin:
-            return "Cetelem en seguimiento pero NO en capturas del periodo"
-        return "Cetelem fuera del periodo cargado"
+            return SOLO_PERIODO
+        return "Fuera del periodo de la bitácora"
     solo["Clasificacion"] = solo.apply(clas, axis=1)
     solo["Fecha_ingreso"] = solo["Fecha_ingreso"].dt.strftime("%d/%m/%Y").fillna("")
     solo["Observaciones"] = solo["Obs_fecha"]
@@ -421,10 +441,10 @@ COLORES = {"Coincide por folio": "C6EFCE", "Coincide (teléfono y nombre)": "C6E
            "Coincide por teléfono – nombre distinto": "FFEB9C",
            "Posible coincidencia por nombre": "FCE4D6", "NO capturado en seguimiento": "FFC7CE",
            "No cuadra": "FFC7CE", "Revisar": "FFEB9C", "OK": "C6EFCE",
-           "Cetelem en seguimiento pero NO en capturas del periodo": "FFC7CE"}
+           SOLO_PERIODO: "FFC7CE"}
 
-COLS_CUADRE = ["Resultado", "Cuadre_pestana", "Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios",
-               "Historial", "Estatus_final_Cetelem", "Pestanas_encontrado", "Cliente_seguimiento",
+COLS_CUADRE = ["Resultado", "Cuadre_pestana", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios",
+               "Historial", "Estatus_final", "Pestanas_encontrado", "Cliente_seguimiento",
                "Tel_seguimiento", "Folio_seguimiento", "Asesor_seguimiento", "Fecha_ingreso_seg",
                "Similitud_nombre", "Observaciones"]
 COLS_SOLO = ["Clasificacion", "Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre", "Telefono",
@@ -435,7 +455,7 @@ def exportar_excel(ruta, resumen, cuadre, faltantes, revisar, solo):
     with pd.ExcelWriter(ruta, engine="openpyxl") as w:
         resumen.to_excel(w, sheet_name="Resumen", index=False)
         cuadre[COLS_CUADRE].to_excel(w, sheet_name="Cuadre_por_cliente", index=False)
-        faltantes[COLS_CUADRE[2:8]].to_excel(w, sheet_name="Faltan_en_seguimiento", index=False)
+        faltantes[COLS_CUADRE[2:9]].to_excel(w, sheet_name="Faltan_en_seguimiento", index=False)
         revisar[COLS_CUADRE].to_excel(w, sheet_name="Revisar", index=False)
         solo[COLS_SOLO].rename(columns={"Folio_norm": "Folio"}).to_excel(
             w, sheet_name="Solo_en_seguimiento", index=False)
@@ -461,7 +481,7 @@ def exportar_excel(ruta, resumen, cuadre, faltantes, revisar, solo):
     wb.save(ruta)
 
 
-def exportar_pdf(ruta, resumen, faltantes, no_cuadra, verificar, solo_periodo, meses, hojas):
+def exportar_pdf(ruta, resumen, faltantes, no_cuadra, verificar, solo_periodo, meses, hojas, financieras=("CETELEM",)):
     st = getSampleStyleSheet()
     chico = ParagraphStyle("c", parent=st["Normal"], fontSize=7.5, leading=9)
     h1 = ParagraphStyle("h1", parent=st["Title"], fontSize=18, textColor=colors.HexColor("#1F3864"))
@@ -486,41 +506,42 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, verificar, solo_periodo, m
 
     doc = SimpleDocTemplate(ruta, pagesize=landscape(letter), leftMargin=1.2 * cm, rightMargin=1.2 * cm,
                             topMargin=1.2 * cm, bottomMargin=1.2 * cm)
-    el = [Paragraph(f"Seguimiento Rechazos Financiera MG vs Capturas CETELEM – {PDV}", h1),
-          Paragraph(f"Capturas Cetelem: {', '.join(meses)} · Pestañas revisadas: {', '.join(hojas)} · "
+    el = [Paragraph(f"Seguimiento de rechazos vs bitácora – {PDV}", h1),
+          Paragraph(f"Bitácora: {', '.join(meses)} · Financieras: {', '.join(financieras)} · "
+                    f"Pestañas revisadas: {', '.join(hojas)} · "
                     f"Generado: {datetime.now():%d/%m/%Y %H:%M}", txt), Spacer(1, 10),
           tabla(resumen.assign(Valor=resumen["Valor"].astype(str)), ["Concepto", "Valor"], [13, 4]),
           Spacer(1, 10),
-          Paragraph("Cada cliente de Cetelem se busca en el seguimiento primero por folio, luego por "
-                    "teléfono (validando el nombre) y al final por nombre aunque el teléfono sea distinto. "
-                    "Un cliente que aparece en varios meses se cuenta una vez con su último estatus. "
-                    "Solo se cuadran las solicitudes RECHAZADAS de Cetelem, porque el Excel de seguimiento "
+          Paragraph("Cada cliente rechazado en la bitácora (capturas de Cetelem y Bitácora de F&I) se busca en el "
+                    "seguimiento primero por folio, luego por teléfono (validando el nombre) y al final por nombre "
+                    "aunque el teléfono sea distinto. Un cliente que aparece en varios meses se cuenta una vez con su "
+                    "último estatus. Solo se cuadran las solicitudes RECHAZADAS, porque la base de seguimiento "
                     "registra únicamente rechazos.", txt)]
 
-    el += [PageBreak(), Paragraph(f"1. Rechazos de Cetelem que NO están en el seguimiento ({len(faltantes)})", h2)]
+    el += [PageBreak(), Paragraph(f"1. Rechazos de la bitácora que NO están en el seguimiento ({len(faltantes)})", h2)]
     if not faltantes.empty:
-        por_est = faltantes.groupby("Estatus_final_Cetelem").size()
+        por_est = faltantes.groupby("Financiera").size()
         por_vend = faltantes.groupby("Vendedor").size().sort_values(ascending=False)
-        el.append(Paragraph("Por estatus: " + " · ".join(f"<b>{k}</b>: {v}" for k, v in por_est.items()), txt))
+        el.append(Paragraph("Por financiera: " + " · ".join(f"<b>{k}</b>: {v}" for k, v in por_est.items()), txt))
         el.append(Paragraph("Por vendedor: " + " · ".join(f"<b>{k}</b>: {v}" for k, v in por_vend.items()), txt))
         el.append(Spacer(1, 6))
-    el.append(tabla(faltantes.sort_values(["Estatus_final_Cetelem", "Vendedor"]),
-                    ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial", "Observaciones"],
-                    [5.2, 2.4, 4.8, 3.2, 5.6, 4.0], "#C00000"))
+    el.append(tabla(faltantes.sort_values(["Financiera", "Vendedor"]),
+                    ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial", "Observaciones"],
+                    [4.6, 2.3, 4.2, 2.4, 2.8, 5.4, 3.5], "#C00000"))
 
     el += [PageBreak(), Paragraph(f"2. Capturados en la pestaña equivocada ({len(no_cuadra)})", h2),
-           tabla(no_cuadra, ["Cliente_Cetelem", "Historial", "Pestanas_encontrado", "Observaciones"],
+           tabla(no_cuadra, ["Cliente_bitacora", "Historial", "Pestanas_encontrado", "Observaciones"],
                  [5.5, 6, 5, 8.7], "#C55A11"),
            Spacer(1, 14), Paragraph(f"3. Datos a corregir en el seguimiento ({len(verificar)})", h2),
            Paragraph("Coincidencias con nombre, teléfono, folio o fecha distintos, o capturas duplicadas.", txt),
            Spacer(1, 6),
-           tabla(verificar, ["Resultado", "Cliente_Cetelem", "Tel_Cetelem", "Cliente_seguimiento",
+           tabla(verificar, ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_seguimiento",
                              "Tel_seguimiento", "Observaciones"], [4.2, 4.6, 2.3, 4.6, 2.3, 7.2], "#BF8F00")]
 
     el += [PageBreak(),
-           Paragraph(f"4. En seguimiento (Cetelem) pero NO en las capturas del periodo ({len(solo_periodo)})", h2),
-           Paragraph("Registros con financiera Cetelem y fecha de ingreso dentro de los meses cargados que no "
-                     "aparecen en las capturas mensuales.", txt), Spacer(1, 6),
+           Paragraph(f"4. En seguimiento pero NO en la bitácora del periodo ({len(solo_periodo)})", h2),
+           Paragraph("Registros de una financiera que trae la bitácora, con fecha de ingreso dentro de los meses "
+                     "cargados, que no aparecen como rechazo en la bitácora.", txt), Spacer(1, 6),
            tabla(solo_periodo, ["Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre", "Telefono",
                                 "Asesor", "Observaciones"], [3.6, 1.4, 2.2, 2.2, 5, 2.4, 4.5, 4], "#7F7F7F")]
     doc.build(el)
@@ -529,28 +550,34 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, verificar, solo_periodo, m
 # =============================================================================
 # 6. PRINCIPAL
 # =============================================================================
-def procesar(ruta_seg, rutas_cet, carpeta="."):
-    """Hace todo el cuadre y devuelve un diccionario con tablas y rutas de salida."""
-    cet_todo = leer_cetelem(rutas_cet)
-    cet = cet_todo[cet_todo["Estatus_Cetelem"].isin(ESTATUS_A_CUADRAR)].reset_index(drop=True)
+def procesar(ruta_seg, rutas_cet=None, carpeta=".", bitacora=None):
+    """Hace todo el cuadre y devuelve un diccionario con tablas y rutas de salida.
+    bitacora: DataFrame de fuentes.solicitudes_de_bitacora() (todas las financieras). Si no se da,
+    se leen los Excel mensuales de Cetelem de `rutas_cet`."""
+    cet_todo = desde_bitacora(bitacora) if bitacora is not None else leer_cetelem(rutas_cet)
+    cet = cet_todo[cet_todo["Estatus"].isin(ESTATUS_A_CUADRAR)].reset_index(drop=True)
     if cet.empty:
-        raise ValueError("Las capturas de Cetelem no tienen solicitudes rechazadas.")
-    anio_ref = int(cet_todo["_anio"].max())
+        raise ValueError("La bitácora no tiene solicitudes rechazadas.")
+    con_fecha = cet_todo[cet_todo["_anio"] > 0]
+    anio_ref = int(con_fecha["_anio"].max()) if not con_fecha.empty else datetime.now().year
     seg = leer_seguimiento(ruta_seg, anio_ref)
     hojas = list(dict.fromkeys(seg["Hoja"]))
 
-    periodos = cet_todo[["_anio", "_mes"]].drop_duplicates().sort_values(["_anio", "_mes"])
+    periodos = con_fecha[["_anio", "_mes"]].drop_duplicates().sort_values(["_anio", "_mes"])
+    if periodos.empty:
+        raise ValueError("La bitácora no trae fechas.")
     a0, m0 = periodos.iloc[0]; a1, m1 = periodos.iloc[-1]
     ini = datetime(int(a0), int(m0), 1)
     fin = datetime(int(a1), int(m1), calendar.monthrange(int(a1), int(m1))[1], 23, 59)
-    meses = list(dict.fromkeys(cet_todo["Mes"]))
+    meses = list(dict.fromkeys(con_fecha.sort_values(["_anio", "_mes"])["Mes"]))
+    financieras = sorted(set(cet_todo["Financiera"]) - {""}, key=lambda f: (f != "CETELEM", f))
 
     cli = consolidar_clientes(cet)
     cuadre, solo = cruzar(cli, seg)
-    solo = clasificar_sobrantes(solo, ini, fin)
+    solo = clasificar_sobrantes(solo, ini, fin, financieras)
 
-    # Si un rechazo del seguimiento no está entre los rechazos de Cetelem, se dice con qué
-    # estatus aparece en las capturas (p. ej. se capturó como rechazo pero quedó aprobado).
+    # Si un rechazo del seguimiento no está entre los rechazos de la bitácora, se dice con qué
+    # estatus aparece (p. ej. se capturó como rechazo pero quedó aprobado).
     por_folio = {r["Folio_norm"]: r for _, r in cet_todo.iterrows() if r["Folio_norm"]}
     por_tel = {r["Tel_norm"]: r for _, r in cet_todo.iterrows() if r["Tel_norm"]}
     def estatus_en_capturas(r):
@@ -559,7 +586,8 @@ def procesar(ruta_seg, rutas_cet, carpeta="."):
             c = por_tel.get(r["Tel_norm"])
         if c is None:
             return ""
-        return f"En capturas Cetelem: {c['Estatus_Cetelem']} ({c['Mes']}, folio {c['Folio']}, {c['Nombre']})"
+        return (f"En la bitácora: {c['Estatus']} con {c['Financiera']} "
+                f"({c['Mes']}, folio {c['Folio'] or '—'}, {c['Nombre']})")
     if not solo.empty:
         extra = solo.apply(estatus_en_capturas, axis=1)
         solo["Observaciones"] = (solo["Observaciones"].str.strip() + " " + extra).str.strip()
@@ -569,40 +597,43 @@ def procesar(ruta_seg, rutas_cet, carpeta="."):
     no_cuadra = cuadre[enc & (cuadre["Cuadre_pestana"] == "No cuadra")]
     verificar = cuadre[enc & ((cuadre["Resultado"] != "Coincide por folio") |
                               cuadre["Observaciones"].str.contains("distinto|≠|no coincide|veces|inválida|financiera"))
-                       & ~cuadre["Observaciones"].str.fullmatch(r"Cetelem en \w+: confirmar pestaña")]
+                       & ~cuadre["Observaciones"].str.fullmatch(r"En la bitácora: [\w ]+, confirmar pestaña")]
     revisar = cuadre[enc & ((cuadre["Cuadre_pestana"] != "OK") | cuadre.index.isin(verificar.index))]
-    solo_periodo = solo[solo["Clasificacion"].str.startswith("Cetelem en seguimiento")]
+    solo_periodo = solo[solo["Clasificacion"] == SOLO_PERIODO]
 
     cuenta = lambda r: int((cuadre["Resultado"] == r).sum())
+    por_fin = cli["Financiera"].str.split(", ").explode().value_counts()
     resumen = pd.DataFrame([
-        ("Solicitudes en capturas Cetelem (todos los estatus)", len(cet_todo)),
-        ("Solicitudes RECHAZADAS en capturas Cetelem", len(cet)),
-        ("Clientes únicos rechazados en Cetelem", len(cli)),
+        ("Solicitudes en la bitácora (todos los estatus y financieras)", len(cet_todo)),
+        ("Solicitudes RECHAZADAS en la bitácora", len(cet)),
+        ("Clientes únicos rechazados", len(cli)),
+        ("   · por financiera", " · ".join(f"{k} {v}" for k, v in por_fin.items())),
         ("Registros en pestañas de Colima del seguimiento (sin duplicados)", len(seg)),
-        ("Clientes Cetelem encontrados en el seguimiento", int(enc.sum())),
+        ("Clientes rechazados encontrados en el seguimiento", int(enc.sum())),
         ("   · por folio", cuenta(TIPOS[0])),
         ("   · por teléfono y nombre", cuenta(TIPOS[1])),
         ("   · por nombre, teléfono distinto", cuenta(TIPOS[2])),
         ("   · por teléfono, nombre distinto", cuenta(TIPOS[3])),
         ("   · posibles (revisar)", cuenta(TIPOS[4])),
-        ("Clientes Cetelem NO capturados en el seguimiento", len(faltantes)),
+        ("Clientes rechazados NO capturados en el seguimiento", len(faltantes)),
         ("Porcentaje de cuadre", f"{enc.mean():.1%}" if len(cuadre) else "—"),
         ("Capturados en pestaña equivocada", len(no_cuadra)),
         ("Datos a corregir en el seguimiento", len(verificar)),
-        ("Cetelem en seguimiento pero no en capturas del periodo", len(solo_periodo)),
+        ("En seguimiento pero no en la bitácora del periodo", len(solo_periodo)),
         ("Seguimiento fuera del periodo o sin fecha (informativo)",
-         int(solo["Clasificacion"].str.contains("fuera|Sin fecha").sum())),
-        ("Seguimiento de otras financieras (no aplica)", int((solo["Clasificacion"] == "Otra financiera (no aplica)").sum())),
+         int(solo["Clasificacion"].str.contains("Fuera|Sin fecha").sum())),
+        ("Seguimiento de financieras que no están en la bitácora (no aplica)",
+         int(solo["Clasificacion"].str.startswith("Financiera que no").sum())),
     ], columns=["Concepto", "Valor"])
 
     sello = datetime.now().strftime("%Y%m%d_%H%M")
     rx = os.path.join(carpeta, f"Cuadre_Seguimiento_{sello}.xlsx")
     rp = os.path.join(carpeta, f"Cuadre_Seguimiento_{sello}.pdf")
     exportar_excel(rx, resumen, cuadre, faltantes, revisar, solo)
-    exportar_pdf(rp, resumen, faltantes, no_cuadra, verificar, solo_periodo, meses, hojas)
+    exportar_pdf(rp, resumen, faltantes, no_cuadra, verificar, solo_periodo, meses, hojas, financieras)
     return dict(resumen=resumen, cuadre=cuadre, faltantes=faltantes, no_cuadra=no_cuadra,
                 verificar=verificar, revisar=revisar, solo=solo, solo_periodo=solo_periodo,
-                meses=meses, hojas=hojas, xlsx=rx, pdf=rp)
+                meses=meses, hojas=hojas, financieras=financieras, xlsx=rx, pdf=rp)
 
 
 def main():

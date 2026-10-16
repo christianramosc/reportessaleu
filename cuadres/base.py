@@ -143,6 +143,33 @@ class _BaseComun:
             self._marcar(pestana, celdas, "#FFFFFF")
             self._quitar_notas(pestana, celdas)
 
+    def reemplazar_textos(self, pestana, cambios):
+        """Cambia texto dentro de las celdas (también dentro de fórmulas). cambios: [(viejo, nuevo)].
+        Devuelve cuántas celdas cambiaron."""
+        if pestana not in self.pestanas():
+            return 0
+        celdas = []
+        for n, fila in enumerate(self._formulas(pestana), start=1):
+            for m, v in enumerate(fila, start=1):
+                if isinstance(v, str):
+                    nv = v
+                    for a, b in cambios:
+                        nv = nv.replace(a, b)
+                    if nv != v:
+                        celdas.append((n, m, nv))
+        if celdas:
+            self._escribir(pestana, celdas)
+        return len(celdas)
+
+    def reemplazar_en_formatos(self, pestana, cambios, filas_min=0):
+        """Cambia texto dentro de las reglas de formato condicional de la pestaña (p. ej. ="Contrato").
+        cambios: [(viejo, nuevo)]; una regla cuyo valor es exactamente `viejo` sin comillas también cambia.
+        filas_min: alarga hasta esa fila el rango de las reglas de la pestaña (en Google).
+        Devuelve cuántas reglas cambiaron."""
+        if pestana not in self.pestanas():
+            return 0
+        return self._reemplazar_en_formatos(pestana, cambios, filas_min)
+
     def anotar_historial(self, registros):
         """registros: dicts con las llaves de HISTORIAL_COLS (Fecha se llena sola)."""
         if not registros:
@@ -159,6 +186,19 @@ class _BaseComun:
                     v = self.origen
                 celdas.append((inicio + i, j, _texto_historial(v)))
         self.escribir(TAB_HISTORIAL, celdas)
+
+
+def _cambiar_texto(obj, cambios):
+    """Aplica los cambios a todos los textos de una estructura (dict/list/str)."""
+    if isinstance(obj, str):
+        for a, b in cambios:
+            obj = b.strip('"') if obj == a.strip('"') else obj.replace(a, b)
+        return obj
+    if isinstance(obj, list):
+        return [_cambiar_texto(x, cambios) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _cambiar_texto(v, cambios) for k, v in obj.items()}
+    return obj
 
 
 def _texto_historial(v):
@@ -244,6 +284,28 @@ class BaseGoogle(_BaseComun):
             ws.hide()
         self._limpiar_cache(pestana)
 
+    def _formulas(self, pestana):
+        from gspread.utils import ValueRenderOption
+        return self._hoja(pestana).get(value_render_option=ValueRenderOption.formula, pad_values=True)
+
+    def _reemplazar_en_formatos(self, pestana, cambios, filas_min):
+        ws = self._hoja(pestana)
+        meta = self.libro.fetch_sheet_metadata(
+            params={"fields": "sheets(properties(sheetId),conditionalFormats)"})
+        hoja = next((h for h in meta.get("sheets", []) if h.get("properties", {}).get("sheetId") == ws.id), {})
+        pedidos = []
+        for i, regla in enumerate(hoja.get("conditionalFormats", [])):
+            nueva = _cambiar_texto(regla, cambios)
+            for r in nueva.get("ranges", []):          # que el color alcance a las filas nuevas
+                if filas_min and r.get("endRowIndex") is not None and r["endRowIndex"] < filas_min:
+                    r["endRowIndex"] = filas_min
+            if nueva == regla:
+                continue
+            pedidos.append({"updateConditionalFormatRule": {"sheetId": ws.id, "index": i, "rule": nueva}})
+        if pedidos:
+            self.libro.batch_update({"requests": pedidos})
+        return len(pedidos)
+
     def _marcar(self, pestana, celdas, color):
         r, g, b = (int(color.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
         formatos = [{"range": f"{letra(c)}{f}", "format": {"backgroundColor": {"red": r, "green": g, "blue": b}}}
@@ -301,10 +363,13 @@ class BaseExcel(_BaseComun):
             ws.cell(f, c).value = v
 
     def _reemplazar(self, pestana, tabla, oculta):
+        formatos = None
         if pestana in self.libro.sheetnames:
             idx = self.libro.sheetnames.index(pestana)
+            formatos = self.libro[pestana].conditional_formatting      # se conservan los colores condicionales
             del self.libro[pestana]
             ws = self.libro.create_sheet(pestana, idx)
+            ws.conditional_formatting = formatos
         else:
             ws = self.libro.create_sheet(pestana)
         for fila in tabla:
@@ -320,6 +385,19 @@ class BaseExcel(_BaseComun):
         ws = self.libro[pestana]
         for f, c in celdas:
             ws.cell(f, c).fill = relleno
+
+    def _formulas(self, pestana):
+        return [[c.value for c in fila] for fila in self.libro[pestana].iter_rows()]
+
+    def _reemplazar_en_formatos(self, pestana, cambios, filas_min):
+        n = 0
+        for rango in self.libro[pestana].conditional_formatting:
+            for regla in rango.rules:
+                nuevas = [_cambiar_texto(f, cambios) for f in (regla.formula or [])]
+                if nuevas != list(regla.formula or []):
+                    regla.formula = nuevas
+                    n += 1
+        return n
 
     def _quitar_notas(self, pestana, celdas):
         ws = self.libro[pestana]

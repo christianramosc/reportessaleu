@@ -135,10 +135,10 @@ def proponer(base, solicitudes):
                 add("Corrección", row, C["cel"], None, s["telefono"], "Teléfono de la bitácora")
             if not row["mens"] and s["mensualidad"] and not oficial:
                 add("Corrección", row, C["mens"], None, s["mensualidad"], "Mensualidad de la bitácora")
-            if s["est_fin"] == "Contrato" and "YA COMPRO" not in norm(row["com"]):
-                t = f"Ya compró según la bitácora: contrato con {s['fin_banco']}" + (f", factura {s['factura']}" if s["factura"] else "")
+            if s["est_fin"] == "Formalizado" and "YA COMPRO" not in norm(row["com"]):
+                t = f"Ya compró según la bitácora: formalizó con {s['fin_banco']}" + (f", factura {s['factura']}" if s["factura"] else "")
                 add("Comentario", row, C["com"], row["com"], (row["com"] + " | " if row["com"] else "") + t,
-                    "La bitácora registra contrato; no requiere seguimiento de rechazo")
+                    "La bitácora registra el crédito formalizado; no requiere seguimiento de rechazo")
 
     # ---------------------------------------------------------------- rechazos nuevos
     claves_hoja = [r["key"] for r in filas]
@@ -156,8 +156,8 @@ def proponer(base, solicitudes):
                 nota.append("En Cetelem aparece como " + ", ".join(f"{t['est_sol']} (folio {t['folio']})" for t in otros) + ": confirmar")
         fin = "CETELEM" if rechazo_cet else (s["banco"] if norm(s["banco"]) not in ("", "OTROS") else s["canal2"])
         com = [f"Agregado desde la bitácora ({s['fuentes'].split(',')[0]})"]
-        if s["est_fin"] == "Contrato":
-            com.append(f"Ya compró según la bitácora: contrato con {s['fin_banco']}" + (f", factura {s['factura']}" if s["factura"] else ""))
+        if s["est_fin"] == "Formalizado":
+            com.append(f"Ya compró según la bitácora: formalizó con {s['fin_banco']}" + (f", factura {s['factura']}" if s["factura"] else ""))
         elif s["est_fin"] in ("Aprobado", "Contrapropuesta"):
             com.append(f"Después aparece como {s['est_fin']} con {s['fin_banco']}")
         payload = {
@@ -188,6 +188,21 @@ def _fmt(v):
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
     return str(v)
+
+
+# "Contrato" pasó a llamarse "Formalizado" (FINANCIADO de Cetelem y CONTRATO de F&I son lo mismo)
+CAMBIOS_FORMALIZADO = [('"Contrato"', '"Formalizado"'), ("Terminaron en contrato", "Formalizados"),
+                       ("'Contrato' es el estatus final con cualquier financiera (Cetelem: FINANCIADO).",
+                        "'Formalizado' = el crédito se formalizó con cualquier financiera "
+                        "(FINANCIADO en Cetelem, CONTRATO en la Bitácora de F&I).")]
+
+
+def migrar_formalizado(base):
+    """Actualiza las fórmulas y textos del Resumen y los colores de la Bitacora al nombre 'Formalizado'.
+    No hace nada si ya está migrado. Devuelve cuántas celdas/reglas cambió."""
+    n = base.reemplazar_textos("Resumen", CAMBIOS_FORMALIZADO) if "Resumen" in base.pestanas() else 0
+    n += base.reemplazar_en_formatos(TAB_BITACORA, CAMBIOS_FORMALIZADO[:1], filas_min=2000)
+    return n
 
 
 def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
@@ -241,5 +256,10 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
         base.reemplazar(TAB_CAPTURAS, CAP_COLS + CAP_EXTRA,
                         capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist())
     base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas_bitacora(solicitudes, contexto["fila_de_sol"]))
-    return dict(respaldo=respaldo, correcciones=int((elegidas["Tipo"] != "Nuevo rechazo").sum()),
+    try:
+        aviso = None
+        migrar_formalizado(base)
+    except Exception as e:  # solo fórmulas y colores del Resumen/Bitacora: no detiene lo demás
+        aviso = f"No pude actualizar el Resumen a «Formalizado»: {e}"
+    return dict(respaldo=respaldo, aviso=aviso, correcciones=int((elegidas["Tipo"] != "Nuevo rechazo").sum()),
                 nuevos=len(nuevos), ignorados=len(ignoradas), celdas=len(celdas))

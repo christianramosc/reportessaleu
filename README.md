@@ -7,13 +7,15 @@ App de Streamlit con una página por herramienta:
    bitácoras mensuales de Cetelem, la app lee la *Bitácora de F&I*, te muestra los cambios propuestos
    (rechazos nuevos, mensualidades, folios, GAP, plazo, teléfono, Sale-U, "ya compró") y aplica los que
    marques. Antes de escribir guarda un respaldo oculto y todo queda en la pestaña **Historial**.
-3. **Cuadres para reportes**: cuadra las capturas mensuales de **Cetelem** (se piden al F&I) y el inventario.
-   Con el Google Sheet conectado, el seguimiento y las capturas se leen de la base; para Sale-U solo subes el
-   reporte y la app escribe *Cliente con Registro en SalesU* en el Sheet:
-   - **Seguimiento Rechazos Financiera MG vs Capturas CETELEM** (`Seguimiento Rechazos Financiera MG.xlsx`,
-     solo pestañas de COLIMA). Cuadra solo las solicitudes **rechazadas**; cruza por folio, teléfono y nombre.
-   - **Sale - U Aprobados y Rechazados CETELEM**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual
-     se descarga). Cruza por teléfono y nombre; compara estatus y financiera.
+3. **Cuadres para reportes**: cuadra la **bitácora** (pestaña *Bitacora* del Sheet: capturas de Cetelem +
+   Bitácora de F&I, **todas las financieras**) y el inventario. Con el Google Sheet conectado, el seguimiento
+   y la bitácora se leen de la base; para Sale-U solo subes el reporte y la app escribe
+   *Cliente con Registro en SalesU* en el Sheet:
+   - **Seguimiento de rechazos vs bitácora** (solo pestañas de COLIMA). Cuadra solo las solicitudes
+     **rechazadas** de cualquier financiera; cruza por folio, teléfono y nombre.
+   - **Sale-U vs bitácora**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Toma
+     las solicitudes de la bitácora dentro del periodo del reporte (sin ventas de contado), cruza por teléfono
+     y nombre y compara estatus y financiera.
    - **BlueService vs Inventario** (`PDIs_MG_Colima.xlsx` vs Excel de inventario, hoja ALMACEN o la que
      elijas). Cruza por VIN, detecta VIN mal capturados con el dígito verificador y dice en qué otra hoja
      aparece cada unidad.
@@ -71,8 +73,9 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 
 ### Cómo se usa cada mes
 
-1. **Base de seguimiento** → sube las bitácoras de Cetelem del mes (el .xlsx tal cual) → *Revisar cambios* →
-   desmarca lo que no quieras → *Aplicar*. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
+1. **Base de seguimiento** → sube las bitácoras de Cetelem del mes (el .xlsx tal cual) y, si no está conectada
+   por Google, la Bitácora de F&I → *Revisar cambios* → desmarca lo que no quieras → *Aplicar*. Esto también
+   actualiza la pestaña *Bitacora*, que es la que usan los cuadres. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
    proponer.
 2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
@@ -83,6 +86,8 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    en *Revision* y el botón le quita la marca.
 
 Reglas que sigue la app al escribir en el Sheet:
+- **Formalizado** = el crédito terminó en contrato con cualquier financiera (FINANCIADO en Cetelem,
+  CONTRATO en la Bitácora de F&I). Así aparece en la *Bitacora* y en el *Resumen*.
 - Lo de Cetelem manda en folio, estatus, mensualidad (máxima), plazo, teléfono, GAP y accesorios.
 - Solo escribe en las columnas de datos; nunca en las de seguimiento (fechas realizadas, canal, contesta,
   comentarios) salvo agregar "Ya compró…" al final de COMENTARIOS.

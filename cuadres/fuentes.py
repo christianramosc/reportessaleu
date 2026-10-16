@@ -33,10 +33,12 @@ ESTATUS = {
     "RECHAZADO": "Rechazado", "RECHAZADOS": "Rechazado", "RECHAZADAS": "Rechazado", "RECHAZADA": "Rechazado",
     "APROBADO": "Aprobado", "APROBADOS": "Aprobado", "APROBADAS": "Aprobado", "APROBADA": "Aprobado",
     "CONTRAPROPUESTA": "Contrapropuesta", "CONTRAPROPUESTAS": "Contrapropuesta",
-    "FINANCIADOS": "Contrato", "FINANCIADO": "Contrato", "FINANCIADAS": "Contrato", "CONTRATO": "Contrato",
+    # FINANCIADO (Cetelem) y CONTRATO (F&I) significan lo mismo: el crédito se formalizó
+    "FINANCIADOS": "Formalizado", "FINANCIADO": "Formalizado", "FINANCIADAS": "Formalizado",
+    "CONTRATO": "Formalizado", "CONTRATOS": "Formalizado", "FORMALIZADO": "Formalizado", "FORMALIZADOS": "Formalizado",
     "ANALISIS": "Análisis", "EN ANALISIS": "Análisis",
 }
-PRIORIDAD = {"Rechazado": 0, "Análisis": 1, "Contrapropuesta": 2, "Aprobado": 3, "Contrato": 4}
+PRIORIDAD = {"Rechazado": 0, "Análisis": 1, "Contrapropuesta": 2, "Aprobado": 3, "Formalizado": 4}
 
 
 # =============================================================================
@@ -386,3 +388,58 @@ def filas_bitacora(solicitudes, filas_en_rechazos):
                     s["mensualidad"], s["monto"], s["sale_u"], s["com_fi"], s["com_as"], s["factura"], s["vin"],
                     ", ".join(map(str, filas_en_rechazos.get(id(s), []))), s["fuentes"]])
     return out
+
+
+# =============================================================================
+# Pestaña "Bitacora" → solicitudes para los cuadres (todas las financieras)
+# =============================================================================
+ETIQUETA_MES = {v: k for k, v in MESES.items() if k != "SETIEMBRE"}
+
+
+def _estatus_bitacora(v):
+    e = estatus(v) if not vacio(v) else None
+    return e or (txt(v) or None)
+
+
+def _financiera(v):
+    t = txt(v)
+    return None if not t or norm(t) == "OTROS" else t.upper()
+
+
+def solicitudes_de_bitacora(df):
+    """df: pestaña Bitacora leída de la base (BITACORA_COLS). Devuelve una fila por solicitud con:
+    Folio, Nombre, Telefono, Vendedor, Vehiculo, Monto_Financiar, Fecha, Mes, _anio, _mes,
+    Est_sol / Fin_sol (estatus y financiera de la solicitud) y Est_fin / Fin_fin (resultado final),
+    con los estatus en mayúsculas sin acentos (RECHAZADO, APROBADO, FORMALIZADO, CONTRAPROPUESTA, ANALISIS)."""
+    cols = ["Folio", "Nombre", "Telefono", "Vendedor", "Vehiculo", "Monto_Financiar", "Fecha", "Mes", "_anio", "_mes",
+            "Est_sol", "Fin_sol", "Est_fin", "Fin_fin", "Fuente"]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    g = lambda r, c: r[c] if c in r.index else None
+    filas = []
+    for _, r in df.iterrows():
+        nombre = txt(g(r, "Cliente"))
+        if not nombre:
+            continue
+        fecha = to_date(g(r, "Fecha"))
+        folio = to_folio(g(r, "Folio"))
+        est_sol, est_fin = _estatus_bitacora(g(r, "Estatus solicitud")), _estatus_bitacora(g(r, "Estatus final"))
+        fin_sol = _financiera(g(r, "Banco solicitud")) or _financiera(g(r, "Canal 2")) or "OTRA FINANCIERA"
+        fin_fin = _financiera(g(r, "Financiera final")) or fin_sol
+        tel = to_phone(g(r, "Teléfono"))
+        monto = to_num(g(r, "Monto a financiar"))
+        filas.append(dict(
+            Folio=str(folio) if folio else "", Nombre=" ".join(nombre.split()), Telefono=str(tel) if tel else "",
+            Vendedor=txt(g(r, "Vendedor")) or "", Vehiculo=txt(g(r, "Unidad")) or "",
+            Monto_Financiar=f"{monto:,.2f}" if monto else "", Fecha=fecha,
+            Mes=f"{ETIQUETA_MES[fecha.month][:3]} {fecha.year}" if fecha else "SIN FECHA",
+            _anio=fecha.year if fecha else 0, _mes=fecha.month if fecha else 0,
+            Est_sol=norm(est_sol), Fin_sol=fin_sol, Est_fin=norm(est_fin or est_sol), Fin_fin=fin_fin,
+            Fuente=txt(g(r, "Fuente en la bitácora")) or ""))
+    return pd.DataFrame(filas, columns=cols)
+
+
+def financiera_igual(a, b):
+    """CETELEM ~ Cetelem, SCOTIA ~ SCOTIABANK, MSTAR ~ M STAR…"""
+    a, b = re.sub(r"[^A-Z]", "", norm(a)), re.sub(r"[^A-Z]", "", norm(b))
+    return bool(a and b) and (a in b or b in a)
