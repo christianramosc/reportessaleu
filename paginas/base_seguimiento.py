@@ -24,6 +24,8 @@ tab_act, tab_pend, tab_hist = st.tabs(["🔄 Actualizar con bitácoras", "✅ Pe
 with tab_act:
     if st.session_state.get("msg_act"):
         st.success(st.session_state.pop("msg_act"))
+    if st.session_state.get("aviso_act"):
+        st.warning(st.session_state.pop("aviso_act"))
     guardadas = conexion.capturas_guardadas(base)
     meses_guardados = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
     c1, c2 = st.columns(2)
@@ -92,12 +94,13 @@ with tab_act:
             prop = prop.assign(Aplicar=vista["Aplicar"].values)
         n = int(prop["Aplicar"].sum()) if not prop.empty else 0
         etiqueta = f"Aplicar {n} cambio(s) en el Sheet" if n else "Guardar bitácoras en el Sheet"
-        if st.button(etiqueta, type="primary", key="btn_aplicar",
-                     disabled=prop.empty and not act["cambia_capturas"]):
+        if st.button(etiqueta, type="primary", key="btn_aplicar"):
             with st.spinner("Escribiendo en el Sheet…"):
                 try:
                     r = actualizar.aplicar(base, prop, act["sol"], act["ctx"], act["capturas"])
                     st.session_state.pop("act", None)
+                    if r.get("aviso"):
+                        st.session_state["aviso_act"] = r["aviso"]
                     st.session_state["msg_act"] = (
                         f"Listo: {r['nuevos']} rechazo(s) nuevo(s), {r['correcciones']} corrección(es), "
                         f"{r['ignorados']} ignorado(s)."

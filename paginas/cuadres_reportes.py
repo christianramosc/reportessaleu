@@ -2,8 +2,8 @@
 """
 Página: Cuadres para reportes
 
-  · Seguimiento Rechazos Financiera MG vs Capturas CETELEM (solo rechazos)
-  · Sale-U Aprobados y Rechazados CETELEM
+  · Seguimiento de rechazos vs bitácora (solo rechazos, todas las financieras)
+  · Sale-U vs bitácora (todas las financieras)
   · BlueService vs Inventario (por VIN)
 
 Se abre desde streamlit_app.py (navegación de la app).
@@ -113,27 +113,26 @@ def ejecutar(modulo, archivo_base, capturas):
     return res
 
 
-def ejecutar_seg_base(base, capturas):
-    """Cuadre de seguimiento leyendo las pestañas de Colima directo de la base."""
+def ejecutar_seg_base(base, bitacora):
+    """Cuadre de seguimiento: pestañas de Colima de la base vs rechazos de la bitácora (todas las financieras)."""
     with tempfile.TemporaryDirectory() as tmp:
         hojas = [h for h in base.pestanas() if cs.FILTRO_HOJAS in norm(h) and not h.startswith("_")]
         ruta_seg = os.path.join(tmp, "Seguimiento_base.xlsx")
         with open(ruta_seg, "wb") as f:
             f.write(a_excel(base, hojas))
-        rutas_cet = fuentes.capturas_a_archivos(capturas, tmp)
-        res = cs.procesar(ruta_seg, rutas_cet, carpeta=tmp)
+        res = cs.procesar(ruta_seg, carpeta=tmp, bitacora=bitacora)
         res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
         res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
     return res
 
 
-def ejecutar_su_base(base, archivo_su, capturas, escribir):
-    """Cuadre Sale-U contra las capturas guardadas + registro en Sale-U escrito en la base."""
+def ejecutar_su_base(base, archivo_su, bitacora, escribir):
+    """Cuadre Sale-U contra la bitácora (todas las financieras) + registro en Sale-U escrito en la base."""
     with tempfile.TemporaryDirectory() as tmp:
         ruta_su = guardar_temporal([archivo_su], tmp)[0]
         res = {}
-        if not capturas.empty:
-            res = cu.procesar(ruta_su, fuentes.capturas_a_archivos(capturas, tmp), carpeta=tmp)
+        if not bitacora.empty:
+            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=bitacora)
             res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
             res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
         su = cu.leer_saleu(ruta_su)
@@ -160,7 +159,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Sale-U")
-    st.caption("Cómo debe verse en Sale-U una contrapropuesta de Cetelem:")
+    st.caption("Cómo debe verse en Sale-U una contrapropuesta:")
     contra = st.selectbox("Contrapropuesta", ["No se juzga (revisar)", "Aceptado", "Rechazado"])
     cu.ESTATUS_ESPERADO["CONTRAPROPUESTA"] = {"Aceptado": "ACEPTADO",
                                               "Rechazado": "RECHAZADO"}.get(contra)
@@ -172,12 +171,13 @@ with st.sidebar:
 ui.hero("Cuadres para reportes",
         "Elige el cuadre, sube los archivos fuente y descarga el resultado en Excel y PDF.")
 
-tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs Cetelem",
-                                   "🟦 Sale-U vs Cetelem",
+tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs bitácora",
+                                   "🟦 Sale-U vs bitácora",
                                    "🔧 BlueService vs Inventario"])
 
-AGREGAR_MES = ("Para agregar un mes nuevo, súbelo en **Base de seguimiento → Actualizar con bitácoras**; "
-               "ahí se guarda y lo usan todos los cuadres.")
+AGREGAR_MES = ("La bitácora es la pestaña **Bitacora** del Sheet: junta las capturas de Cetelem y la Bitácora de F&I "
+               "(todas las financieras). Para agregar un mes, súbelo en **Base de seguimiento → Actualizar con "
+               "bitácoras** y aplica; de ahí la toman todos los cuadres.")
 AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la financiera CETELEM "
                   "(un Excel por mes, ej. JULIO_2026_FINAL.xlsx, AGOSTO_2026_FINAL.xlsx). "
                   "Puedes subir varios meses a la vez.")
@@ -185,18 +185,17 @@ AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la f
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
     base = conexion.obtener_base()
-    st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de las capturas de Cetelem "
-                "(la base solo registra rechazos).")
+    st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de la bitácora: capturas de "
+                "Cetelem y Bitácora de F&I, de **todas las financieras** (la base solo registra rechazos).")
     if base is not None:
-        guardadas = conexion.capturas_guardadas(base)
-        meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
-        st.success(f"Seguimiento: se lee de **{base.titulo}** · Capturas de Cetelem guardadas: "
-                   + (", ".join(meses) if meses else "ninguna"), icon=":material/cloud_done:")
+        bit = conexion.bitacora_guardada(base)
+        st.success(f"Seguimiento: se lee de **{base.titulo}** · Bitácora: {conexion.describir_bitacora(bit)}",
+                   icon=":material/cloud_done:")
         st.caption(AGREGAR_MES)
-        if st.button("Hacer cuadre", type="primary", disabled=not meses, key="btn_seg"):
+        if st.button("Hacer cuadre", type="primary", disabled=bit.empty, key="btn_seg"):
             with st.spinner("Cruzando folios, teléfonos y nombres…"):
                 try:
-                    st.session_state["res_seg"] = ejecutar_seg_base(base, guardadas)
+                    st.session_state["res_seg"] = ejecutar_seg_base(base, bit)
                 except Exception as e:
                     st.session_state.pop("res_seg", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
@@ -209,7 +208,8 @@ with tab_seg:
                    "para no tener que subirlo.")
         f_cet = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
                                  key="up_cet_seg", help=AYUDA_CAPTURAS)
-        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM.")
+        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM. Sin la base "
+                   "conectada solo se cuadra Cetelem.")
 
         if st.button("Hacer cuadre", type="primary", disabled=not (f_seg and f_cet), key="btn_seg"):
             with st.spinner("Cruzando folios, teléfonos y nombres…"):
@@ -222,11 +222,12 @@ with tab_seg:
     res = st.session_state.get("res_seg")
     if res:
         r = res["resumen"]
-        st.success(f"Capturas: {', '.join(res['meses'])}  ·  Pestañas: {', '.join(res['hojas'])}")
+        st.success(f"Bitácora: {', '.join(res['meses'])}  ·  Financieras: {', '.join(res.get('financieras', []))}"
+                   f"  ·  Pestañas: {', '.join(res['hojas'])}")
         m = st.columns(5)
-        m[0].metric("Rechazados Cetelem", valor_resumen(r, "Clientes únicos rechazados"))
-        m[1].metric("Encontrados", valor_resumen(r, "Clientes Cetelem encontrados"))
-        m[2].metric("Faltan capturar", valor_resumen(r, "Clientes Cetelem NO"))
+        m[0].metric("Clientes rechazados", valor_resumen(r, "Clientes únicos rechazados"))
+        m[1].metric("Encontrados", valor_resumen(r, "Clientes rechazados encontrados"))
+        m[2].metric("Faltan capturar", valor_resumen(r, "Clientes rechazados NO"))
         m[3].metric("% de cuadre", valor_resumen(r, "Porcentaje"))
         m[4].metric("Datos a corregir", valor_resumen(r, "Datos a corregir"))
         descargas(res, "seg")
@@ -234,22 +235,22 @@ with tab_seg:
         t1, t2, t3, t4, t5 = st.tabs([
             f"Rechazos que faltan en seguimiento ({len(res['faltantes'])})",
             f"A corregir / revisar ({len(res['revisar'])})",
-            f"En seguimiento sin captura ({len(res['solo_periodo'])})",
+            f"En seguimiento, no en la bitácora ({len(res['solo_periodo'])})",
             "Cuadre completo", "Resumen"])
         with t1:
             df = filtro_vendedor(res["faltantes"], "fv_seg")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
-            tabla(df, ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial",
-                       "Estatus_final_Cetelem", "Observaciones"])
+            tabla(df, ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial",
+                       "Observaciones"])
         with t2:
-            tabla(res["revisar"], ["Resultado", "Cuadre_pestana", "Cliente_Cetelem", "Tel_Cetelem",
+            tabla(res["revisar"], ["Resultado", "Cuadre_pestana", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_seguimiento", "Tel_seguimiento", "Folio_seguimiento",
                                    "Pestanas_encontrado", "Observaciones"],
                   ["Resultado", "Cuadre_pestana"])
         with t3:
-            st.caption("Rechazos de Cetelem en el seguimiento, con fecha dentro de los meses cargados, que no aparecen como rechazados en las capturas. La columna Observaciones dice con qué estatus sí aparecen.")
+            st.caption("Rechazos en el seguimiento, de una financiera que trae la bitácora y con fecha dentro de sus meses, que no aparecen como rechazados en la bitácora. La columna Observaciones dice con qué estatus sí aparecen.")
             tabla(res["solo_periodo"], ["Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre",
                                         "Telefono", "Asesor", "Observaciones"])
             with st.expander("Ver también fuera del periodo, sin fecha y otras financieras"):
@@ -271,9 +272,8 @@ with tab_su:
                                  "(reporteLeadsconCredito…), sin abrirlo ni guardarlo antes en Excel.")
     c1.caption("📄 Archivo: **reporte de Sale - U** (reporteLeadsconCredito), tal cual se descarga.")
     if base is not None:
-        guardadas = conexion.capturas_guardadas(base)
-        meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
-        c2.success(f"Capturas de Cetelem desde **{base.titulo}**: " + (", ".join(meses) if meses else "ninguna"),
+        bit = conexion.bitacora_guardada(base)
+        c2.success(f"Bitácora desde **{base.titulo}**: {conexion.describir_bitacora(bit)}",
                    icon=":material/cloud_done:")
         c2.caption(AGREGAR_MES)
         escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
@@ -282,14 +282,15 @@ with tab_su:
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
             with st.spinner("Cruzando teléfonos y nombres…"):
                 try:
-                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, guardadas, escribir)
+                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, bit, escribir)
                 except Exception as e:
                     st.session_state.pop("res_su", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
     else:
         f_cet2 = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
                                   key="up_cet_su", help=AYUDA_CAPTURAS)
-        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM.")
+        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM. Sin la base "
+                   "conectada solo se cuadra Cetelem.")
 
         if st.button("Hacer cuadre", type="primary", disabled=not (f_su and f_cet2), key="btn_su"):
             with st.spinner("Cruzando teléfonos y nombres…"):
@@ -320,11 +321,11 @@ with tab_su:
             st.info("Modo Excel: descarga el archivo actualizado en la página «Base de seguimiento».")
     if res and "resumen" in res:
         r = res["resumen"]
-        st.success(f"Capturas: {', '.join(res['meses'])}")
+        st.success(f"Bitácora: {', '.join(res['meses'])}  ·  Financieras: {', '.join(res.get('financieras', []))}")
         m = st.columns(5)
-        m[0].metric("Clientes Cetelem", valor_resumen(r, "Clientes únicos"))
-        m[1].metric("En Sale-U", valor_resumen(r, "Clientes Cetelem encontrados"))
-        m[2].metric("Faltan en Sale-U", valor_resumen(r, "Clientes Cetelem NO"))
+        m[0].metric("Clientes en bitácora", valor_resumen(r, "Clientes únicos"))
+        m[1].metric("En Sale-U", valor_resumen(r, "Clientes de la bitácora encontrados"))
+        m[2].metric("Faltan en Sale-U", valor_resumen(r, "Clientes de la bitácora NO"))
         m[3].metric("% de cuadre", valor_resumen(r, "Porcentaje"))
         m[4].metric("Estatus no cuadra", valor_resumen(r, "Estatus que no cuadra"))
         descargas(res, "su")
@@ -339,21 +340,21 @@ with tab_su:
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
-            tabla(df, ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial",
-                       "Estatus_final_Cetelem"])
+            tabla(df, ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial",
+                       "Estatus_final"])
         with t2:
-            tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_Cetelem", "Tel_Cetelem",
+            tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU",
                                    "Observaciones"], ["Resultado", "Cuadre_estatus"])
         with t3:
-            st.caption("Registros de Cetelem en Sale-U que no aparecen en las capturas cargadas "
-                       "(pueden ser de meses anteriores).")
+            st.caption("Registros en Sale-U que no aparecen en la bitácora (pueden ser de meses anteriores). "
+                       "Los de financieras que la bitácora no trae se ven en el Excel descargable.")
             tabla(res["solo_cet"], ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera",
                                     "Fecha_Alta_Credito", "Observaciones"])
         with t4:
             df = filtro_vendedor(res["cuadre"], "fv_su_todo")
-            tabla(df, ["Resultado", "Cuadre_estatus", "Cliente_Cetelem", "Tel_Cetelem", "Vendedor",
-                       "Historial", "Cliente_SaleU", "Tel_SaleU", "Asesor_SaleU", "Estatus_SaleU",
+            tabla(df, ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor",
+                       "Financiera", "Historial", "Cliente_SaleU", "Tel_SaleU", "Asesor_SaleU", "Estatus_SaleU",
                        "Financiera_SaleU", "Observaciones"], ["Resultado", "Cuadre_estatus"], alto=550)
         with t5:
             st.dataframe(r.astype(str), hide_index=True, width="stretch")

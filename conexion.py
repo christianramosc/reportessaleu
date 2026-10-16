@@ -14,7 +14,7 @@ actualiza y lo descargas al final.
 import pandas as pd
 import streamlit as st
 
-from cuadres.base import BaseGoogle, BaseExcel, TAB_CAPTURAS
+from cuadres.base import BaseGoogle, BaseExcel, TAB_CAPTURAS, TAB_BITACORA
 from cuadres import fuentes
 
 
@@ -56,6 +56,41 @@ def capturas_guardadas(base):
     df = df.drop(columns="Fecha de carga", errors="ignore").fillna("").astype(str)
     df["Fecha de carga"] = fecha if fecha is not None else ""
     return df
+
+
+def bitacora_guardada(base):
+    """Solicitudes de todas las financieras para los cuadres: la pestaña Bitacora del Sheet
+    (capturas de Cetelem + Bitácora de F&I). Si no existe, se arma con las capturas de Cetelem guardadas."""
+    if base is None:
+        return fuentes.solicitudes_de_bitacora(None)
+    sol = fuentes.solicitudes_de_bitacora(None)
+    if TAB_BITACORA in base.pestanas():
+        sol = fuentes.solicitudes_de_bitacora(base.leer(TAB_BITACORA).drop(columns="_fila", errors="ignore"))
+    if sol.empty:
+        caps = capturas_guardadas(base)
+        if caps.empty:
+            return sol
+        cons = fuentes.consolidar(fuentes.registros_capturas(caps))
+        sol = fuentes.solicitudes_de_bitacora(pd.DataFrame(fuentes.filas_bitacora(cons, {}),
+                                                           columns=fuentes.BITACORA_COLS))
+    # F&I escribe al asesor por su primer nombre ("CARLA"); se usa el nombre completo de Catalogos
+    from cuadres import actualizar
+    catalogo = actualizar._catalogo_asesores(base)
+    if catalogo:
+        sol["Vendedor"] = sol["Vendedor"].map(lambda v: actualizar._asesor(v, catalogo) or v)
+    sol["Vendedor"] = sol["Vendedor"].map(lambda v: v.upper() if v else "(sin vendedor)")
+    return sol
+
+
+def describir_bitacora(sol):
+    """'121 solicitudes · may 2026 – oct 2026 · CETELEM 102, SCOTIA 3, …'"""
+    if sol.empty:
+        return "sin solicitudes"
+    con = sol[sol["_anio"] > 0].sort_values(["_anio", "_mes"])
+    rango = f"{con['Mes'].iloc[0].lower()} – {con['Mes'].iloc[-1].lower()}" if not con.empty else "sin fechas"
+    fin = sol["Fin_sol"].value_counts()
+    fin = ", ".join(f"{k} {v}" for k, v in fin.items())
+    return f"{len(sol)} solicitudes · {rango} · {fin}"
 
 
 def tablas_financiamiento(base):

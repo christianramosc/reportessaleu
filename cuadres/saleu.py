@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-cuadre_saleu_cetelem.py
------------------------
-Cuadre mensual de créditos: Sale-U (reporteLeadsconCredito*.csv/xlsx)
-vs. capturas mensuales de CETELEM (JULIO_2026_FINAL.xlsx, AGOSTO..., etc.)
+cuadre Sale-U vs bitácora
+-------------------------
+Cuadre de créditos: Sale-U (reporteLeadsconCredito*.csv/xlsx) vs. la bitácora de solicitudes
+(todas las financieras: capturas de Cetelem + Bitácora de F&I, pestaña "Bitacora" de la base).
+Sin base, también acepta los Excel mensuales de Cetelem (JULIO_2026_FINAL.xlsx, …).
 
 Lógica de cruce (por cliente):
   A) Teléfono igual + nombre parecido            -> Coincide
@@ -25,6 +26,7 @@ from difflib import SequenceMatcher
 import pandas as pd
 
 from openpyxl import load_workbook
+from cuadres.fuentes import financiera_igual
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from reportlab.lib.pagesizes import letter, landscape
@@ -43,13 +45,15 @@ UMBRAL_NOMBRE_FUERTE  = 0.80   # parecido para aceptar coincidencia SOLO por nom
 UMBRAL_NOMBRE_POSIBLE = 0.60   # parecido para marcar "posible coincidencia"
 SIMILITUD_PALABRA     = 0.80   # dos palabras se consideran iguales (Monserrat/Montserrat)
 
-# Cómo debería verse en Sale-U cada estatus de Cetelem
+# Cómo debería verse en Sale-U cada estatus de la bitácora
 ESTATUS_ESPERADO = {
     "APROBADO": "ACEPTADO",
     "FINANCIADO": "ACEPTADO",
     "FINANCIADOS": "ACEPTADO",
+    "FORMALIZADO": "ACEPTADO",
     "RECHAZADO": "RECHAZADO",
     "CONTRAPROPUESTA": None,   # None = no se juzga, se marca para revisión
+    "ANALISIS": None,
 }
 
 MESES = {"ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6,
@@ -158,7 +162,22 @@ def leer_saleu(ruta):
     df["Veces_registrado"] = df.groupby(["Tel_norm", "Nombre_norm"])["Nombre"].transform("size")
     df = df.drop_duplicates(["Tel_norm", "Nombre_norm"]).reset_index(drop=True)
     df["id_s"] = range(len(df))
+    df.attrs["rango"] = rango_reporte(info) or (
+        (df["_fecha"].min().to_pydatetime(), df["_fecha"].max().to_pydatetime()) if df["_fecha"].notna().any() else None)
     return df
+
+
+def rango_reporte(info):
+    """'Rango: 01/08/2026 - 15/10/2026' del encabezado del reporte → (inicio, fin del día)."""
+    m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})\s*(?:-|–|a|al)\s*(\d{1,2}/\d{1,2}/\d{4})", info or "")
+    if not m:
+        return None
+    try:
+        ini = datetime.strptime(m.group(1), "%d/%m/%Y")
+        fin = datetime.strptime(m.group(2), "%d/%m/%Y").replace(hour=23, minute=59)
+    except ValueError:
+        return None
+    return ini, fin
 
 
 def convertir_fecha(x):
@@ -179,7 +198,7 @@ def leer_cetelem(rutas):
             d = pd.read_excel(ruta, sheet_name=hoja, dtype=str).fillna("")
             d.columns = d.columns.str.strip()
             col = {quitar_acentos(c).upper(): c for c in d.columns}
-            req = {"Folio": "FOLIO CCK", "Estatus_Cetelem": "STATUS",
+            req = {"Folio": "FOLIO CCK", "Estatus": "STATUS",
                    "Nombre": "NOMBRE COMPLETO", "Telefono": "TELEFONO MOVIL",
                    "Vendedor": "NOMBRE DEL VENDEDOR"}
             if not all(v in col for v in req.values()):
@@ -191,15 +210,29 @@ def leer_cetelem(rutas):
                                   ("MONTO TOTAL A FINANCIAR", "Monto_Financiar")]:
                 sub[nombre] = d[col[extra]] if extra in col else ""
             sub["Mes"] = etiqueta
+            sub["Financiera"] = "CETELEM"
             sub["_orden_mes"] = orden
             sub = sub[sub["Nombre"].str.strip() != ""]
             partes.append(sub)
     df = pd.concat(partes, ignore_index=True)
-    df["Estatus_Cetelem"] = df["Estatus_Cetelem"].str.strip().str.upper()
+    df["Estatus"] = df["Estatus"].str.strip().str.upper()
     df["Nombre"] = df["Nombre"].str.split().str.join(" ")
     df["Tel_norm"] = df["Telefono"].map(normalizar_tel)
     df["Nombre_norm"] = df["Nombre"].map(normalizar_nombre)
     return df.sort_values(["_orden_mes", "Folio"]).reset_index(drop=True)
+
+
+def desde_bitacora(sol):
+    """sol: fuentes.solicitudes_de_bitacora(). Para Sale-U cuenta el resultado final de cada solicitud."""
+    df = sol.rename(columns={"Est_fin": "Estatus", "Fin_fin": "Financiera"})[
+        ["Folio", "Estatus", "Nombre", "Telefono", "Vendedor", "Vehiculo", "Monto_Financiar", "Mes",
+         "Financiera", "Fecha", "_anio", "_mes"]].copy()
+    df = df[df["Financiera"] != "CONTADO"].copy()          # ventas de contado: no son créditos en Sale-U
+    df["Estatus"] = df["Estatus"].replace("", "SIN ESTATUS")
+    df["_orden_mes"] = df["_anio"] * 100 + df["_mes"]
+    df["Tel_norm"] = df["Telefono"].map(normalizar_tel)
+    df["Nombre_norm"] = df["Nombre"].map(normalizar_nombre)
+    return df.sort_values(["_orden_mes", "Folio"]).reset_index(drop=True).drop(columns=["_anio", "_mes"])
 
 
 # =============================================================================
@@ -252,7 +285,7 @@ def similitud_nombre(a, b):
 
 
 # =============================================================================
-# 3. CONSOLIDAR CLIENTES DE CETELEM (un cliente puede aparecer varios meses)
+# 3. CONSOLIDAR CLIENTES DE LA BITÁCORA (un cliente puede aparecer varios meses)
 # =============================================================================
 def consolidar_clientes(cet):
     clientes = []   # cada uno: dict con tels, nombre, filas
@@ -279,15 +312,17 @@ def consolidar_clientes(cet):
         ult = sub.iloc[-1]
         filas.append({
             "id_c": c["id"],
-            "Cliente_Cetelem": ult["Nombre"],
+            "Cliente_bitacora": ult["Nombre"],
             "Nombre_norm": ult["Nombre_norm"],
-            "Tel_Cetelem": ult["Tel_norm"] or ult["Telefono"],
+            "Tel_bitacora": ult["Tel_norm"] or ult["Telefono"],
             "tels": {t for t in c["tels"] if t},
             "Vendedor": ult["Vendedor"],
             "Folios": ", ".join(dict.fromkeys(sub["Folio"])),
-            "Historial": " → ".join(f"{m}: {e}" for m, e in zip(sub["Mes"], sub["Estatus_Cetelem"])),
+            "Financiera": ", ".join(dict.fromkeys(sub["Financiera"])),
+            "financieras": set(sub["Financiera"]),
+            "Historial": " → ".join(f"{m}: {e} ({f})" for m, e, f in zip(sub["Mes"], sub["Estatus"], sub["Financiera"])),
             "Ultimo_mes": ult["Mes"],
-            "Estatus_final_Cetelem": ult["Estatus_Cetelem"],
+            "Estatus_final": ult["Estatus"],
             "Vehiculo": ult["Vehiculo"],
         })
     return pd.DataFrame(filas)
@@ -296,6 +331,9 @@ def consolidar_clientes(cet):
 # =============================================================================
 # 4. CRUCE
 # =============================================================================
+SOLO_SALEU = "En Sale-U sin solicitud en la bitácora"
+
+
 def cruzar(cli, su):
     candidatos = []
     for _, c in cli.iterrows():
@@ -326,28 +364,28 @@ def cruzar(cli, su):
             2: "Coincide por nombre – teléfono distinto",
             3: "Coincide por teléfono – nombre distinto",
             4: "Posible coincidencia por nombre"}
-    tel_dueno = {t: r["Cliente_Cetelem"] for _, r in cli.iterrows() for t in r["tels"]}
+    tel_dueno = {t: r["Cliente_bitacora"] for _, r in cli.iterrows() for t in r["tels"]}
 
     filas = []
     for _, c in cli.iterrows():
-        base = c.drop(labels=["tels", "Nombre_norm"]).to_dict()
+        base = c.drop(labels=["tels", "Nombre_norm", "financieras"]).to_dict()
         if c["id_c"] in pares:
             is_, nivel, sim = pares[c["id_c"]]
             s = su.loc[su["id_s"] == is_].iloc[0]
             obs = []
-            if nivel in (2, 4) and s["Tel_norm"] in tel_dueno and tel_dueno[s["Tel_norm"]] != c["Cliente_Cetelem"]:
-                obs.append(f"El teléfono de Sale-U pertenece a {tel_dueno[s['Tel_norm']]} en Cetelem")
+            if nivel in (2, 4) and s["Tel_norm"] in tel_dueno and tel_dueno[s["Tel_norm"]] != c["Cliente_bitacora"]:
+                obs.append(f"El teléfono de Sale-U pertenece a {tel_dueno[s['Tel_norm']]} en la bitácora")
             elif nivel in (2, 4):
-                obs.append(f"Teléfono Sale-U {s['Telefono'] or '(vacío)'} ≠ Cetelem {c['Tel_Cetelem']}")
+                obs.append(f"Teléfono Sale-U {s['Telefono'] or '(vacío)'} ≠ bitácora {c['Tel_bitacora']}")
             if nivel == 3:
                 obs.append("Mismo teléfono pero el nombre en Sale-U es distinto: verificar y corregir nombre")
             if s["Fin_norm"] == "":
                 obs.append("Financiera vacía en Sale-U")
-            elif "CETELEM" not in s["Fin_norm"]:
-                obs.append(f"En Sale-U dice financiera: {s['Financiera']}")
+            elif not any(financiera_igual(s["Fin_norm"], f) for f in c["financieras"]):
+                obs.append(f"En Sale-U dice financiera: {s['Financiera']} (bitácora: {c['Financiera']})")
             if s["Veces_registrado"] > 1:
                 obs.append(f"Registrado {s['Veces_registrado']} veces en Sale-U")
-            est_cuadre, obs_est = comparar_estatus(c["Estatus_final_Cetelem"], s["Estatus_SaleU"])
+            est_cuadre, obs_est = comparar_estatus(c["Estatus_final"], s["Estatus_SaleU"])
             if obs_est:
                 obs.append(obs_est)
             base.update({
@@ -366,10 +404,11 @@ def cruzar(cli, su):
         filas.append(base)
     cuadre = pd.DataFrame(filas)
 
+    cubiertas = set().union(*cli["financieras"]) if len(cli) else set()
     solo = su[~su["id_s"].isin(usados_s)].copy()
     solo["Clasificacion"] = solo["Fin_norm"].map(
-        lambda f: "Otra financiera (no aplica)" if f and "CETELEM" not in f
-        else "Cetelem en Sale-U sin captura en los meses cargados")
+        lambda f: "Financiera que no está en la bitácora (no aplica)"
+        if f and not any(financiera_igual(f, x) for x in cubiertas) else SOLO_SALEU)
     solo["Observaciones"] = ""
     solo.loc[solo["Tel_norm"] == "", "Observaciones"] = "Teléfono inválido o dañado en Sale-U"
     solo.loc[solo["Nombre_norm"] == "", "Observaciones"] += " Nombre capturado como correo/ilegible"
@@ -380,10 +419,10 @@ def comparar_estatus(est_cet, est_su):
     esperado = ESTATUS_ESPERADO.get(est_cet, None)
     su = quitar_acentos(est_su).upper().strip()
     if esperado is None:
-        return "Revisar", f"Cetelem en {est_cet.lower()}; Sale-U: {est_su or 'vacío'}"
+        return "Revisar", f"Bitácora en {est_cet.lower()}; Sale-U: {est_su or 'vacío'}"
     if su == esperado:
         return "OK", ""
-    return "No cuadra", f"Estatus: Cetelem {est_cet} vs Sale-U {est_su or 'vacío'}"
+    return "No cuadra", f"Estatus: bitácora {est_cet} vs Sale-U {est_su or 'vacío'}"
 
 
 # =============================================================================
@@ -398,8 +437,8 @@ COLORES = {"Coincide (teléfono y nombre)": "C6EFCE",
 
 
 def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
-    cols_cuadre = ["Resultado", "Cuadre_estatus", "Cliente_Cetelem", "Tel_Cetelem", "Vendedor",
-                   "Folios", "Historial", "Estatus_final_Cetelem", "Cliente_SaleU", "Tel_SaleU",
+    cols_cuadre = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera",
+                   "Folios", "Historial", "Estatus_final", "Cliente_SaleU", "Tel_SaleU",
                    "Asesor_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fecha_alta_SaleU",
                    "Similitud_nombre", "Observaciones"]
     cols_solo = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera",
@@ -408,7 +447,7 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
         resumen.to_excel(w, sheet_name="Resumen", index=False)
         cuadre[cols_cuadre].to_excel(w, sheet_name="Cuadre_por_cliente", index=False)
         detalle.to_excel(w, sheet_name="Detalle_por_mes", index=False)
-        faltantes[cols_cuadre[2:8]].to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
+        faltantes[cols_cuadre[2:9]].to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
         revisar[cols_cuadre].to_excel(w, sheet_name="Revisar", index=False)
         solo[cols_solo].to_excel(w, sheet_name="Solo_en_SaleU", index=False)
 
@@ -437,7 +476,7 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
 # =============================================================================
 # 6. PDF
 # =============================================================================
-def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, meses):
+def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, meses, financieras=("CETELEM",)):
     st = getSampleStyleSheet()
     chico = ParagraphStyle("chico", parent=st["Normal"], fontSize=7.5, leading=9)
     h1 = ParagraphStyle("h1", parent=st["Title"], fontSize=18, textColor=colors.HexColor("#1F3864"))
@@ -461,45 +500,46 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, m
         return t
 
     for df in (faltantes, no_cuadra, revisar_cruce):
-        df["Cliente_Cetelem"] = df["Cliente_Cetelem"].astype(str)
+        df["Cliente_bitacora"] = df["Cliente_bitacora"].astype(str)
 
     doc = SimpleDocTemplate(ruta, pagesize=landscape(letter), leftMargin=1.2 * cm,
                             rightMargin=1.2 * cm, topMargin=1.2 * cm, bottomMargin=1.2 * cm)
-    el = [Paragraph(f"Cuadre Sale-U vs Cetelem – {PDV}", h1),
-          Paragraph(f"Meses cargados: {', '.join(meses)} · Generado: "
+    el = [Paragraph(f"Cuadre Sale-U vs bitácora – {PDV}", h1),
+          Paragraph(f"Meses: {', '.join(meses)} · Financieras: {', '.join(financieras)} · Generado: "
                     f"{datetime.now():%d/%m/%Y %H:%M}", txt), Spacer(1, 10)]
     el.append(tabla(resumen.assign(Valor=resumen["Valor"].astype(str)), ["Concepto", "Valor"], [12, 4]))
     el.append(Spacer(1, 10))
     el.append(Paragraph(
-        "Cada cliente de Cetelem se busca en Sale-U primero por teléfono (validando que el nombre "
+        "Cada cliente de la bitácora (capturas de Cetelem y Bitácora de F&I) se busca en Sale-U primero "
+        "por teléfono (validando que el nombre "
         "se parezca) y, si no aparece, por nombre aunque el teléfono sea distinto. Un cliente que "
         "aparece en varios meses se cuenta una sola vez con su último estatus.", txt))
 
-    el += [PageBreak(), Paragraph(f"1. Créditos de Cetelem que NO están en Sale-U ({len(faltantes)})", h2),
+    el += [PageBreak(), Paragraph(f"1. Solicitudes de la bitácora que NO están en Sale-U ({len(faltantes)})", h2),
            Paragraph("Estos clientes deben darse de alta en Sale-U con el asesor correspondiente.", txt),
            Spacer(1, 6)]
     if not faltantes.empty:
         por_vend = faltantes.groupby("Vendedor").size().sort_values(ascending=False)
         el.append(Paragraph("Por vendedor: " + " · ".join(f"<b>{v}</b>: {n}" for v, n in por_vend.items()), txt))
         el.append(Spacer(1, 6))
-    el.append(tabla(faltantes.sort_values(["Vendedor", "Cliente_Cetelem"]),
-                    ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial"],
-                    [6, 2.6, 5.5, 3.5, 7.6], "#C00000"))
+    el.append(tabla(faltantes.sort_values(["Vendedor", "Cliente_bitacora"]),
+                    ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial"],
+                    [5.2, 2.4, 4.8, 2.6, 3.2, 7.0], "#C00000"))
 
     el += [PageBreak(), Paragraph(f"2. Estatus que no cuadra ({len(no_cuadra)})", h2),
-           Paragraph("El cliente sí está en Sale-U, pero su estatus no corresponde con Cetelem.", txt),
+           Paragraph("El cliente sí está en Sale-U, pero su estatus no corresponde con la bitácora.", txt),
            Spacer(1, 6),
-           tabla(no_cuadra, ["Cliente_Cetelem", "Vendedor", "Historial", "Estatus_SaleU", "Observaciones"],
+           tabla(no_cuadra, ["Cliente_bitacora", "Vendedor", "Historial", "Estatus_SaleU", "Observaciones"],
                  [5, 4.5, 6, 2.5, 7.2], "#C55A11")]
 
     el += [Spacer(1, 14), Paragraph(f"3. Coincidencias a verificar ({len(revisar_cruce)})", h2),
            Paragraph("Se emparejaron por nombre con teléfono distinto, o por teléfono con nombre distinto. "
                      "Confirma que sea la misma persona y corrige el dato en Sale-U.", txt),
            Spacer(1, 6),
-           tabla(revisar_cruce, ["Resultado", "Cliente_Cetelem", "Tel_Cetelem", "Cliente_SaleU",
+           tabla(revisar_cruce, ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_SaleU",
                                  "Tel_SaleU", "Observaciones"], [4.5, 4.8, 2.4, 4.5, 2.4, 6.6], "#BF8F00")]
 
-    el += [PageBreak(), Paragraph(f"4. Registros Cetelem en Sale-U sin captura en los meses cargados ({len(solo_cet)})", h2),
+    el += [PageBreak(), Paragraph(f"4. En Sale-U sin solicitud en la bitácora ({len(solo_cet)})", h2),
            Paragraph("Pueden ser solicitudes de meses no incluidos en el cuadre, o registros mal "
                      "clasificados en Sale-U.", txt), Spacer(1, 6),
            tabla(solo_cet, ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Fecha_Alta_Credito", "Observaciones"],
@@ -510,17 +550,30 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, m
 # =============================================================================
 # 7. PROGRAMA PRINCIPAL
 # =============================================================================
-def procesar(ruta_su, rutas_cet, carpeta="."):
-    """Hace todo el cuadre y devuelve un diccionario con tablas y rutas de salida."""
+def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None):
+    """Hace todo el cuadre y devuelve un diccionario con tablas y rutas de salida.
+    bitacora: DataFrame de fuentes.solicitudes_de_bitacora() (todas las financieras). Si no se da,
+    se leen los Excel mensuales de Cetelem de `rutas_cet`."""
     su = leer_saleu(ruta_su)
-    cet = leer_cetelem(rutas_cet)
-    meses = list(dict.fromkeys(cet.sort_values("_orden_mes")["Mes"]))
+    rango = su.attrs.get("rango")
+    if bitacora is not None:
+        cet = desde_bitacora(bitacora)
+        if rango:   # solo las solicitudes del periodo que cubre el reporte de Sale-U
+            ini, fin = rango
+            cet = cet[cet["Fecha"].map(lambda d: bool(d) and ini.date() <= d <= fin.date())].reset_index(drop=True)
+        cet = cet.drop(columns="Fecha")
+    else:
+        cet = leer_cetelem(rutas_cet)
+    if cet.empty:
+        raise ValueError("La bitácora no tiene solicitudes en el periodo del reporte de Sale-U.")
+    meses = [m for m in dict.fromkeys(cet.sort_values("_orden_mes")["Mes"]) if m != "SIN FECHA"]
+    financieras = sorted(set(cet["Financiera"]) - {""}, key=lambda f: (f != "CETELEM", f))
     cli = consolidar_clientes(cet)
     cuadre, solo = cruzar(cli, su)
 
     detalle = cet.merge(cuadre[["id_c", "Resultado", "Cliente_SaleU", "Estatus_SaleU", "Cuadre_estatus"]],
                         on="id_c", how="left")
-    detalle = detalle[["Mes", "Folio", "Estatus_Cetelem", "Nombre", "Telefono", "Vendedor",
+    detalle = detalle[["Mes", "Folio", "Estatus", "Financiera", "Nombre", "Telefono", "Vendedor",
                        "Vehiculo", "Monto_Financiar", "Resultado", "Cliente_SaleU",
                        "Estatus_SaleU", "Cuadre_estatus"]]
 
@@ -532,33 +585,37 @@ def procesar(ruta_su, rutas_cet, carpeta="."):
     no_cuadra = cuadre[encontrados & (cuadre["Cuadre_estatus"] == "No cuadra")]
     revisar = cuadre[encontrados & ((cuadre["Cuadre_estatus"] != "OK") | cuadre.index.isin(revisar_cruce.index)
                                     | (cuadre["Observaciones"] != ""))]
-    solo_cet = solo[solo["Clasificacion"].str.startswith("Cetelem")]
+    solo_cet = solo[solo["Clasificacion"] == SOLO_SALEU]
 
     resumen = pd.DataFrame([
-        ("Solicitudes capturadas en Cetelem (todas las filas)", len(cet)),
-        ("Clientes únicos en Cetelem", len(cli)),
+        ("Periodo del reporte de Sale-U", f"{rango[0]:%d/%m/%Y} – {rango[1]:%d/%m/%Y}" if rango else "—"),
+        ("Solicitudes en la bitácora (todas las financieras)", len(cet)),
+        ("Clientes únicos en la bitácora", len(cli)),
+        ("   · por financiera", " · ".join(f"{k} {v}" for k, v in
+                                          cli["Financiera"].str.split(", ").explode().value_counts().items())),
         ("Registros en Sale-U (sin duplicados)", len(su)),
-        ("Clientes Cetelem encontrados en Sale-U", int(encontrados.sum())),
+        ("Clientes de la bitácora encontrados en Sale-U", int(encontrados.sum())),
         ("   · por teléfono y nombre", int((cuadre["Resultado"] == "Coincide (teléfono y nombre)").sum())),
         ("   · por nombre, teléfono distinto", int((cuadre["Resultado"] == "Coincide por nombre – teléfono distinto").sum())),
         ("   · por teléfono, nombre distinto", int((cuadre["Resultado"] == "Coincide por teléfono – nombre distinto").sum())),
         ("   · posibles (revisar)", int((cuadre["Resultado"] == "Posible coincidencia por nombre").sum())),
-        ("Clientes Cetelem NO registrados en Sale-U", len(faltantes)),
+        ("Clientes de la bitácora NO registrados en Sale-U", len(faltantes)),
         ("Porcentaje de cuadre", f"{encontrados.mean():.1%}" if len(cuadre) else "—"),
         ("Estatus que no cuadra", len(no_cuadra)),
-        ("En contrapropuesta (revisar estatus)", int((cuadre["Cuadre_estatus"] == "Revisar").sum())),
-        ("Cetelem en Sale-U sin captura en meses cargados", len(solo_cet)),
-        ("Sale-U de otra financiera (no aplica)", len(solo) - len(solo_cet)),
+        ("En contrapropuesta o análisis (revisar estatus)", int((cuadre["Cuadre_estatus"] == "Revisar").sum())),
+        ("En Sale-U sin solicitud en la bitácora", len(solo_cet)),
+        ("Sale-U de financieras que no están en la bitácora (no aplica)", len(solo) - len(solo_cet)),
     ], columns=["Concepto", "Valor"])
 
     sello = datetime.now().strftime("%Y%m%d_%H%M")
     ruta_xlsx = os.path.join(carpeta, f"Cuadre_SaleU_{sello}.xlsx")
     ruta_pdf = os.path.join(carpeta, f"Cuadre_SaleU_{sello}.pdf")
     exportar_excel(ruta_xlsx, resumen, cuadre, detalle, faltantes, revisar, solo)
-    exportar_pdf(ruta_pdf, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, meses)
+    exportar_pdf(ruta_pdf, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, meses,
+                 financieras)
     return dict(resumen=resumen, cuadre=cuadre, detalle=detalle, faltantes=faltantes,
                 no_cuadra=no_cuadra, revisar_cruce=revisar_cruce, revisar=revisar, solo=solo,
-                solo_cet=solo_cet, meses=meses, xlsx=ruta_xlsx, pdf=ruta_pdf)
+                solo_cet=solo_cet, meses=meses, financieras=financieras, rango=rango, xlsx=ruta_xlsx, pdf=ruta_pdf)
 
 
 def main():
