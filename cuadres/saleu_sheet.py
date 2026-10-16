@@ -16,6 +16,7 @@ mensualidad, asesor…, y en Finalizados el registro en Sale-U). Nunca se sobree
 """
 
 import datetime as dt
+import re
 
 import pandas as pd
 
@@ -58,7 +59,7 @@ def proponer(base, su, ini=None, fin=None):
         hallado, como = None, ""
         for s in por_tel.get(tel, []):
             r, _ = cu.similitud_nombre(nom, s["Nombre_norm"])
-            if r > 0:                   # mismo teléfono y al menos una palabra del nombre en común
+            if r >= cu.UMBRAL_NOMBRE_CON_TEL:   # mismo teléfono y nombre parecido (mismo criterio que el reporte)
                 hallado, como = s, "teléfono"
                 break
         if hallado is None:
@@ -195,3 +196,71 @@ def restaurar(base, bajas):
         Motivo=f"Decía «{r['Antes']}» y el cuadre de Sale-U del {r['Fecha']} lo bajó a No Registrado (versión anterior)")
         for _, r in bajas.iterrows()])
     return len(bajas)
+
+
+# =============================================================================
+# Deshacer lo que se escribió por un teléfono compartido (regla anterior: bastaba una palabra en común)
+# =============================================================================
+_RE_REGISTRO = re.compile(r"^Encontrado en Sale-U por teléfono: (.+) \([^()]*\)$")
+_RE_DATO = re.compile(r"cuadra por teléfono con Sale-U \((.+)\)$")
+
+
+def por_telefono_dudosos(base):
+    """Celdas que el cuadre de Sale-U escribió solo porque el teléfono coincidía con alguien de nombre distinto
+    (menos del 50 % del nombre igual) y que siguen con ese valor. DataFrame con lo necesario para deshacer."""
+    from cuadres.fuentes import name_key, similar
+    from cuadres.pendientes import _celda
+    cols = ["Hoja", "Fila", "Columna", "Celda", "Cliente", "Campo", "Valor", "Regresar a", "Sale-U", "Fecha"]
+    if TAB_HISTORIAL not in base.pestanas():
+        return pd.DataFrame(columns=cols)
+    h = base.leer(TAB_HISTORIAL)
+    if h.empty or "Origen" not in h.columns:
+        return pd.DataFrame(columns=cols)
+    deshechas = {(r["Hoja"], r["Celda"]) for _, r in h[h["Origen"].astype(str) == "App · deshacer Sale-U"].iterrows()}
+    h = h[h["Origen"].astype(str) == "App · cuadre Sale-U"]
+    hojas, filas, vistas = {}, [], set(deshechas)
+    for _, r in h.iloc[::-1].iterrows():
+        motivo = str(r["Motivo"] or "")
+        m = _RE_REGISTRO.match(motivo) or _RE_DATO.search(motivo)
+        ref = _celda(r["Celda"])
+        if not m or not ref or (r["Hoja"], r["Celda"]) in vistas:
+            continue
+        vistas.add((r["Hoja"], r["Celda"]))
+        nom_su = m.group(1)
+        sim, _ = cu.similitud_nombre(cu.normalizar_nombre(r["Cliente"]), cu.normalizar_nombre(nom_su))
+        if sim >= cu.UMBRAL_NOMBRE_CON_TEL or str(r["Antes"] or "") == str(r["Después"] or ""):
+            continue                                    # con la regla actual también cuadra, o no cambió nada
+        hoja = str(r["Hoja"])
+        if hoja not in base.pestanas():
+            continue
+        if hoja not in hojas:
+            hojas[hoja] = {int(x["_fila"]): x for _, x in base.leer(hoja).iterrows()}
+        fila, col = ref
+        actual = hojas[hoja].get(fila)
+        if actual is None:
+            continue
+        nombre_col = next((c for c in actual.index if norm(c) in ("NOMBRE DE CLIENTE", "NOMBRE")), None)
+        campo_col = next((c for c in actual.index if norm(c) == norm(r["Campo"])), None)
+        if (not campo_col or str(actual[campo_col] if actual[campo_col] is not None else "") != str(r["Después"])
+                or (nombre_col and not similar(name_key(actual[nombre_col]), name_key(r["Cliente"])))):
+            continue                                    # ya cambió o la fila se movió: no se toca
+        f = r["Fecha"]
+        filas.append({"Hoja": hoja, "Fila": fila, "Columna": col, "Celda": str(r["Celda"]), "Cliente": r["Cliente"],
+                      "Campo": r["Campo"], "Valor": r["Después"], "Regresar a": r["Antes"] or "",
+                      "Sale-U": nom_su,
+                      "Fecha": f.strftime("%d/%m/%Y %H:%M") if isinstance(f, (dt.date, dt.datetime)) else str(f or "")})
+    return pd.DataFrame(filas, columns=cols)
+
+
+def deshacer_dudosos(base, dudosos):
+    if dudosos.empty:
+        return 0
+    for hoja, g in dudosos.groupby("Hoja"):
+        base.respaldar(hoja)
+        base.escribir(hoja, [(int(r["Fila"]), int(r["Columna"]), r["Regresar a"] or None) for _, r in g.iterrows()])
+    base.anotar_historial([dict(
+        Origen="App · deshacer Sale-U", Hoja=r["Hoja"], Celda=r["Celda"], Cliente=r["Cliente"], Campo=r["Campo"],
+        Antes=r["Valor"], Después=r["Regresar a"],
+        Motivo=f"Se había escrito porque el teléfono coincide con {r['Sale-U']} en Sale-U, pero el nombre es otro")
+        for _, r in dudosos.iterrows()])
+    return len(dudosos)

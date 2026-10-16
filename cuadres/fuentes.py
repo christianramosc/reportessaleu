@@ -443,3 +443,48 @@ def financiera_igual(a, b):
     """CETELEM ~ Cetelem, SCOTIA ~ SCOTIABANK, MSTAR ~ M STAR…"""
     a, b = re.sub(r"[^A-Z]", "", norm(a)), re.sub(r"[^A-Z]", "", norm(b))
     return bool(a and b) and (a in b or b in a)
+
+
+# =============================================================================
+# Copia de la Bitácora de F&I en la base (pestaña "Bitacora F&I")
+# =============================================================================
+FI_COLS = ["Origen", "Fecha", "Folio", "Cliente", "Teléfono", "Correo", "Vendedor", "Unidad", "Año", "Banco",
+           "Estatus", "Canal 2", "Estatus canal 2", "Plazo", "Mensualidad", "Monto", "Sale-U", "Comentario F&I",
+           "Comentario asesor", "# Factura", "VIN", "Fecha de carga"]
+_FI_LLAVES = ["origen", "fecha", "folio", "cliente", "telefono", "correo", "vendedor", "unidad", "anio", "banco",
+              "estatus", "canal2", "estatus_canal2", "plazo", "mensualidad", "monto", "sale_u", "comentario_fi",
+              "comentario_asesor", "factura", "vin"]
+
+
+def filas_fi(registros):
+    ahora = dt.datetime.now().replace(microsecond=0)
+    return [[r.get(k) for k in _FI_LLAVES] + [ahora] for r in registros]
+
+
+def registros_fi_de_tabla(df):
+    """Pestaña "Bitacora F&I" → registros como los de registros_financiamiento()."""
+    out = []
+    if df is None or df.empty:
+        return out
+    for _, f in df.iterrows():
+        g = lambda c: None if c not in f.index or vacio(f[c]) else f[c]
+        cliente = txt(g("Cliente"))
+        if not cliente:
+            continue
+        anio = to_num(g("Año"))
+        out.append(dict(
+            origen=txt(g("Origen")) or "Bitacora F&I", fecha=to_date(g("Fecha")), folio=to_folio(g("Folio")),
+            cliente=cliente, telefono=to_phone(g("Teléfono")), correo=mail(g("Correo")), vendedor=txt(g("Vendedor")),
+            unidad=txt(g("Unidad")), anio=int(anio) if anio else None, banco=txt(g("Banco")),
+            estatus=estatus(g("Estatus")), canal2=txt(g("Canal 2")), estatus_canal2=txt(g("Estatus canal 2")),
+            plazo=to_num(g("Plazo")), mensualidad=to_num(g("Mensualidad")), monto=to_num(g("Monto")),
+            sale_u=norm(g("Sale-U")) if norm(g("Sale-U")) in ("SI", "NO") else None,
+            comentario_fi=txt(g("Comentario F&I")), comentario_asesor=txt(g("Comentario asesor")),
+            factura=txt(g("# Factura")), vin=txt(g("VIN")), gap=None, accesorios=None, tipo_persona=None,
+            key=name_key(cliente)))
+    return out
+
+
+def es_de_fi(solicitud):
+    """La solicitud consolidada viene (también) de la Bitácora de F&I."""
+    return any(not o["origen"].startswith("CETELEM") for o in solicitud["origenes"])

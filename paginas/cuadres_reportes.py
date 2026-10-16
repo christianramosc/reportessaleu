@@ -126,6 +126,32 @@ def ejecutar_seg_base(base, bitacora):
     return res
 
 
+def agregar_hoja(xlsx_bytes, nombre, df):
+    """Agrega una hoja con encabezado del mismo estilo al Excel del cuadre."""
+    import io
+    from openpyxl import load_workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    wb = load_workbook(io.BytesIO(xlsx_bytes))
+    ws = wb.create_sheet(nombre[:31])
+    ws.append(list(df.columns))
+    for fila in df.itertuples(index=False):
+        ws.append(["" if v is None else v for v in fila])
+    for c in ws[1]:
+        c.font = Font(name="Arial", bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="1F3864")
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for fila in ws.iter_rows(min_row=2):
+        for c in fila:
+            c.font = Font(name="Arial", size=10)
+    for i, col in enumerate(ws.columns, 1):
+        ws.column_dimensions[get_column_letter(i)].width = min(max(max(len(str(c.value or "")) for c in col) + 2, 10), 55)
+    ws.freeze_panes = "A2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def ejecutar_su_base(base, archivo_su, bitacora, escribir):
     """Cuadre Sale-U contra la bitácora (todas las financieras) + registro en Sale-U escrito en la base."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -140,6 +166,12 @@ def ejecutar_su_base(base, archivo_su, bitacora, escribir):
     periodo = f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}"
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
+    # La misma lista que en el Sheet: rechazos del periodo que quedan «No Registrado»
+    sin_saleu = cambios[cambios["Después"] == saleu_sheet.NO_REGISTRADO]
+    if res.get("xlsx_bytes"):
+        res["xlsx_bytes"] = agregar_hoja(res["xlsx_bytes"], "Rechazos_No_Registrado", sin_saleu.assign(
+            Fecha_ingreso=sin_saleu["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""))[
+            ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"]].rename(columns={"Fila": "Fila en el Sheet"}))
     res["escritos"] = saleu_sheet.aplicar(base, cambios, periodo) if escribir else 0
     res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
                                 columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
@@ -275,10 +307,18 @@ with tab_su:
                                  "(reporteLeadsconCredito…), sin abrirlo ni guardarlo antes en Excel.")
     c1.caption("📄 Archivo: **reporte de Sale - U** (reporteLeadsconCredito), tal cual se descarga.")
     if base is not None:
-        bit = conexion.bitacora_guardada(base)
-        c2.success(f"Bitácora desde **{base.titulo}**: {conexion.describir_bitacora(bit)}",
-                   icon=":material/cloud_done:")
-        c2.caption(AGREGAR_MES)
+        bit, origen_fi = conexion.bitacora_fi(base)
+        if not bit.empty:
+            c2.success(f"Se compara contra la **Bitácora de F&I** ({origen_fi}): {conexion.describir_bitacora(bit)}",
+                       icon=":material/cloud_done:")
+            c2.caption("Son todas las solicitudes de F&I (todas las financieras); cuando una también está en las "
+                       "capturas de Cetelem, manda el estatus de Cetelem. Para actualizarla, súbela en "
+                       "**Base de seguimiento → Actualizar con bitácoras** y aplica.")
+        else:
+            bit = conexion.bitacora_guardada(base)
+            c2.warning("No hay **Bitácora de F&I** guardada: súbela en **Base de seguimiento → Actualizar con "
+                       "bitácoras** y aplica. Mientras, se compara contra la pestaña Bitacora del Sheet: "
+                       f"{conexion.describir_bitacora(bit)}.", icon=":material/warning:")
         escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
                              help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
                                   "del periodo del reporte de Sale-U. Lo que ya dice Registrado o Sí nunca se baja "
@@ -358,12 +398,19 @@ with tab_su:
             f"Solo en Sale-U ({len(res['solo_cet'])})",
             "Cuadre completo", "Resumen"])
         with t1:
+            if "registro" in res:
+                rech = res["faltantes"]["Historial"].str.contains("RECHAZADO").sum()
+                n_hoja = int((res["registro"]["Después"] == saleu_sheet.NO_REGISTRADO).sum())
+                st.caption(f"De estos, **{rech}** tienen un rechazo en la bitácora. En el Sheet quedan **{n_hoja}** "
+                           "rechazos del periodo como *No Registrado* (hoja **Rechazos_No_Registrado** del Excel). "
+                           "Pueden variar un poco si la fecha o el nombre del rechazo en la base no es igual al de la "
+                           "bitácora.")
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             tabla(df, ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial",
-                       "Estatus_final"])
+                       "Estatus_final", "Observaciones"])
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",

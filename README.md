@@ -77,7 +77,12 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    por Google, la Bitácora de F&I → *Revisar cambios* → desmarca lo que no quieras → *Aplicar*. Esto también
    actualiza la pestaña *Bitacora*, que es la que usan los cuadres. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
    proponer.
-2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Además del Excel/PDF,
+2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra la
+   **Bitácora de F&I** (la de Google si está configurada; si no, la copia que se guarda en la pestaña
+   *Bitacora F&I* cada vez que la subes en Base de seguimiento). Un cliente está en Sale-U si coincide el
+   teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
+   criterio que usa la columna *Cliente con Registro en SalesU*, y el Excel trae la hoja
+   *Rechazos_No_Registrado* con la misma lista que ves al filtrar esa columna. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
    Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
    el reporte se deja igual y se lista para que lo confirmes.
@@ -89,7 +94,7 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 
 Reglas que sigue la app al escribir en el Sheet:
 - **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por
-  **teléfono** (mismo celular y al menos una palabra del nombre en común) o por **nombre** con la bitácora o con
+  **teléfono** (mismo celular y nombre parecido, al menos la mitad de las palabras) o por **nombre** con la bitácora o con
   Sale-U, sus celdas **vacías** se llenan (teléfono, correo, folio, plazo, mensualidad, unidad, asesor, GAP,
   accesorios y, en Finalizados, el registro en Sale-U). Nunca se sobreescribe un dato. Si la bitácora y Sale-U
   traen el mismo dato, manda la bitácora (la mensualidad de Sale-U es aproximada). En *Actualizar con

@@ -14,7 +14,7 @@ actualiza y lo descargas al final.
 import pandas as pd
 import streamlit as st
 
-from cuadres.base import BaseGoogle, BaseExcel, TAB_CAPTURAS, TAB_BITACORA
+from cuadres.base import BaseGoogle, BaseExcel, TAB_CAPTURAS, TAB_BITACORA, TAB_FI
 from cuadres import fuentes
 
 
@@ -73,13 +73,55 @@ def bitacora_guardada(base):
         cons = fuentes.consolidar(fuentes.registros_capturas(caps))
         sol = fuentes.solicitudes_de_bitacora(pd.DataFrame(fuentes.filas_bitacora(cons, {}),
                                                            columns=fuentes.BITACORA_COLS))
-    # F&I escribe al asesor por su primer nombre ("CARLA"); se usa el nombre completo de Catalogos
+    return _unificar_vendedores(base, sol)
+
+
+def _unificar_vendedores(base, sol):
+    """F&I escribe al asesor por su primer nombre ("CARLA"); se usa el nombre completo de Catalogos."""
     from cuadres import actualizar
     catalogo = actualizar._catalogo_asesores(base)
     if catalogo:
         sol["Vendedor"] = sol["Vendedor"].map(lambda v: actualizar._asesor(v, catalogo) or v)
     sol["Vendedor"] = sol["Vendedor"].map(lambda v: v.upper() if v else "(sin vendedor)")
     return sol
+
+
+def registros_fi_guardados(base):
+    """(registros, fecha de carga) de la copia de la Bitácora de F&I guardada en el Sheet."""
+    if base is None or TAB_FI not in base.pestanas():
+        return [], None
+    df = base.leer(TAB_FI).drop(columns="_fila", errors="ignore")
+    fecha = next((v for v in df.get("Fecha de carga", []) if v), None) if not df.empty else None
+    return fuentes.registros_fi_de_tabla(df), fecha
+
+
+def registros_fi(base):
+    """(registros, de dónde): la Bitácora de F&I de Google si está configurada; si no, la copia guardada."""
+    try:
+        tablas, titulo = tablas_financiamiento(base)
+    except Exception:
+        tablas, titulo = None, None
+    if tablas is not None:
+        regs, _ = fuentes.registros_financiamiento(tablas)
+        if regs:
+            return regs, f"Google Sheets ({titulo})"
+    regs, fecha = registros_fi_guardados(base)
+    if regs:
+        cuando = f", cargada el {fecha:%d/%m/%Y}" if hasattr(fecha, "strftime") else ""
+        return regs, f"copia guardada en el Sheet{cuando}"
+    return [], None
+
+
+def bitacora_fi(base):
+    """(solicitudes, de dónde) para el cuadre de Sale-U: las solicitudes de la Bitácora de F&I (todas las
+    financieras), con el estatus oficial de Cetelem cuando también están en sus capturas."""
+    regs_fi, origen = registros_fi(base)
+    if not regs_fi:
+        return fuentes.solicitudes_de_bitacora(None), None
+    regs = fuentes.registros_capturas(capturas_guardadas(base)) + regs_fi
+    sol = [s for s in fuentes.consolidar(regs) if fuentes.es_de_fi(s)]
+    df = pd.DataFrame(fuentes.filas_bitacora(sol, {}), columns=fuentes.BITACORA_COLS)
+    return _unificar_vendedores(base, fuentes.solicitudes_de_bitacora(df)), origen
 
 
 def describir_bitacora(sol):
