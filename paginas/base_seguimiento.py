@@ -9,7 +9,7 @@ import streamlit as st
 
 import ui
 import conexion
-from cuadres import fuentes, actualizar
+from cuadres import fuentes, actualizar, pendientes
 from cuadres.base import TAB_HISTORIAL
 
 ui.hero("Base de seguimiento",
@@ -19,7 +19,7 @@ base = conexion.panel_base()
 if base is None:
     st.stop()
 
-tab_act, tab_hist = st.tabs(["🔄 Actualizar con bitácoras", "🕘 Historial de cambios"])
+tab_act, tab_pend, tab_hist = st.tabs(["🔄 Actualizar con bitácoras", "✅ Pendientes", "🕘 Historial de cambios"])
 
 with tab_act:
     if st.session_state.get("msg_act"):
@@ -105,6 +105,47 @@ with tab_act:
                     st.rerun()
                 except Exception as e:
                     st.error(f"No se pudo aplicar: {e}")
+
+with tab_pend:
+    if st.session_state.get("msg_pend"):
+        st.success(st.session_state.pop("msg_pend"))
+    st.markdown("Revisa los pendientes de la pestaña **Revision**. Los que ya tienen el dato capturado se marcan "
+                "como *Corregido* y se les quita el **morado y la nota** en la hoja. También quita la marca de los "
+                "que cambiaste a mano a *Corregido* o *No aplica*.")
+    if st.button("Revisar pendientes", type="primary", key="btn_rev_pend"):
+        with st.spinner("Revisando pendientes contra el Sheet…"):
+            try:
+                st.session_state["pend"] = pendientes.revisar(base)
+            except Exception as e:
+                st.session_state.pop("pend", None)
+                st.error(f"No se pudieron revisar: {e}")
+    pend = st.session_state.get("pend")
+    if pend is not None:
+        if pend.empty:
+            st.success("No hay pendientes en la pestaña Revision.")
+        else:
+            cuenta = pend["Resultado"].value_counts()
+            k = st.columns(4)
+            k[0].metric("Resueltos", int(cuenta.get("Resuelto", 0)))
+            k[1].metric("Marcados a mano", int(cuenta.get("Quitar marca", 0)))
+            k[2].metric("Siguen pendientes", int(cuenta.get("Sigue pendiente", 0)))
+            k[3].metric("Revisar a mano", int(cuenta.get("Revisar a mano", 0)))
+            orden = {"Resuelto": 0, "Quitar marca": 1, "Sigue pendiente": 2, "Revisar a mano": 3}
+            vista = pend.sort_values("Resultado", key=lambda x: x.map(orden))
+            st.dataframe(vista[["Resultado", "Hoja", "Celda", "Cliente", "Campo", "Detalle", "Problema"]],
+                         hide_index=True, width="stretch", height=min(520, 60 + 35 * len(vista)))
+            n = int(pend["Resultado"].isin(["Resuelto", "Quitar marca"]).sum())
+            if st.button(f"Limpiar {n} pendiente(s) resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar"):
+                with st.spinner("Quitando marcas y actualizando Revision…"):
+                    try:
+                        hechos = pendientes.aplicar(base, pend)
+                        st.session_state.pop("pend", None)
+                        st.session_state["msg_pend"] = (
+                            f"Listo: {hechos} pendiente(s) limpiado(s); quedó en el Historial."
+                            + (" Descarga el Excel actualizado con el botón de arriba." if isinstance(base, conexion.BaseExcel) else ""))
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo limpiar: {e}")
 
 with tab_hist:
     if TAB_HISTORIAL in base.pestanas():

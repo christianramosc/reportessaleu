@@ -34,6 +34,7 @@ cuadres/base.py                # leer/escribir el Sheet (Google o .xlsx), respal
 cuadres/fuentes.py             # bitácoras de Cetelem y Copia de Financiamiento → solicitudes
 cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
+cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision
 cuadres/seguimiento.py         # cuadre vs Excel de seguimiento
 cuadres/saleu.py               # cuadre vs Sale-U
 cuadres/blueservice.py         # cuadre BlueService vs Inventario
@@ -76,6 +77,10 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
 3. **Cuadres para reportes → Seguimiento** → *Hacer cuadre* (ya no pide archivos).
+4. **Base de seguimiento → Pendientes** → *Revisar pendientes* → *Limpiar*. Los pendientes de la pestaña
+   *Revision* que ya tienen el dato capturado pasan a *Corregido* y se les quita el morado y la nota en la
+   hoja. Si un pendiente no aplica o lo resolviste de otra forma, cámbialo a mano a *Corregido* o *No aplica*
+   en *Revision* y el botón le quita la marca.
 
 Reglas que sigue la app al escribir en el Sheet:
 - Lo de Cetelem manda en folio, estatus, mensualidad (máxima), plazo, teléfono, GAP y accesorios.
