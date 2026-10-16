@@ -22,12 +22,12 @@ y los Excel mensuales de Cetelem) cuando te lo pida.
 """
 
 import io, os, re, glob, unicodedata, subprocess, sys
-from datetime import datetime
+from datetime import date, datetime
 from difflib import SequenceMatcher
 import pandas as pd
 
 from openpyxl import load_workbook
-from cuadres.fuentes import financiera_igual
+from cuadres.fuentes import financiera_igual, folio_date, to_folio
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from reportlab.lib.pagesizes import letter, landscape
@@ -216,6 +216,7 @@ def leer_cetelem(rutas):
                                   ("MENSUALIDAD MAXIMA", "Mensualidad"), ("CORREO ELECTRONICO", "Correo")]:
                 sub[nombre] = d[col[extra]] if extra in col else ""
             sub["Mes"] = etiqueta
+            sub["Fecha"] = sub["Folio"].map(lambda f: folio_date(to_folio(f), orden // 100))  # día del año en el folio
             sub["Financiera"] = "CETELEM"
             sub["_orden_mes"] = orden
             sub = sub[sub["Nombre"].str.strip() != ""]
@@ -324,8 +325,10 @@ def consolidar_clientes(cet):
     for c in clientes:
         sub = cet.loc[c["filas"]]
         ult = sub.iloc[-1]
+        fecha = ultimo(sub, "Fecha")
         filas.append({
             "id_c": c["id"],
+            "Fecha": fecha if isinstance(fecha, (date, datetime)) else None,   # solicitud más reciente
             "Cliente_bitacora": ult["Nombre"],
             "Nombre_norm": ult["Nombre_norm"],
             "Tel_bitacora": ult["Tel_norm"] or ult["Telefono"],
@@ -485,12 +488,17 @@ COLORES = {"Coincide (teléfono y nombre)": "C6EFCE",
            "No cuadra": "FFC7CE", "Revisar": "FFEB9C", "OK": "C6EFCE"}
 
 
-COLS_FALTANTES = ["Nombre", "Celular", "Financiera", "Estatus", "Plazo", "Unidad", "Mensualidad", "Correo"]
+def fecha_txt(v):
+    return v.strftime("%d/%m/%Y") if isinstance(v, (date, datetime)) else ""
+
+
+COLS_FALTANTES = ["Fecha", "Nombre", "Celular", "Financiera", "Estatus", "Plazo", "Unidad", "Mensualidad", "Correo"]
 
 
 def tabla_faltantes(faltantes):
     """Hoja «Faltan en Sale-U»: los datos del cliente para darlo de alta."""
     return pd.DataFrame({
+        "Fecha": faltantes["Fecha"] if "Fecha" in faltantes else None,
         "Nombre": faltantes["Cliente_bitacora"], "Celular": faltantes["Tel_bitacora"],
         "Financiera": faltantes["Financiera_ultima"].replace(SIN_FINANCIERA, ""), "Estatus": faltantes["Estatus_final"], "Plazo": faltantes["Plazo"], "Unidad": faltantes["Unidad"],
         "Mensualidad": faltantes["Mensualidad"], "Correo": faltantes["Correo"]}, columns=COLS_FALTANTES)
@@ -528,6 +536,9 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
             for (celda,) in ws.iter_rows(min_row=2, min_col=COLS_FALTANTES.index("Mensualidad") + 1,
                                          max_col=COLS_FALTANTES.index("Mensualidad") + 1):
                 celda.number_format = '"$"#,##0.00'
+            for (celda,) in ws.iter_rows(min_row=2, min_col=1, max_col=1):
+                celda.number_format = "DD/MM/YYYY"
+            ws.column_dimensions["A"].width = 12
         ws.freeze_panes = "A2"
         if ws.max_row > 1:
             ws.auto_filter.ref = ws.dimensions
@@ -584,9 +595,10 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, m
         por_vend = faltantes.groupby("Vendedor").size().sort_values(ascending=False)
         el.append(Paragraph("Por vendedor: " + " · ".join(f"<b>{v}</b>: {n}" for v, n in por_vend.items()), txt))
         el.append(Spacer(1, 6))
-    el.append(tabla(tabla_faltantes(faltantes.sort_values(["Vendedor", "Cliente_bitacora"])).astype(object).where(
-                        lambda d: d.notna(), ""),
-                    COLS_FALTANTES, [5.0, 2.4, 2.6, 2.6, 1.2, 4.4, 2.2, 4.6], "#C00000"))
+    vista = tabla_faltantes(faltantes.sort_values(["Vendedor", "Cliente_bitacora"])).astype(object)
+    vista["Fecha"] = vista["Fecha"].map(fecha_txt)
+    el.append(tabla(vista.where(lambda d: d.notna(), ""),
+                    COLS_FALTANTES, [1.9, 4.6, 2.2, 2.3, 2.4, 1.1, 4.0, 2.1, 4.4], "#C00000"))
 
     el += [PageBreak(), Paragraph(f"2. Estatus que no cuadra ({len(no_cuadra)})", h2),
            Paragraph(f"El cliente sí está en Sale-U, pero su estatus no corresponde con {fuente}.", txt),
@@ -619,7 +631,7 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bit
             ini, fin = rango
             en_periodo = cet["Fecha"].map(lambda d: bool(d) and ini.date() <= d <= fin.date())
             cet = cet[en_periodo | cet["_siempre"]].reset_index(drop=True)
-        cet = cet.drop(columns=["Fecha", "_siempre"])
+        cet = cet.drop(columns=["_siempre"])
     else:
         cet = leer_cetelem(rutas_cet)
     if cet.empty:

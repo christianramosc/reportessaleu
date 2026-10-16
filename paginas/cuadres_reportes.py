@@ -385,6 +385,7 @@ with tab_su:
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             vista = cu.tabla_faltantes(df).assign(Vendedor=df["Vendedor"].values, Historial=df["Historial"].values,
                                                   Observaciones=df["Observaciones"].values)
+            vista["Fecha"] = vista["Fecha"].map(cu.fecha_txt)
             vista["Mensualidad"] = vista["Mensualidad"].map(lambda v: f"${v:,.2f}" if v == v and v else "")
             vista["Plazo"] = vista["Plazo"].map(lambda v: str(int(v)) if v == v and v else "")
             tabla(vista, cu.COLS_FALTANTES + ["Vendedor", "Historial", "Observaciones"])
