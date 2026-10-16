@@ -30,6 +30,15 @@ RESPALDOS_A_GUARDAR = 3
 
 _EPOCA = datetime(1899, 12, 30)        # día 0 de Google Sheets / Excel
 
+# Estilo uniforme de las pestañas que escribe la app (el mismo que ya usaba la Bitacora)
+ESTILO = dict(fuente="Calibri", tamano=9, texto="#000000", fondo="#FFFFFF", enc_texto="#FFFFFF", enc_fondo="#666666")
+FORMATO_NUMERO = {"fecha": ("DATE", "dd/mm/yyyy", "DD/MM/YYYY"), "entero": ("NUMBER", "0", "0"),
+                  "moneda": ("CURRENCY", "$#,##0.00", '"$"#,##0.00')}   # (tipo Google, patrón Google, patrón Excel)
+
+
+def _rgb(color):
+    return {k: int(color.lstrip("#")[i:i + 2], 16) / 255 for k, i in (("red", 0), ("green", 2), ("blue", 4))}
+
 
 def norm(t):
     """Texto comparable: sin acentos, mayúsculas, espacios simples."""
@@ -170,6 +179,15 @@ class _BaseComun:
         if pestana not in self.pestanas():
             return 0
         return self._reemplazar_en_formatos(pestana, cambios, filas_min)
+
+    def dar_formato(self, pestana, numeros=None):
+        """Un solo estilo para toda la pestaña (ESTILO): misma letra, tamaño y color, fondo blanco y encabezado
+        gris con letra blanca. numeros: {encabezado: "fecha" | "entero" | "moneda"} para el formato de esas columnas.
+        No toca el formato condicional (los colores por estatus)."""
+        enc = self.columnas(pestana)
+        cols = {i: tipo for i, h in enumerate(enc, start=1) for nombre, tipo in (numeros or {}).items()
+                if norm(h) == norm(nombre)}
+        self._dar_formato(pestana, len(enc), cols)
 
     def anotar_historial(self, registros):
         """registros: dicts con las llaves de HISTORIAL_COLS (Fecha se llena sola)."""
@@ -316,6 +334,33 @@ class BaseGoogle(_BaseComun):
             self.libro.batch_update({"requests": pedidos})
         return len(pedidos)
 
+    def _dar_formato(self, pestana, ncols, numeros):
+        ws = self._hoja(pestana)
+        filas, ncols = ws.row_count, max(ncols, 1)
+        rango = lambda f0, f1, c0, c1: {"sheetId": ws.id, "startRowIndex": f0, "endRowIndex": f1,
+                                        "startColumnIndex": c0, "endColumnIndex": c1}
+        texto = lambda color, negrita: {"fontFamily": ESTILO["fuente"], "fontSize": ESTILO["tamano"], "bold": negrita,
+                                        "italic": False, "strikethrough": False, "underline": False,
+                                        "foregroundColor": _rgb(color)}
+        campos = "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,numberFormat)"
+        pedidos = [
+            {"repeatCell": {"range": rango(1, filas, 0, ws.col_count), "fields": campos, "cell": {"userEnteredFormat": {
+                "textFormat": texto(ESTILO["texto"], False), "backgroundColor": _rgb(ESTILO["fondo"]),
+                "horizontalAlignment": "LEFT", "verticalAlignment": "MIDDLE", "wrapStrategy": "CLIP"}}}},
+            {"repeatCell": {"range": rango(0, 1, 0, ws.col_count), "fields": campos, "cell": {"userEnteredFormat": {
+                "textFormat": texto(ESTILO["enc_texto"], True), "backgroundColor": _rgb(ESTILO["enc_fondo"]),
+                "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE", "wrapStrategy": "WRAP"}}}},
+            {"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
+                                       "fields": "gridProperties.frozenRowCount"}},
+        ]
+        for col, tipo in numeros.items():
+            t, patron, _ = FORMATO_NUMERO[tipo]
+            pedidos.append({"repeatCell": {
+                "range": rango(1, filas, col - 1, col), "fields": "userEnteredFormat(numberFormat,horizontalAlignment)",
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": t, "pattern": patron},
+                                               "horizontalAlignment": "LEFT" if tipo == "fecha" else "RIGHT"}}}})
+        self.libro.batch_update({"requests": pedidos})
+
     def _marcar(self, pestana, celdas, color):
         r, g, b = (int(color.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
         formatos = [{"range": f"{letra(c)}{f}", "format": {"backgroundColor": {"red": r, "green": g, "blue": b}}}
@@ -403,6 +448,26 @@ class BaseExcel(_BaseComun):
 
     def _formulas(self, pestana):
         return [[c.value for c in fila] for fila in self.libro[pestana].iter_rows()]
+
+    def _dar_formato(self, pestana, ncols, numeros):
+        from openpyxl.styles import Alignment, Font, PatternFill
+        ws = self.libro[pestana]
+        sin = lambda c: c.lstrip("#").upper()
+        letra_normal = Font(name=ESTILO["fuente"], size=ESTILO["tamano"], color="FF" + sin(ESTILO["texto"]))
+        letra_enc = Font(name=ESTILO["fuente"], size=ESTILO["tamano"], bold=True, color="FF" + sin(ESTILO["enc_texto"]))
+        fondo_enc = PatternFill("solid", fgColor="FF" + sin(ESTILO["enc_fondo"]))
+        for fila in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=max(ws.max_column, ncols)):
+            for c in fila:
+                if c.row == 1:
+                    c.font, c.fill = letra_enc, fondo_enc
+                    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                else:
+                    c.font, c.fill = letra_normal, PatternFill(fill_type=None)
+                    tipo = numeros.get(c.column)
+                    c.number_format = FORMATO_NUMERO[tipo][2] if tipo else "General"
+                    c.alignment = Alignment(horizontal="right" if tipo in ("entero", "moneda") else "left",
+                                            vertical="center")
+        ws.freeze_panes = ws.freeze_panes or "A2"
 
     def _reemplazar_en_formatos(self, pestana, cambios, filas_min):
         n = 0

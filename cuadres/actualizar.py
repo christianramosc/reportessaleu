@@ -72,14 +72,20 @@ def _catalogo_asesores(base):
 
 
 def _asesor(corto, catalogo):
+    """Nombre completo del asesor según Catalogos: 'CARLA' → 'CARLA YOVET CARDENAS AHUMADA',
+    'JESSICA MACHUCA' → 'JESSICA ELIZABETH MACHUCA ROQUE'. Si no hay uno solo que corresponda, se deja igual."""
     c = norm(corto)
     if not c:
         return None
     exact = [a for a in catalogo if norm(a) == c]
     if exact:
         return exact[0]
-    mismo = [a for a in catalogo if norm(a).split()[0] == c.split()[0]]
-    return mismo[0] if len(mismo) == 1 else str(corto).strip()
+    palabras = c.split()
+    contiene = [a for a in catalogo if set(palabras) <= set(norm(a).split())]     # todas sus palabras están
+    if len(contiene) == 1:
+        return contiene[0]
+    mismo = [a for a in catalogo if norm(a).split()[0] == palabras[0]]
+    return mismo[0] if len(mismo) == 1 and len(palabras) == 1 else str(corto).strip()
 
 
 def proponer(base, solicitudes):
@@ -220,25 +226,19 @@ def migrar_formalizado(base):
 
 
 FUENTE_SHEET = ("MG Colima Rechazos fila", "MG Colima Créditos Finalizados fila")
+SIN_FORMALIZADOS = "Formalizado"     # la pestaña Bitacora no guarda las solicitudes formalizadas
 
 
-def filas_bitacora_del_sheet(base, solicitudes, fila_de_sol):
-    """Filas para la Bitacora con lo que solo está en el Sheet: rechazos de «MG Colima Rechazos» que no salen de
-    ninguna captura de Cetelem ni de la Bitácora de F&I (p. ej. capturados a mano o de meses anteriores) y los
-    créditos de «MG Colima Créditos Finalizados» que no están en ellas. Así la Bitacora es el acumulado de todo."""
-    from cuadres.saleu_sheet import solicitudes_del_sheet, ESTATUS_FINALIZADO
+def filas_bitacora_del_sheet(base, fila_de_sol):
+    """Filas para la Bitacora con los rechazos de «MG Colima Rechazos» que no salen de ninguna captura de Cetelem
+    ni de la Bitácora de F&I (p. ej. capturados a mano o de meses anteriores). Así la Bitacora es el acumulado."""
+    from cuadres.saleu_sheet import solicitudes_del_sheet
     ligadas = {f for filas in fila_de_sol.values() for f in filas}
-    claves = [k for s in solicitudes for k in s["keys"]]
     out = []
     for _, r in solicitudes_del_sheet(base).iterrows():
-        if r["Hoja"] == "Rechazos":
-            if r["Fila"] in ligadas:
-                continue
-            estatus, fuente, fila_rech = "Rechazado", f"{FUENTE_SHEET[0]} {r['Fila']}", r["Fila"]
-        else:
-            if any(similar(name_key(r["Nombre"]), k) for k in claves):
-                continue
-            estatus, fuente, fila_rech = "Formalizado", f"{FUENTE_SHEET[1]} {r['Fila']}", ""
+        if r["Hoja"] != "Rechazos" or r["Fila"] in ligadas:
+            continue
+        estatus, fuente, fila_rech = "Rechazado", f"{FUENTE_SHEET[0]} {r['Fila']}", r["Fila"]
         banco = "" if r["Fin_sol"] == "SIN FINANCIERA" else r["Fin_sol"]
         tel = to_phone(r["Telefono"])
         fecha = to_date(r["Fecha"]) if isinstance(r["Fecha"], dt.date) else None
@@ -247,6 +247,25 @@ def filas_bitacora_del_sheet(base, solicitudes, fila_de_sol):
                     banco, estatus, None, estatus, banco, r["Plazo"], r["Mensualidad"], None, None, None, None,
                     None, None, fila_rech, fuente])
     return out
+
+
+COL_VENDEDOR, COL_ESTATUS_SOL = BITACORA_COLS.index("Vendedor"), BITACORA_COLS.index("Estatus solicitud")
+# Formato uniforme de la Bitacora: tipo de número por columna (lo demás, texto)
+FORMATO_BITACORA = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", "Año": "entero", "Plazo": "entero",
+                    "Mensualidad": "moneda", "Monto a financiar": "moneda"}
+
+
+def filas_bitacora_completa(base, solicitudes, fila_de_sol):
+    """Filas de la pestaña Bitacora: solicitudes de las bitácoras + rechazos que solo están en el Sheet, sin las
+    formalizadas, con el vendedor según Catalogos y ordenadas por fecha (sin fecha al final)."""
+    catalogo = _catalogo_asesores(base)
+    filas = filas_bitacora(solicitudes, fila_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
+    filas = [f for f in filas if f[COL_ESTATUS_SOL] != SIN_FORMALIZADOS]
+    for f in filas:
+        if f[COL_VENDEDOR] and catalogo:
+            f[COL_VENDEDOR] = _asesor(f[COL_VENDEDOR], catalogo)
+    filas.sort(key=lambda f: (f[0] is None or f[0] == "", f[0] or dt.date.max))
+    return filas
 
 
 def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi=None):
@@ -307,10 +326,8 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
                         capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist())
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi))
-    filas = filas_bitacora(solicitudes, contexto["fila_de_sol"])
-    filas += filas_bitacora_del_sheet(base, solicitudes, contexto["fila_de_sol"])
-    filas.sort(key=lambda f: (f[0] is None or f[0] == "", f[0] or dt.date.max))      # por fecha; sin fecha al final
-    base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas)
+    base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"]))
+    base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)
     try:
         aviso = None
         migrar_formalizado(base)
