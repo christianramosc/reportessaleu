@@ -48,23 +48,31 @@ with tab_act:
                                      "se lee sola desde Google Sheets.")
         if f_fi is not None:
             tablas_fi, titulo_fi = fuentes.tablas_de_excel(f_fi.getvalue()), f_fi.name
+    fi_guardados, fi_fecha = conexion.registros_fi_guardados(base)
+    if tablas_fi is None:
+        c2.caption("Guardada en el Sheet: " + (
+            f"{len(fi_guardados)} registros" + (f" (cargada el {fi_fecha:%d/%m/%Y})" if hasattr(fi_fecha, "strftime") else "")
+            if fi_guardados else "ninguna todavía") + ". Si subes otra, reemplaza a la guardada.")
 
-    puede = bool(archivos_cet) or not guardadas.empty or tablas_fi is not None
+    puede = bool(archivos_cet) or not guardadas.empty or tablas_fi is not None or bool(fi_guardados)
     if st.button("Revisar cambios", type="primary", disabled=not puede, key="btn_revisar"):
         with st.spinner("Leyendo bitácoras y comparando con el Sheet…"):
             try:
                 nuevas = fuentes.leer_capturas([(f.name, f.getvalue()) for f in archivos_cet or []])
                 capturas = fuentes.combinar_capturas(guardadas, nuevas) if not nuevas.empty else guardadas
                 regs = fuentes.registros_capturas(capturas)
-                hojas_fi = []
+                hojas_fi, regs_fi = [], []
                 if tablas_fi is not None:
                     regs_fi, hojas_fi = fuentes.registros_financiamiento(tablas_fi)
-                    regs += regs_fi
+                elif fi_guardados:              # la copia guardada: así la Bitacora no pierde lo de F&I
+                    regs_fi, hojas_fi = fi_guardados, ["copia guardada en el Sheet"]
+                regs += regs_fi
                 sol = fuentes.consolidar(regs)
                 prop, ctx = actualizar.proponer(base, sol)
                 st.session_state["act"] = dict(prop=prop, ctx=ctx, sol=sol, capturas=capturas,
                                                meses=list(dict.fromkeys(capturas["Hoja"])) if not capturas.empty else [],
-                                               hojas_fi=hojas_fi, cambia_capturas=not nuevas.empty)
+                                               hojas_fi=hojas_fi, cambia_capturas=not nuevas.empty,
+                                               regs_fi=regs_fi if tablas_fi is not None else None)
             except Exception as e:
                 st.session_state.pop("act", None)
                 st.error(f"No se pudo revisar: {e}")
@@ -101,7 +109,7 @@ with tab_act:
         if st.button(etiqueta, type="primary", key="btn_aplicar"):
             with st.spinner("Escribiendo en el Sheet…"):
                 try:
-                    r = actualizar.aplicar(base, prop, act["sol"], act["ctx"], act["capturas"])
+                    r = actualizar.aplicar(base, prop, act["sol"], act["ctx"], act["capturas"], act.get("regs_fi"))
                     st.session_state.pop("act", None)
                     if r.get("aviso"):
                         st.session_state["aviso_act"] = r["aviso"]
@@ -182,6 +190,28 @@ with tab_hist:
                         st.rerun()
                     except Exception as e:
                         st.error(f"No se pudo restaurar: {e}")
+    if st.session_state.get("msg_desh"):
+        st.success(st.session_state.pop("msg_desh"))
+    try:
+        dudosos = saleu_sheet.por_telefono_dudosos(base)
+    except Exception:
+        dudosos = None
+    if dudosos is not None and not dudosos.empty:
+        with st.container(border=True):
+            st.warning(f"**{len(dudosos)} celda(s) se llenaron con el cuadre de Sale-U solo porque el teléfono coincide "
+                       "con otra persona** (nombre distinto, p. ej. un familiar). Con la regla actual eso ya no cuenta; "
+                       "puedes regresarlas a como estaban.", icon=":material/undo:")
+            st.dataframe(dudosos[["Fila", "Cliente", "Campo", "Valor", "Regresar a", "Sale-U", "Fecha"]].assign(
+                             Fila=dudosos["Fila"].astype(str), Valor=dudosos["Valor"].astype(str)),
+                         hide_index=True, width="stretch", height=min(380, 60 + 35 * len(dudosos)))
+            if st.button(f"Deshacer {len(dudosos)} cambio(s)", type="primary", key="btn_deshacer_su"):
+                with st.spinner("Escribiendo en el Sheet…"):
+                    try:
+                        n = saleu_sheet.deshacer_dudosos(base, dudosos)
+                        st.session_state["msg_desh"] = f"Listo: {n} celda(s) regresaron a como estaban; quedó en el Historial."
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo deshacer: {e}")
     if TAB_HISTORIAL in base.pestanas():
         h = base.leer(TAB_HISTORIAL).drop(columns="_fila", errors="ignore")
         if h.empty:

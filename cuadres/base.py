@@ -23,6 +23,7 @@ TAB_RECHAZOS = "MG Colima Rechazos"
 TAB_FINALIZADOS = "MG Colima Créditos Finalizados"
 TAB_BITACORA = "Bitacora"
 TAB_CAPTURAS = "Capturas Cetelem"
+TAB_FI = "Bitacora F&I"          # copia de los registros de la Bitácora de F&I (para no perderlos entre cargas)
 TAB_HISTORIAL = "Historial"
 HISTORIAL_COLS = ["Fecha", "Origen", "Hoja", "Celda", "Cliente", "Campo", "Antes", "Después", "Motivo"]
 RESPALDOS_A_GUARDAR = 3

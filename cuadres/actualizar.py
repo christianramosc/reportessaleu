@@ -10,9 +10,10 @@ import datetime as dt
 
 import pandas as pd
 
-from cuadres.base import (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, TAB_CAPTURAS, TAB_HISTORIAL, norm, letra)
+from cuadres.base import (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, TAB_CAPTURAS, TAB_FI, TAB_HISTORIAL,
+                          norm, letra)
 from cuadres.fuentes import (name_key, similar, to_folio, to_phone, to_num, to_date, folio_date,
-                             BITACORA_COLS, CAP_COLS, CAP_EXTRA, filas_bitacora)
+                             BITACORA_COLS, CAP_COLS, CAP_EXTRA, filas_bitacora, FI_COLS, filas_fi)
 
 AZUL_NUEVO = "#CFE2F3"     # mismo azul claro de "Agregado desde la bitácora" en la leyenda del Resumen
 
@@ -218,7 +219,7 @@ def migrar_formalizado(base):
     return n
 
 
-def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
+def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi=None):
     """Escribe en la base las propuestas con Aplicar=True. Devuelve un resumen."""
     marca = propuestas["Aplicar"].astype(bool) if not propuestas.empty else pd.Series([], dtype=bool)
     elegidas, ignoradas = propuestas[marca.values], propuestas[~marca.values]
@@ -274,6 +275,8 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None):
     if capturas is not None and not capturas.empty:
         base.reemplazar(TAB_CAPTURAS, CAP_COLS + CAP_EXTRA,
                         capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist())
+    if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
+        base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi))
     base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas_bitacora(solicitudes, contexto["fila_de_sol"]))
     try:
         aviso = None

@@ -355,13 +355,19 @@ def cruzar(cli, su):
                 continue
             candidatos.append((nivel, -sim, c["id_c"], s["id_s"], sim, tel))
 
+    # Mismo criterio que la columna «Cliente con Registro en SalesU» del Sheet (saleu_sheet.py):
+    # está en Sale-U si coincide el teléfono con nombre parecido (nivel 1) o el nombre es muy parecido
+    # (nivel 2). Mismo teléfono con otro nombre (3) o nombre medio parecido (4) NO cuentan: se avisan
+    # como posibles para revisar.
     candidatos.sort()
-    usados_c, usados_s, pares = set(), set(), {}
+    usados_s, pares, posibles = set(), {}, {}
     for nivel, _, ic, is_, sim, tel in candidatos:
-        if ic in usados_c or is_ in usados_s:
-            continue
-        usados_c.add(ic); usados_s.add(is_)
-        pares[ic] = (is_, nivel, sim)
+        if nivel <= 2:
+            if ic not in pares:
+                pares[ic] = (is_, nivel, sim)
+                usados_s.add(is_)
+        elif ic not in posibles:
+            posibles[ic] = (is_, nivel)
 
     tipo = {1: "Coincide (teléfono y nombre)",
             2: "Coincide por nombre – teléfono distinto",
@@ -401,10 +407,16 @@ def cruzar(cli, su):
                 "Cuadre_estatus": est_cuadre, "Observaciones": "; ".join(obs),
             })
         else:
+            obs_no = "Dar de alta en Sale-U"
+            if c["id_c"] in posibles:
+                is_, nivel = posibles[c["id_c"]]
+                s = su.loc[su["id_s"] == is_].iloc[0]
+                obs_no += (f"; revisar posible registro: {s['Nombre']} "
+                           + ("(mismo teléfono, otro nombre)" if nivel == 3 else f"(nombre parecido, tel. {s['Telefono']})"))
             base.update({"Resultado": "NO registrado en Sale-U", "Similitud_nombre": None,
                          "Cliente_SaleU": "", "Tel_SaleU": "", "Asesor_SaleU": "",
                          "Estatus_SaleU": "", "Financiera_SaleU": "", "Fuente_SaleU": "", "Fecha_alta_SaleU": "",
-                         "Cuadre_estatus": "—", "Observaciones": "Dar de alta en Sale-U"})
+                         "Cuadre_estatus": "—", "Observaciones": obs_no})
         filas.append(base)
     cuadre = pd.DataFrame(filas)
 
@@ -601,9 +613,9 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None):
         ("Clientes de la bitácora encontrados en Sale-U", int(encontrados.sum())),
         ("   · por teléfono y nombre", int((cuadre["Resultado"] == "Coincide (teléfono y nombre)").sum())),
         ("   · por nombre, teléfono distinto", int((cuadre["Resultado"] == "Coincide por nombre – teléfono distinto").sum())),
-        ("   · por teléfono, nombre distinto", int((cuadre["Resultado"] == "Coincide por teléfono – nombre distinto").sum())),
-        ("   · posibles (revisar)", int((cuadre["Resultado"] == "Posible coincidencia por nombre").sum())),
         ("Clientes de la bitácora NO registrados en Sale-U", len(faltantes)),
+        ("   · con posible registro a revisar (mismo teléfono u otro nombre parecido)",
+         int(faltantes["Observaciones"].str.contains("revisar posible").sum())),
         ("Porcentaje de cuadre", f"{encontrados.mean():.1%}" if len(cuadre) else "—"),
         ("Estatus que no cuadra", len(no_cuadra)),
         ("En contrapropuesta o análisis (revisar estatus)", int((cuadre["Cuadre_estatus"] == "Revisar").sum())),

@@ -6,8 +6,8 @@ Si un cliente de "MG Colima Rechazos" o "MG Colima Créditos Finalizados" cuadra
 otra fuente (bitácoras de Cetelem / F&I o el reporte de Sale-U) por **teléfono** o por **nombre**,
 las celdas que estén VACÍAS se llenan con el dato de esa fuente. Nunca se sobreescribe un dato.
 
-  · Por teléfono: mismo celular (10 dígitos) y al menos una palabra del nombre en común
-    (así un teléfono repetido entre dos clientes distintos no mezcla sus datos).
+  · Por teléfono: mismo celular (10 dígitos) y nombre parecido (al menos la mitad de las palabras), así
+    un familiar con el mismo teléfono (p. ej. mismo apellido) no mezcla sus datos.
   · Por nombre: el mismo nombre sin importar orden, acentos ni puntos (≥ 90 % de parecido).
 
 registros: lista de dicts con las llaves de CAMPOS que tenga la fuente, más
@@ -59,8 +59,11 @@ def filas_base(base):
 def _candidatos(fila, por_tel, registros):
     """Registros que cuadran con la fila, del más confiable al menos."""
     vistos, cands = set(), []
+    from cuadres import saleu as cu
+    nom = cu.normalizar_nombre(fila["nombre"])
     for r in por_tel.get(fila["tel"], []) if fila["tel"] else []:
-        if _palabras(fila["key"]) & _palabras(r["key"]):
+        # mismo teléfono y nombre parecido (≥ 50 % de las palabras): un familiar con el mismo teléfono no cuenta
+        if cu.similitud_nombre(nom, cu.normalizar_nombre(r.get("nombre")))[0] >= cu.UMBRAL_NOMBRE_CON_TEL:
             cands.append((0 if similar(fila["key"], r["key"]) else 1, r, "teléfono"))
             vistos.add(id(r))
     for r in registros:
