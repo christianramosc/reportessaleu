@@ -328,7 +328,12 @@ class BaseGoogle(_BaseComun):
     def respaldar(self, pestana):
         """Copia oculta de la pestaña antes de escribir; conserva las últimas RESPALDOS_A_GUARDAR."""
         prefijo = f"_resp {pestana[:20]} "
-        nombre = prefijo + datetime.now().strftime("%Y-%m-%d %H%M")
+        nombre = prefijo + datetime.now().strftime("%Y-%m-%d %H%M%S")
+        existentes = {w.title for w in self.libro.worksheets()}
+        n = 2
+        while nombre in existentes:          # dos respaldos en el mismo segundo: Google no admite nombres repetidos
+            nombre = prefijo + datetime.now().strftime("%Y-%m-%d %H%M%S") + f" ({n})"
+            n += 1
         copia = self._hoja(pestana).duplicate(new_sheet_name=nombre)
         copia.hide()
         viejas = sorted([w for w in self.libro.worksheets() if w.title.startswith(prefijo)], key=lambda w: w.title)

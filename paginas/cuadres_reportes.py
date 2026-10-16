@@ -126,13 +126,14 @@ def ejecutar_seg_base(base, bitacora):
     return res
 
 
-def ejecutar_su_base(base, archivo_su, bitacora, escribir):
-    """Cuadre Sale-U contra la bitácora (todas las financieras) + registro en Sale-U escrito en la base."""
+def ejecutar_su_base(base, archivo_su, clientes, escribir):
+    """Cuadre Sale-U contra los clientes del Sheet (MG Colima Rechazos, todas las financieras, y Créditos
+    Finalizados) + registro en Sale-U escrito en la base."""
     with tempfile.TemporaryDirectory() as tmp:
         ruta_su = guardar_temporal([archivo_su], tmp)[0]
         res = {}
-        if not bitacora.empty:
-            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=bitacora)
+        if not clientes.empty:
+            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=clientes, fuente="el Sheet")
             res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
             res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
         su = cu.leer_saleu(ruta_su)
@@ -174,6 +175,13 @@ with st.sidebar:
 ui.hero("Cuadres para reportes",
         "Elige el cuadre, sube los archivos fuente y descarga el resultado en Excel y PDF.")
 
+try:
+    base = conexion.obtener_base()      # una sola lectura del Sheet por ejecución (cuenta en la cuota de Google)
+except Exception as e:
+    base = None
+    st.error(f"No pude abrir el Google Sheet: {e}. Revisa que esté compartido con la cuenta de servicio como "
+             "Editor. Mientras, puedes cuadrar subiendo los archivos.", icon=":material/cloud_off:")
+
 tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs bitácora",
                                    "🟦 Sale-U vs bitácora",
                                    "🔧 BlueService vs Inventario"])
@@ -187,7 +195,6 @@ AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la f
 
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
-    base = conexion.obtener_base()
     st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de la bitácora: capturas de "
                 "Cetelem y Bitácora de F&I, de **todas las financieras** (la base solo registra rechazos).")
     if base is not None:
@@ -268,25 +275,23 @@ with tab_seg:
 
 # ---------------------------------------------------------------- SALE-U
 with tab_su:
-    base = conexion.obtener_base()
     c1, c2 = st.columns(2)
     f_su = c1.file_uploader("Excel de Sale - U", type=["csv", "xlsx"], key="up_su",
                             help="Sube el reporte de Sale - U tal cual se descarga "
                                  "(reporteLeadsconCredito…), sin abrirlo ni guardarlo antes en Excel.")
     c1.caption("📄 Archivo: **reporte de Sale - U** (reporteLeadsconCredito), tal cual se descarga.")
     if base is not None:
-        bit, origen_fi = conexion.bitacora_fi(base)
+        bit = saleu_sheet.solicitudes_del_sheet(base)
         if not bit.empty:
-            c2.success(f"Se compara contra la **Bitácora de F&I** ({origen_fi}): {conexion.describir_bitacora(bit)}",
+            c2.success(f"Se compara contra **{base.titulo}**: {saleu_sheet.describir_sheet(bit)}",
                        icon=":material/cloud_done:")
-            c2.caption("Son todas las solicitudes de F&I (todas las financieras); cuando una también está en las "
-                       "capturas de Cetelem, manda el estatus de Cetelem. Para actualizarla, súbela en "
-                       "**Base de seguimiento → Actualizar con bitácoras** y aplica.")
+            c2.caption("Todos los clientes de *MG Colima Rechazos* (todas las financieras) cuya fecha de ingreso cae en "
+                       "el periodo del reporte, y todos los de *MG Colima Créditos Finalizados* (no traen fecha). Para "
+                       "agregar los de la Bitácora de F&I y las capturas de Cetelem, súbelas en **Base de seguimiento → "
+                       "Actualizar con bitácoras** y aplica.")
         else:
-            bit = conexion.bitacora_guardada(base)
-            c2.warning("No hay **Bitácora de F&I** guardada: súbela en **Base de seguimiento → Actualizar con "
-                       "bitácoras** y aplica. Mientras, se compara contra la pestaña Bitacora del Sheet: "
-                       f"{conexion.describir_bitacora(bit)}.", icon=":material/warning:")
+            c2.warning("Las pestañas *MG Colima Rechazos* y *MG Colima Créditos Finalizados* del Sheet están vacías.",
+                       icon=":material/warning:")
         escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
                              help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
                                   "del periodo del reporte de Sale-U. Lo que ya dice Registrado o Sí nunca se baja "
@@ -351,11 +356,14 @@ with tab_su:
             st.info("Modo Excel: descarga el archivo actualizado en la página «Base de seguimiento».")
     if res and "resumen" in res:
         r = res["resumen"]
-        st.success(f"Bitácora: {', '.join(res['meses'])}  ·  Financieras: {', '.join(res.get('financieras', []))}")
+        fuente = res.get("fuente", "la bitácora")
+        st.success(f"{fuente[0].upper()}{fuente[1:]}: {', '.join(res['meses'])}  ·  "
+                   f"Financieras: {', '.join(res.get('financieras', []))}")
         m = st.columns(5)
-        m[0].metric("Clientes en bitácora", valor_resumen(r, "Clientes únicos"))
-        m[1].metric("En Sale-U", valor_resumen(r, "Clientes de la bitácora encontrados"))
-        m[2].metric("Faltan en Sale-U", valor_resumen(r, "Clientes de la bitácora NO"))
+        m[0].metric("Clientes en el Sheet" if fuente == "el Sheet" else "Clientes en bitácora",
+                    valor_resumen(r, "Clientes únicos"))
+        m[1].metric("En Sale-U", valor_resumen(r, f"Clientes {cu.de(fuente)} encontrados"))
+        m[2].metric("Faltan en Sale-U", valor_resumen(r, f"Clientes {cu.de(fuente)} NO"))
         m[3].metric("% de cuadre", valor_resumen(r, "Porcentaje"))
         m[4].metric("Estatus no cuadra", valor_resumen(r, "Estatus que no cuadra"))
         descargas(res, "su")
@@ -366,10 +374,11 @@ with tab_su:
             "Cuadre completo", "Resumen"])
         with t1:
             if "registro" in res:
-                rech = int(res["faltantes"]["Historial"].str.contains("RECHAZADO").sum())
+                est = res["faltantes"]["Estatus_final"]
+                rech, fin = int((est == "RECHAZADO").sum()), int((est == saleu_sheet.ESTATUS_FINALIZADO).sum())
                 n_hoja = int((res["registro"]["Después"] == saleu_sheet.NO_REGISTRADO).sum())
-                st.caption(f"De estos, **{rech}** tienen un rechazo en la Bitácora de F&I. En el Sheet quedan "
-                           f"**{n_hoja}** rechazos del periodo como *No Registrado*.")
+                st.caption(f"De estos, **{rech}** son de *MG Colima Rechazos* y **{fin}** de *Créditos Finalizados*. "
+                           f"En el Sheet quedan **{n_hoja}** rechazos del periodo como *No Registrado*.")
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
