@@ -75,7 +75,7 @@ def filtro_vendedor(df, clave, columna="Vendedor"):
     if df.empty or columna not in df.columns:
         return df
     opciones = sorted(v for v in df[columna].dropna().unique() if str(v).strip())
-    elegidos = st.multiselect("Filtrar por vendedor", opciones, key=clave, placeholder="Todos los vendedores")
+    elegidos = st.multiselect("Vendedor", opciones, key=clave, placeholder="Todos")
     return df[df[columna].isin(elegidos)] if elegidos else df
 
 
@@ -86,11 +86,12 @@ def valor_resumen(resumen, texto):
 
 def descargas(res, prefijo):
     c1, c2, _ = st.columns([1, 1, 3])
-    c1.download_button("⬇️ Descargar Excel", res["xlsx_bytes"], file_name=res["xlsx_nombre"],
+    c1.download_button("Excel", res["xlsx_bytes"], file_name=res["xlsx_nombre"],
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                       width="stretch", key=f"{prefijo}_x")
-    c2.download_button("⬇️ Descargar PDF", res["pdf_bytes"], file_name=res["pdf_nombre"],
-                       mime="application/pdf", width="stretch", key=f"{prefijo}_p")
+                       width="stretch", key=f"{prefijo}_x", icon=":material/table_view:")
+    c2.download_button("PDF", res["pdf_bytes"], file_name=res["pdf_nombre"],
+                       mime="application/pdf", width="stretch", key=f"{prefijo}_p",
+                       icon=":material/picture_as_pdf:")
 
 
 def ejecutar_bs(archivo_bs, archivo_inv, hoja):
@@ -152,19 +153,16 @@ def ejecutar_su_base(base, archivo_su, clientes, escribir):
 # Barra lateral: ajustes
 # =============================================================================
 with st.sidebar:
-    st.header("⚙️ Ajustes")
-    st.caption("Qué tan estricta es la comparación de nombres (aplica a los dos cuadres).")
-    fuerte = st.slider("Coincidencia solo por nombre", 0.6, 1.0, 0.80, 0.05,
-                       help="Parecido mínimo para aceptar un cliente con teléfono distinto.")
-    con_tel = st.slider("Nombre cuando el teléfono coincide", 0.3, 1.0, 0.50, 0.05,
-                        help="Si el teléfono es igual, cuánto debe parecerse el nombre.")
+    st.header("Ajustes")
+    st.caption("Parecido mínimo de nombres.")
+    fuerte = st.slider("Solo por nombre", 0.6, 1.0, 0.80, 0.05, help="Cuando el teléfono es distinto.")
+    con_tel = st.slider("Con teléfono igual", 0.3, 1.0, 0.50, 0.05, help="Cuando el teléfono coincide.")
     for m in (cs, cu):
         m.UMBRAL_NOMBRE_FUERTE, m.UMBRAL_NOMBRE_CON_TEL = fuerte, con_tel
 
     st.divider()
     st.subheader("Sale-U")
-    st.caption("Cómo debe verse en Sale-U una contrapropuesta:")
-    contra = st.selectbox("Contrapropuesta", ["No se juzga (revisar)", "Aceptado", "Rechazado"])
+    contra = st.selectbox("Contrapropuesta en Sale-U", ["Revisar", "Aceptado", "Rechazado"])
     cu.ESTATUS_ESPERADO["CONTRAPROPUESTA"] = {"Aceptado": "ACEPTADO",
                                               "Rechazado": "RECHAZADO"}.get(contra)
 
@@ -172,38 +170,29 @@ with st.sidebar:
 # =============================================================================
 # Página
 # =============================================================================
-ui.hero("Cuadres para reportes",
-        "Elige el cuadre, sube los archivos fuente y descarga el resultado en Excel y PDF.")
+ui.hero("Cuadres para reportes", "Elige el cuadre y descarga el resultado en Excel y PDF.")
 
 try:
     base = conexion.obtener_base()      # una sola lectura del Sheet por ejecución (cuenta en la cuota de Google)
 except Exception as e:
     base = None
-    st.error(f"No pude abrir el Google Sheet: {e}. Revisa que esté compartido con la cuenta de servicio como "
-             "Editor. Mientras, puedes cuadrar subiendo los archivos.", icon=":material/cloud_off:")
+    st.error(f"No se pudo abrir el Google Sheet: {e}. Mientras, puedes subir los archivos.",
+             icon=":material/cloud_off:")
 
-tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs bitácora",
-                                   "🟦 Sale-U vs bitácora",
-                                   "🔧 BlueService vs Inventario"])
+tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento", "🟦 Sale-U", "🔧 BlueService"])
 
-AGREGAR_MES = ("La bitácora es la pestaña **Bitacora** del Sheet: junta las capturas de Cetelem y la Bitácora de F&I "
-               "(todas las financieras). Para agregar un mes, súbelo en **Base de seguimiento → Actualizar con "
-               "bitácoras** y aplica; de ahí la toman todos los cuadres.")
-AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la financiera CETELEM "
-                  "(un Excel por mes, ej. JULIO_2026_FINAL.xlsx, AGOSTO_2026_FINAL.xlsx). "
-                  "Puedes subir varios meses a la vez.")
+AGREGAR_MES = "Para agregar un mes: **Base de seguimiento → Actualizar**."
+AYUDA_CAPTURAS = "Las pide el F&I. Un Excel por mes (ej. JULIO_2026_FINAL.xlsx); puedes subir varios."
 
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
-    st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de la bitácora: capturas de "
-                "Cetelem y Bitácora de F&I, de **todas las financieras** (la base solo registra rechazos).")
+    st.markdown("Busca en el seguimiento los **rechazos** de la bitácora (todas las financieras).")
     if base is not None:
         bit = conexion.bitacora_guardada(base, con_sheet=False)    # solo bitácoras: el Sheet es lo que se revisa
-        st.success(f"Seguimiento: se lee de **{base.titulo}** · Bitácora: {conexion.describir_bitacora(bit)}",
-                   icon=":material/cloud_done:")
+        st.success(f"Bitácora: {conexion.describir_bitacora(bit)}", icon=":material/cloud_done:")
         st.caption(AGREGAR_MES)
         if st.button("Hacer cuadre", type="primary", disabled=bit.empty, key="btn_seg"):
-            with st.spinner("Cruzando folios, teléfonos y nombres…"):
+            with st.spinner("Cruzando…"):
                 try:
                     st.session_state["res_seg"] = ejecutar_seg_base(base, bit)
                 except Exception as e:
@@ -211,18 +200,14 @@ with tab_seg:
                     st.error(f"No se pudo hacer el cuadre: {e}")
     else:
         c1, c2 = st.columns(2)
-        f_seg = c1.file_uploader("Seguimiento Rechazos Financiera MG", type=["xlsx"], key="up_seg",
-                                 help="Sube el archivo con el formato 'Seguimiento Rechazos Financiera MG.xlsx'. "
-                                      "Solo se leen las pestañas de COLIMA.")
-        c1.caption("📄 Formato: **Seguimiento Rechazos Financiera MG.xlsx** · Conecta el Google Sheet (ver README) "
-                   "para no tener que subirlo.")
-        f_cet = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
+        f_seg = c1.file_uploader("Excel de seguimiento", type=["xlsx"], key="up_seg",
+                                 help="Solo se leen las pestañas de COLIMA.")
+        f_cet = c2.file_uploader("Capturas de Cetelem", type=["xlsx"], accept_multiple_files=True,
                                  key="up_cet_seg", help=AYUDA_CAPTURAS)
-        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM. Sin la base "
-                   "conectada solo se cuadra Cetelem.")
+        c2.caption("Sin el Sheet conectado solo se cuadra Cetelem.")
 
         if st.button("Hacer cuadre", type="primary", disabled=not (f_seg and f_cet), key="btn_seg"):
-            with st.spinner("Cruzando folios, teléfonos y nombres…"):
+            with st.spinner("Cruzando…"):
                 try:
                     st.session_state["res_seg"] = ejecutar(cs, f_seg, f_cet)
                 except Exception as e:
@@ -235,18 +220,18 @@ with tab_seg:
         st.success(f"Bitácora: {', '.join(res['meses'])}  ·  Financieras: {', '.join(res.get('financieras', []))}"
                    f"  ·  Pestañas: {', '.join(res['hojas'])}")
         m = st.columns(5)
-        m[0].metric("Clientes rechazados", valor_resumen(r, "Clientes únicos rechazados"))
+        m[0].metric("Rechazados", valor_resumen(r, "Clientes únicos rechazados"))
         m[1].metric("Encontrados", valor_resumen(r, "Clientes rechazados encontrados"))
-        m[2].metric("Faltan capturar", valor_resumen(r, "Clientes rechazados NO"))
-        m[3].metric("% de cuadre", valor_resumen(r, "Porcentaje"))
-        m[4].metric("Datos a corregir", valor_resumen(r, "Datos a corregir"))
+        m[2].metric("Faltan", valor_resumen(r, "Clientes rechazados NO"))
+        m[3].metric("% cuadre", valor_resumen(r, "Porcentaje"))
+        m[4].metric("A corregir", valor_resumen(r, "Datos a corregir"))
         descargas(res, "seg")
 
         t1, t2, t3, t4, t5 = st.tabs([
-            f"Rechazos que faltan en seguimiento ({len(res['faltantes'])})",
-            f"A corregir / revisar ({len(res['revisar'])})",
-            f"En seguimiento, no en la bitácora ({len(res['solo_periodo'])})",
-            "Cuadre completo", "Resumen"])
+            f"Faltan en seguimiento ({len(res['faltantes'])})",
+            f"A corregir ({len(res['revisar'])})",
+            f"No están en la bitácora ({len(res['solo_periodo'])})",
+            "Completo", "Resumen"])
         with t1:
             df = filtro_vendedor(res["faltantes"], "fv_seg")
             if not df.empty:
@@ -260,10 +245,11 @@ with tab_seg:
                                    "Pestanas_encontrado", "Observaciones"],
                   ["Resultado", "Cuadre_pestana"])
         with t3:
-            st.caption("Rechazos en el seguimiento, de una financiera que trae la bitácora y con fecha dentro de sus meses, que no aparecen como rechazados en la bitácora. La columna Observaciones dice con qué estatus sí aparecen.")
+            st.caption("Rechazos del seguimiento, dentro de los meses de la bitácora, que ahí no salen como "
+                       "rechazo. *Observaciones* dice con qué estatus aparecen.")
             tabla(res["solo_periodo"], ["Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre",
                                         "Telefono", "Asesor", "Observaciones"])
-            with st.expander("Ver también fuera del periodo, sin fecha y otras financieras"):
+            with st.expander("Fuera del periodo, sin fecha u otras financieras"):
                 tabla(res["solo"], ["Clasificacion", "Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm",
                                     "Nombre", "Telefono", "Financiera", "Asesor", "Observaciones"],
                       ["Clasificacion"])
@@ -276,42 +262,34 @@ with tab_seg:
 # ---------------------------------------------------------------- SALE-U
 with tab_su:
     c1, c2 = st.columns(2)
-    f_su = c1.file_uploader("Excel de Sale - U", type=["csv", "xlsx"], key="up_su",
-                            help="Sube el reporte de Sale - U tal cual se descarga "
-                                 "(reporteLeadsconCredito…), sin abrirlo ni guardarlo antes en Excel.")
-    c1.caption("📄 Archivo: **reporte de Sale - U** (reporteLeadsconCredito), tal cual se descarga.")
+    f_su = c1.file_uploader("Reporte de Sale-U", type=["csv", "xlsx"], key="up_su",
+                            help="reporteLeadsconCredito…, tal cual se descarga (sin abrirlo en Excel).")
     if base is not None:
         bit = conexion.clientes_saleu(base)
         if not bit.empty:
-            c2.success(f"Se compara contra la **bitácora completa** de {base.titulo}: {conexion.describir_creditos(bit)}",
+            c2.success(f"Contra la bitácora completa: {conexion.describir_creditos(bit)}",
                        icon=":material/cloud_done:")
-            c2.caption("Todos los créditos de todas las financieras y estatus: la pestaña *Bitacora* (capturas de "
-                       "Cetelem + Bitácora de F&I) y lo que solo está en *MG Colima Rechazos* y *MG Colima Créditos "
-                       "Finalizados*. Entran los que caen en el periodo del reporte; los Finalizados (sin fecha) entran "
-                       "todos. Para agregar meses, sube las bitácoras en **Base de seguimiento → Actualizar con "
-                       "bitácoras** y aplica.")
+            c2.caption("Todas las financieras y estatus del periodo del reporte, más los Finalizados. " + AGREGAR_MES)
         else:
-            c2.warning("La bitácora y las pestañas *MG Colima Rechazos* / *Créditos Finalizados* están vacías.",
+            c2.warning("No hay créditos en la bitácora ni en Rechazos / Finalizados.",
                        icon=":material/warning:")
-        escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
-                             help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
-                                  "del periodo del reporte de Sale-U. Lo que ya dice Registrado o Sí nunca se baja "
-                                  "a No Registrado. Lo demás no se toca.")
+        escribir = c1.toggle("Escribir el registro en Sale-U en el Sheet", value=True, key="tg_su",
+                             help="Marca Registrado / No Registrado en los rechazos del periodo. "
+                                  "Nunca baja un «Registrado» a «No Registrado».")
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
-            with st.spinner("Cruzando teléfonos y nombres…"):
+            with st.spinner("Cruzando…"):
                 try:
                     st.session_state["res_su"] = ejecutar_su_base(base, f_su, bit, escribir)
                 except Exception as e:
                     st.session_state.pop("res_su", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
     else:
-        f_cet2 = c2.file_uploader("Capturas mensuales CETELEM", type=["xlsx"], accept_multiple_files=True,
+        f_cet2 = c2.file_uploader("Capturas de Cetelem", type=["xlsx"], accept_multiple_files=True,
                                   key="up_cet_su", help=AYUDA_CAPTURAS)
-        c2.caption("📄 Se piden al **F&I**: todas las capturas mensuales de la financiera CETELEM. Sin la base "
-                   "conectada solo se cuadra Cetelem.")
+        c2.caption("Sin el Sheet conectado solo se cuadra Cetelem.")
 
         if st.button("Hacer cuadre", type="primary", disabled=not (f_su and f_cet2), key="btn_su"):
-            with st.spinner("Cruzando teléfonos y nombres…"):
+            with st.spinner("Cruzando…"):
                 try:
                     st.session_state["res_su"] = ejecutar(cu, f_su, f_cet2)
                 except Exception as e:
@@ -322,63 +300,59 @@ with tab_su:
     if res and "registro" in res:
         reg = res["registro"]
         cambian = reg[reg["Cambia"]]
-        st.markdown(f"**Registro en Sale-U en el Sheet** · periodo del reporte {res['periodo_saleu']}")
+        st.markdown(f"**Registro en Sale-U** · {res['periodo_saleu']}")
         datos = res.get("datos", pd.DataFrame())
         k = st.columns(4)
-        k[0].metric("Rechazos del periodo revisados", len(reg))
-        k[1].metric("Registrados en Sale-U", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
-        k[2].metric("Celdas actualizadas en el Sheet", res["escritos"])
+        k[0].metric("Rechazos revisados", len(reg))
+        k[1].metric("Registrados", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
+        k[2].metric("Celdas actualizadas", res["escritos"])
         escritos_datos = res.get("datos_escritos", 0)
-        k[3].metric("Datos faltantes llenados" if escritos_datos else "Datos faltantes encontrados",
-                    escritos_datos or len(datos),
-                    help="Celdas vacías de Rechazos y Finalizados que se llenan porque el cliente cuadra por teléfono "
-                         "o por nombre con Sale-U o con la bitácora. Si las dos traen el dato, manda la bitácora.")
+        k[3].metric("Datos llenados" if escritos_datos else "Datos faltantes", escritos_datos or len(datos),
+                    help="Celdas vacías que se llenan con Sale-U o la bitácora (si ambas lo traen, manda la bitácora).")
         if res["escritos"]:
-            st.success(f"Se actualizó «Cliente con Registro en SalesU» en {res['escritos']} fila(s); quedó en el Historial.")
+            st.success(f"Registro en Sale-U actualizado en {res['escritos']} fila(s).")
         elif len(cambian):
-            st.warning(f"{len(cambian)} fila(s) cambiarían, pero la escritura en el Sheet estaba apagada.")
+            st.warning(f"{len(cambian)} fila(s) cambiarían; la escritura estaba apagada.")
         if len(datos):
-            with st.expander(f"Ver datos faltantes {'llenados' if escritos_datos else 'que se llenarían'} "
-                             f"({len(datos)})"):
+            with st.expander(f"Datos {'llenados' if escritos_datos else 'por llenar'} ({len(datos)})"):
                 tabla(datos.assign(Hoja=datos["Hoja"].map(lambda h: "Finalizados" if "Finalizados" in h else "Rechazos"),
                                    Después=datos["Después"].astype(str)),
                       ["Hoja", "Fila", "Cliente", "Campo", "Después", "Motivo"])
         rev = reg[reg["Revisar"] != ""] if "Revisar" in reg.columns else reg.iloc[0:0]
         if len(rev):
-            st.info(f"**{len(rev)} cliente(s) ya estaban marcados como registrados pero no aparecen en este reporte "
-                    "de Sale-U.** Se dejaron como *Registrado*; confírmalos en Sale-U.", icon=":material/fact_check:")
+            st.info(f"**{len(rev)} marcado(s) como Registrado no salen en este reporte.** Se dejaron igual; "
+                    "confírmalos en Sale-U.", icon=":material/fact_check:")
             tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
                   ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"])
-        with st.expander(f"Ver detalle ({len(cambian)} cambio(s) de {len(reg)} revisados)"):
+        with st.expander(f"Detalle ({len(cambian)} cambio(s) de {len(reg)})"):
             tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
                   ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",
                    "Financiera_SaleU"])
         if isinstance(base, conexion.BaseExcel):
-            st.info("Modo Excel: descarga el archivo actualizado en la página «Base de seguimiento».")
+            st.info("Modo Excel: descarga el archivo en **Base de seguimiento**.")
     if res and "resumen" in res:
         r = res["resumen"]
         fuente = res.get("fuente", "la bitácora")
         st.success(f"{fuente[0].upper()}{fuente[1:]}: {', '.join(res['meses'])}  ·  "
                    f"Financieras: {', '.join(res.get('financieras', []))}")
         m = st.columns(5)
-        m[0].metric("Clientes en bitácora", valor_resumen(r, "Clientes únicos"))
+        m[0].metric("En bitácora", valor_resumen(r, "Clientes únicos"))
         m[1].metric("En Sale-U", valor_resumen(r, f"Clientes {cu.de(fuente)} encontrados"))
-        m[2].metric("Faltan en Sale-U", valor_resumen(r, f"Clientes {cu.de(fuente)} NO"))
-        m[3].metric("% de cuadre", valor_resumen(r, "Porcentaje"))
-        m[4].metric("Estatus no cuadra", valor_resumen(r, "Estatus que no cuadra"))
+        m[2].metric("Faltan", valor_resumen(r, f"Clientes {cu.de(fuente)} NO"))
+        m[3].metric("% cuadre", valor_resumen(r, "Porcentaje"))
+        m[4].metric("Estatus distinto", valor_resumen(r, "Estatus que no cuadra"))
         descargas(res, "su")
 
         t1, t2, t4, t5 = st.tabs([
             f"Faltan en Sale-U ({len(res['faltantes'])})",
             f"A revisar ({len(res['revisar'])})",
-            "Cuadre completo", "Resumen"])
+            "Completo", "Resumen"])
         with t1:
             if "registro" in res:
                 est = res["faltantes"]["Estatus_final"]
                 n_hoja = int((res["registro"]["Después"] == saleu_sheet.NO_REGISTRADO).sum())
                 por_est = " · ".join(f"{k.capitalize()} {v}" for k, v in est.value_counts().items())
-                st.caption(f"Por estatus: {por_est}. En el Sheet quedan **{n_hoja}** rechazos del periodo como "
-                           "*No Registrado*.")
+                st.caption(f"Por estatus: {por_est} · En el Sheet: **{n_hoja}** rechazos *No Registrado*.")
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
@@ -404,20 +378,18 @@ with tab_su:
 # ---------------------------------------------------------------- BLUESERVICE
 with tab_bs:
     c1, c2 = st.columns(2)
-    f_pdi = c1.file_uploader("Reporte de PDIs de BlueService", type=["xlsx"], key="up_pdi",
+    f_pdi = c1.file_uploader("PDIs de BlueService", type=["xlsx"], key="up_pdi",
                              help="Ej. PDIs_MG_Colima.xlsx")
-    f_inv = c2.file_uploader("Excel de inventario", type=["xlsx"], key="up_inv",
+    f_inv = c2.file_uploader("Inventario", type=["xlsx"], key="up_inv",
                              help="Ej. INVENTARIO_MG_COLIMA….xlsx")
     hoja = None
     if f_inv:
         try:
             hojas = pd.ExcelFile(f_inv).sheet_names
-            hoja = c2.selectbox("Hoja de inventario a cuadrar", hojas,
-                                index=hojas.index(cb.hoja_por_defecto(hojas)),
-                                help="Las demás hojas se usan para decir dónde aparece cada VIN "
-                                     "(vendidos, traslados, servicio).")
+            hoja = c2.selectbox("Hoja a cuadrar", hojas, index=hojas.index(cb.hoja_por_defecto(hojas)),
+                                help="Las demás hojas dicen dónde está cada VIN (vendidos, traslados, servicio).")
         except Exception as e:
-            c2.error(f"No pude leer las hojas del archivo: {e}")
+            c2.error(f"No se pudieron leer las hojas: {e}")
 
     if st.button("Hacer cuadre", type="primary", disabled=not (f_pdi and f_inv and hoja), key="btn_bs"):
         with st.spinner("Cruzando VINs…"):
@@ -430,31 +402,32 @@ with tab_bs:
     res = st.session_state.get("res_bs")
     if res:
         r, h = res["resumen"], res["hoja"]
-        st.success(f"Hoja de inventario: {h}  ·  Fecha de corte: {cb.fmt(res['corte'])}")
+        st.success(f"Hoja: {h}  ·  Corte: {cb.fmt(res['corte'])}")
         m = st.columns(5)
-        m[0].metric(f"Unidades en {h.title()}", valor_resumen(r, "Unidades en la hoja"))
-        m[1].metric("Cuadran con BlueService", valor_resumen(r, f"Unidades de {h} que cuadran"))
-        m[2].metric("Faltan en BlueService", valor_resumen(r, f"Unidades de {h} que faltan"))
-        m[3].metric("En BlueService, no en inventario", valor_resumen(r, "En BlueService sin venta"))
-        m[4].metric("Datos a revisar", valor_resumen(r, "Unidades con datos"))
+        m[0].metric(f"En {h.title()}", valor_resumen(r, "Unidades en la hoja"))
+        m[1].metric("Cuadran", valor_resumen(r, f"Unidades de {h} que cuadran"))
+        m[2].metric("Faltan en BS", valor_resumen(r, f"Unidades de {h} que faltan"))
+        m[3].metric("Solo en BS", valor_resumen(r, "En BlueService sin venta"),
+                    help="En BlueService sin venta, pero no en el inventario.")
+        m[4].metric("A revisar", valor_resumen(r, "Unidades con datos"))
         descargas(res, "bs")
 
         cols_inv = ["Resultado", "VIN", "Modelo_inventario", "Version", "Color", "Ubicacion",
                     "Entrada_inventario", "Ultimo_PDI_inventario", "Proximo_PDI_inventario",
                     "Etapa_BS", "Status_BS", "Observaciones"]
         t1, t2, t3, t4, t5, t6 = st.tabs([
-            f"Faltan en BlueService ({len(res['falta_bs'])})",
-            f"En BlueService, no en {h.title()} ({len(res['falta_inv'])})",
+            f"Faltan en BS ({len(res['falta_bs'])})",
+            f"Solo en BS ({len(res['falta_inv'])})",
             f"A revisar ({len(res['revisar'])})",
             f"{h.title()} completo", f"Vendidas en BS ({len(res['vendidas'])})", "Resumen"])
         with t1:
-            st.caption(f"Unidades físicas en {h.lower()} que no aparecen en el reporte de PDIs de BlueService.")
+            st.caption(f"Unidades en {h.lower()} que no salen en BlueService.")
             tabla(res["falta_bs"], cols_inv, ["Resultado"])
         with t2:
             df = res["falta_inv"]
             if not df.empty:
-                sit = st.multiselect("Filtrar por situación", sorted(df["Situacion"].unique()), key="f_sit",
-                                     placeholder="Todas las situaciones")
+                sit = st.multiselect("Situación", sorted(df["Situacion"].unique()), key="f_sit",
+                                     placeholder="Todas")
                 if sit:
                     df = df[df["Situacion"].isin(sit)]
                 st.bar_chart(res["falta_inv"].groupby("Situacion").size().rename("Unidades"),
@@ -463,14 +436,13 @@ with tab_bs:
                        "Fecha_inventario_BS", "Etapa_BS", "Status_BS", "Aparece_en_inventario",
                        "Observaciones"], ["Situacion"])
         with t3:
-            st.caption("VIN mal capturados, fechas de PDI inválidas, unidades vendidas que siguen en "
-                       "inventario y diferencias de PDI.")
+            st.caption("VIN mal capturados, PDI inválidos o distintos y vendidas que siguen en inventario.")
             tabla(res["revisar"], ["Resultado", "VIN", "VIN_BlueService"] + cols_inv[2:], ["Resultado"])
         with t4:
             tabla(res["cuadre_inv"], ["Resultado", "VIN", "VIN_BlueService"] + cols_inv[2:] + ["Fila_excel"],
                   ["Resultado"], alto=550)
         with t5:
-            st.caption("Informativo: unidades que BlueService ya tiene con fecha de venta.")
+            st.caption("Unidades con fecha de venta en BlueService (informativo).")
             tabla(res["vendidas"], ["Situacion", "VIN", "Modelo_BS", "Fecha_venta_BS", "Etapa_BS",
                                     "Status_BS", "Aparece_en_inventario"])
         with t6:

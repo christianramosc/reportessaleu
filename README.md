@@ -96,7 +96,7 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    en *Revision* y el botón le quita la marca.
 
 **La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras, **sin los formalizados**. Se
-rehace cada vez que aplicas en *Actualizar con bitácoras* con: las capturas de Cetelem (cada mes que subes reemplaza
+rehace cada vez que aplicas en *Actualizar* con: las capturas de Cetelem (cada mes que subes reemplaza
 al mismo mes), la Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se
 conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas
 (columna *Fuente*: «MG Colima Rechazos fila N»). El vendedor se escribe con su nombre completo de *Catalogos*
@@ -109,15 +109,15 @@ efectivo, % registrado en Sale-U, seguimientos vencidos, pendientes en Revision)
 que interpretan la situación, 8 gráficas (rechazos por mes y financiera, seguimiento, por financiera, por asesor,
 registro en Sale-U, pendientes, bitácora por estatus y % de rechazo) y, debajo, las tablas de donde salen. Todo son
 fórmulas: se actualiza solo y el año se cambia en la celda B2. La app lo rehace cada vez que aplicas bitácoras (para
-tomar financieras y asesores nuevos) o con *Base de seguimiento → Dashboard (Resumen)*.
+tomar financieras y asesores nuevos) o con *Base de seguimiento → Dashboard*.
 
 Reglas que sigue la app al escribir en el Sheet:
 - **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por
   **teléfono** (mismo celular y nombre parecido, al menos la mitad de las palabras) o por **nombre** con la bitácora o con
   Sale-U, sus celdas **vacías** se llenan (teléfono, correo, folio, plazo, mensualidad, unidad, asesor, GAP,
   accesorios y, en Finalizados, el registro en Sale-U). Nunca se sobreescribe un dato. Si la bitácora y Sale-U
-  traen el mismo dato, manda la bitácora (la mensualidad de Sale-U es aproximada). En *Actualizar con
-  bitácoras* salen como "Dato faltante" para que los revises; en el cuadre de Sale-U se escriben solos si la
+  traen el mismo dato, manda la bitácora (la mensualidad de Sale-U es aproximada). En *Actualizar*
+  salen como "Dato faltante" para que los revises; en el cuadre de Sale-U se escriben solos si la
   escritura está encendida.
 - **Formalizado** = el crédito terminó en contrato con cualquier financiera (FINANCIADO en Cetelem,
   CONTRATO en la Bitácora de F&I). Así aparece en la *Bitacora* y en el *Resumen*.

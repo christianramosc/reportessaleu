@@ -159,22 +159,19 @@ def panel_base(donde=st):
         try:
             base = obtener_base()
         except Exception as e:
-            donde.error(f"No pude abrir el Google Sheet: {e}. Revisa que esté compartido con la cuenta de "
-                        "servicio como Editor.")
+            donde.error(f"No se pudo abrir el Google Sheet: {e}. Compártelo como Editor con la cuenta de servicio.")
             return None
-        donde.success(f"Conectado a **{base.titulo}** · [abrir el Sheet]({base.url})", icon=":material/cloud_done:")
+        donde.success(f"Conectado a **{base.titulo}** · [abrir]({base.url})", icon=":material/cloud_done:")
         return base
     caja = donde.container(border=True)
-    caja.markdown("**Modo Excel (sin conexión a Google)** · Sube tu Excel de seguimiento; al final descargas la "
-                  "versión actualizada. Para trabajar directo sobre el Google Sheet configura los *secrets* "
-                  "(ver README).")
-    f = caja.file_uploader("Excel de seguimiento (Seguimiento_Rechazos_MG_Colima.xlsx)", type=["xlsx"], key="up_base_excel")
+    caja.markdown("**Modo Excel** · Sube el Excel de seguimiento y al final descarga la versión actualizada.")
+    f = caja.file_uploader("Excel de seguimiento", type=["xlsx"], key="up_base_excel")
     if f is not None and st.session_state.get("_base_excel_nombre") != (f.name, f.size):
         st.session_state["base_excel"] = BaseExcel(f.getvalue(), f.name)
         st.session_state["_base_excel_nombre"] = (f.name, f.size)
     base = st.session_state.get("base_excel")
     if base is not None:
-        caja.download_button("⬇️ Descargar Excel actualizado", base.guardar(), file_name=base.titulo,
+        caja.download_button("Descargar Excel actualizado", base.guardar(), file_name=base.titulo, icon=":material/download:",
                              mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              key=f"dl_base_{id(donde)}")
     return base
