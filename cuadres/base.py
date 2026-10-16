@@ -173,18 +173,33 @@ def _texto_historial(v):
 class BaseGoogle(_BaseComun):
     def __init__(self, info_cuenta_servicio, url):
         import gspread
+        from gspread.http_client import BackOffHTTPClient
         self._gs = gspread
-        self.cliente = gspread.service_account_from_dict(dict(info_cuenta_servicio))
+        # BackOffHTTPClient reintenta solo (con espera creciente) si Google responde 429 por cuota
+        self.cliente = gspread.service_account_from_dict(dict(info_cuenta_servicio), http_client=BackOffHTTPClient)
         self.libro = self.cliente.open_by_url(url)
         self.url = url
         self.titulo = self.libro.title
         self._cache = {}
+        self._hojas = None
+
+    def _mapa(self):
+        """{título: Worksheet}. Se pide a Google una sola vez por ejecución (cada consulta cuenta en la cuota)."""
+        if self._hojas is None:
+            self._hojas = {w.title: w for w in self.libro.worksheets()}
+        return self._hojas
 
     def pestanas(self):
-        return [w.title for w in self.libro.worksheets()]
+        return list(self._mapa())
 
     def _hoja(self, pestana):
-        return self.libro.worksheet(pestana)
+        ws = self._mapa().get(pestana)
+        if ws is None:                      # quizá se creó después de leer la lista
+            self._hojas = None
+            ws = self._mapa().get(pestana)
+        if ws is None:
+            raise ValueError(f"No existe la pestaña '{pestana}' en el Sheet.")
+        return ws
 
     def _valores(self, pestana, solo_encabezado=False):
         clave = (pestana, solo_encabezado)
@@ -222,6 +237,7 @@ class BaseGoogle(_BaseComun):
                 ws.resize(rows=max(ws.row_count, len(tabla) + 50), cols=max(ws.col_count, ncols))
         else:
             ws = self.libro.add_worksheet(pestana, rows=len(tabla) + 50, cols=ncols)
+            self._hojas = None
         tabla = [["" if v is None else v for v in f] + [""] * (ncols - len(f)) for f in tabla]
         ws.update(tabla, "A1", value_input_option=ValueInputOption.user_entered)
         if oculta:
@@ -246,10 +262,12 @@ class BaseGoogle(_BaseComun):
         viejas = sorted([w for w in self.libro.worksheets() if w.title.startswith(prefijo)], key=lambda w: w.title)
         for w in viejas[:-RESPALDOS_A_GUARDAR]:
             self.libro.del_worksheet(w)
+        self._hojas = None
         return nombre
 
     def refrescar(self):
         self._cache = {}
+        self._hojas = None
 
 
 # =============================================================================
