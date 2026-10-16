@@ -3,7 +3,7 @@
 Página: Base de seguimiento
 
 Nutre el Google Sheet de seguimiento con las bitácoras mensuales de Cetelem y la
-Copia de Financiamiento: propone cambios, los muestras, eliges y se aplican.
+Bitácora de F&I: propone cambios, los muestra, eliges y se aplican.
 """
 import streamlit as st
 
@@ -13,7 +13,7 @@ from cuadres import fuentes, actualizar, pendientes
 from cuadres.base import TAB_HISTORIAL
 
 ui.hero("Base de seguimiento",
-        "Actualiza el Google Sheet de rechazos con las bitácoras de Cetelem y la Copia de Financiamiento.")
+        "Actualiza el Google Sheet de rechazos con las bitácoras de Cetelem y la Bitácora de F&I.")
 
 base = conexion.panel_base()
 if base is None:
@@ -37,12 +37,12 @@ with tab_act:
     try:
         tablas_fi, titulo_fi = conexion.tablas_financiamiento(base)
     except Exception as e:
-        c2.warning(f"No pude leer la Copia de Financiamiento de Google: {e}")
+        c2.warning(f"No pude leer la Bitácora de F&I de Google: {e}")
     if tablas_fi is not None:
-        c2.info(f"Copia de Financiamiento: se lee de Google Sheets (**{titulo_fi}**).", icon=":material/link:")
+        c2.info(f"Bitácora de F&I: se lee de Google Sheets (**{titulo_fi}**).", icon=":material/link:")
     else:
-        f_fi = c2.file_uploader("Copia de Financiamiento (opcional)", type=["xlsx"], key="up_fi_base",
-                                help="Bitácora de F&I. Si configuras FINANCIAMIENTO_SHEET_URL en los secrets, "
+        f_fi = c2.file_uploader("Bitácora de F&I (opcional)", type=["xlsx"], key="up_fi_base",
+                                help="La bitácora de todos los créditos (todas las financieras). Si configuras FINANCIAMIENTO_SHEET_URL en los secrets, "
                                      "se lee sola desde Google Sheets.")
         if f_fi is not None:
             tablas_fi, titulo_fi = fuentes.tablas_de_excel(f_fi.getvalue()), f_fi.name

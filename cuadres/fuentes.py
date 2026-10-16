@@ -4,7 +4,7 @@ Fuentes que nutren la base de seguimiento:
 
   · Bitácoras mensuales de Cetelem (JUNIO_2026_FINAL.xlsx, …): fuente OFICIAL de Cetelem
     (folio, estatus, mensualidad, plazo, teléfono). Se reconocen por la columna "Folio CCK".
-  · "Copia de Financiamiento" (bitácora de F&I, Google Sheets o .xlsx): todas las financieras y
+  · "Bitácora de F&I" (Google Sheets o .xlsx): todas las financieras y
     estatus; aporta rechazos de otros bancos, Sale-U, comentarios de F&I y contratos.
 
 Todo se consolida en "solicitudes" (una por folio o, si no hay folio, por cliente).
@@ -214,7 +214,7 @@ def registros_capturas(df):
 
 
 # =============================================================================
-# "Copia de Financiamiento" (bitácora de F&I)
+# "Bitácora de F&I"
 # =============================================================================
 def tablas_de_excel(contenido):
     import openpyxl

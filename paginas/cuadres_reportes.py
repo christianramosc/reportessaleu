@@ -121,13 +121,6 @@ def ejecutar(modulo, archivo_base, capturas):
     return res
 
 
-def capturas_para_cuadre(base, subidas):
-    """Capturas de Cetelem: las guardadas en la base + las que se suban ahora (mismo mes = la nueva)."""
-    guardadas = conexion.capturas_guardadas(base)
-    nuevas = fuentes.leer_capturas([(f.name, f.getvalue()) for f in subidas or []])
-    return fuentes.combinar_capturas(guardadas, nuevas) if not nuevas.empty else guardadas
-
-
 def ejecutar_seg_base(base, capturas):
     """Cuadre de seguimiento leyendo las pestañas de Colima directo de la base."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -174,11 +167,6 @@ with st.sidebar:
         m.UMBRAL_NOMBRE_FUERTE, m.UMBRAL_NOMBRE_CON_TEL = fuerte, con_tel
 
     st.divider()
-    st.subheader("Seguimiento Rechazos")
-    cs.FILTRO_HOJAS = st.text_input("Pestañas que contengan", cs.FILTRO_HOJAS).strip().upper() or "COLIMA"
-    st.caption("Solo se cuadran las solicitudes RECHAZADAS de las capturas de Cetelem.")
-
-    st.divider()
     st.subheader("Sale-U")
     st.caption("Cómo debe verse en Sale-U una contrapropuesta de Cetelem:")
     contra = st.selectbox("Contrapropuesta", ["No se juzga (revisar)", "Aceptado", "Rechazado"])
@@ -196,6 +184,8 @@ tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento Rechazos Financiera MG vs C
                                    "🟦 Sale - U Aprobados y Rechazados CETELEM",
                                    "🔧 BlueService vs Inventario"])
 
+AGREGAR_MES = ("Para agregar un mes nuevo, súbelo en **Base de seguimiento → Actualizar con bitácoras**; "
+               "ahí se guarda y lo usan todos los cuadres.")
 AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la financiera CETELEM "
                   "(un Excel por mes, ej. JULIO_2026_FINAL.xlsx, AGOSTO_2026_FINAL.xlsx). "
                   "Puedes subir varios meses a la vez.")
@@ -208,16 +198,13 @@ with tab_seg:
     if base is not None:
         guardadas = conexion.capturas_guardadas(base)
         meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
-        c1, c2 = st.columns(2)
-        c1.success(f"Seguimiento: se lee de **{base.titulo}**.", icon=":material/cloud_done:")
-        c1.caption("Capturas de Cetelem guardadas en la base: " + (", ".join(meses) if meses else "ninguna"))
-        f_cet = c2.file_uploader("Capturas mensuales CETELEM (opcional)", type=["xlsx"], accept_multiple_files=True,
-                                 key="up_cet_seg", help="Solo si quieres incluir un mes que todavía no está en la base. "
-                                 + AYUDA_CAPTURAS)
-        if st.button("Hacer cuadre", type="primary", disabled=not (meses or f_cet), key="btn_seg"):
+        st.success(f"Seguimiento: se lee de **{base.titulo}** · Capturas de Cetelem guardadas: "
+                   + (", ".join(meses) if meses else "ninguna"), icon=":material/cloud_done:")
+        st.caption(AGREGAR_MES)
+        if st.button("Hacer cuadre", type="primary", disabled=not meses, key="btn_seg"):
             with st.spinner("Cruzando folios, teléfonos y nombres…"):
                 try:
-                    st.session_state["res_seg"] = ejecutar_seg_base(base, capturas_para_cuadre(base, f_cet))
+                    st.session_state["res_seg"] = ejecutar_seg_base(base, guardadas)
                 except Exception as e:
                     st.session_state.pop("res_seg", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
@@ -296,15 +283,14 @@ with tab_su:
         meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
         c2.success(f"Capturas de Cetelem desde **{base.titulo}**: " + (", ".join(meses) if meses else "ninguna"),
                    icon=":material/cloud_done:")
-        f_cet2 = c2.file_uploader("Capturas mensuales CETELEM (opcional)", type=["xlsx"], accept_multiple_files=True,
-                                  key="up_cet_su", help="Solo si quieres incluir un mes que todavía no está en la base.")
+        c2.caption(AGREGAR_MES)
         escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
                              help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
                                   "del periodo del reporte de Sale-U. Lo demás no se toca.")
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
             with st.spinner("Cruzando teléfonos y nombres…"):
                 try:
-                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, capturas_para_cuadre(base, f_cet2), escribir)
+                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, guardadas, escribir)
                 except Exception as e:
                     st.session_state.pop("res_su", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
