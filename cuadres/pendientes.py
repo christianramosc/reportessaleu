@@ -49,7 +49,8 @@ def _col_rev(base, nombre):
 
 def revisar(base):
     """DataFrame con cada pendiente y si ya se puede dar por resuelto (no escribe nada)."""
-    if TAB_REVISION not in base.pestanas():
+    pestanas = set(base.pestanas())
+    if TAB_REVISION not in pestanas:
         return pd.DataFrame()
     rev = base.leer(TAB_REVISION)
     if rev.empty:
@@ -81,7 +82,7 @@ def revisar(base):
             out["_marca"] = _celda(r[c_celda])
             filas.append(out)
             continue
-        if hoja not in base.pestanas():
+        if hoja not in pestanas:
             out.update(Resultado="Revisar a mano", Detalle=f"No existe la pestaña «{hoja}»")
             filas.append(out)
             continue
@@ -170,8 +171,9 @@ def aplicar(base, revision):
     c_est, c_des = _col_rev(base, "Estado"), _col_rev(base, "Después")
     hoy = dt.date.today().strftime("%d/%m/%Y")
     marcas, celdas_rev, hist = {}, [], []
+    pestanas = set(base.pestanas())
     for _, r in hacer.iterrows():
-        if r["_marca"] and r["Hoja"] in base.pestanas():
+        if r["_marca"] and r["Hoja"] in pestanas:
             marcas.setdefault(r["Hoja"], []).append(tuple(r["_marca"]))
         if r["Resultado"] == "Resuelto":
             celdas_rev.append((r["_fila_rev"], c_est, "Corregido"))

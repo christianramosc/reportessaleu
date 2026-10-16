@@ -37,7 +37,12 @@ def _base_google(url):
 def obtener_base():
     """La base activa (Google Sheet o Excel subido) o None. Siempre con datos frescos."""
     if google_configurado():
-        base = _base_google(_secret("SEGUIMIENTO_SHEET_URL"))
+        url = _secret("SEGUIMIENTO_SHEET_URL")
+        base = _base_google(url)
+        if not isinstance(base, BaseGoogle):
+            # la conexión guardada es de una versión anterior del código (la app se actualizó): rehacerla
+            _base_google.clear()
+            base = _base_google(url)
         base.refrescar()
         return base
     return st.session_state.get("base_excel")
