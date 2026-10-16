@@ -79,6 +79,8 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    proponer.
 2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
+   Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
+   el reporte se deja igual y se lista para que lo confirmes.
 3. **Cuadres para reportes → Seguimiento** → *Hacer cuadre* (ya no pide archivos).
 4. **Base de seguimiento → Pendientes** → *Revisar pendientes* → *Limpiar*. Los pendientes de la pestaña
    *Revision* que ya tienen el dato capturado pasan a *Corregido* y se les quita el morado y la nota en la
