@@ -60,9 +60,10 @@ def capturas_guardadas(base):
     return df
 
 
-def bitacora_guardada(base):
+def bitacora_guardada(base, con_sheet=True):
     """Solicitudes de todas las financieras para los cuadres: la pestaña Bitacora del Sheet
-    (capturas de Cetelem + Bitácora de F&I). Si no existe, se arma con las capturas de Cetelem guardadas."""
+    (capturas de Cetelem + Bitácora de F&I + lo que solo está en Rechazos/Finalizados). Si no existe, se arma
+    con las capturas de Cetelem guardadas. con_sheet=False quita las filas que salen del propio Sheet."""
     if base is None:
         return fuentes.solicitudes_de_bitacora(None)
     sol = fuentes.solicitudes_de_bitacora(None)
@@ -75,7 +76,24 @@ def bitacora_guardada(base):
         cons = fuentes.consolidar(fuentes.registros_capturas(caps))
         sol = fuentes.solicitudes_de_bitacora(pd.DataFrame(fuentes.filas_bitacora(cons, {}),
                                                            columns=fuentes.BITACORA_COLS))
+    if not con_sheet and not sol.empty:
+        from cuadres.actualizar import FUENTE_SHEET
+        sol = sol[~sol["Fuente"].str.startswith(FUENTE_SHEET)].reset_index(drop=True)
     return _unificar_vendedores(base, sol)
+
+
+def clientes_saleu(base):
+    """Para el cuadre de Sale-U: todos los créditos de la Bitacora (todas las financieras y estatus) más los de
+    «MG Colima Rechazos» y «MG Colima Créditos Finalizados» leídos al momento (por si cambiaron después de la
+    última carga). Un rechazo que la Bitacora ya trae ligado a su fila no se repite."""
+    import re
+    from cuadres import saleu_sheet
+    bit = bitacora_guardada(base, con_sheet=False)
+    sheet = saleu_sheet.solicitudes_del_sheet(base)
+    ligadas = {int(float(n)) for v in bit["Fila_rechazos"] for n in re.findall(r"\d+(?:\.\d+)?", str(v))}
+    sheet = sheet[~((sheet["Hoja"] == "Rechazos") & sheet["Fila"].isin(ligadas))]
+    bit = bit.assign(Hoja="Bitacora", Fila=None, _siempre=False)
+    return pd.concat([bit, sheet], ignore_index=True) if not sheet.empty else bit
 
 
 def _unificar_vendedores(base, sol):
@@ -106,6 +124,15 @@ def describir_bitacora(sol):
     fin = sol["Fin_sol"].value_counts()
     fin = ", ".join(f"{k} {v}" for k, v in fin.items())
     return f"{len(sol)} solicitudes · {rango} · {fin}"
+
+
+def describir_creditos(sol):
+    """'270 créditos · Rechazado 150, Formalizado 60, … · CETELEM 160, BBVA 40, …'"""
+    if sol.empty:
+        return "sin créditos"
+    est = ", ".join(f"{(k or 'sin estatus').capitalize()} {v}" for k, v in sol["Est_fin"].value_counts().items())
+    fin = ", ".join(f"{k} {v}" for k, v in sol["Fin_sol"].value_counts().items())
+    return f"{len(sol)} créditos · {est} · {fin}"
 
 
 def tablas_financiamiento(base):

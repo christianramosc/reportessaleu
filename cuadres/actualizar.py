@@ -219,6 +219,36 @@ def migrar_formalizado(base):
     return n
 
 
+FUENTE_SHEET = ("MG Colima Rechazos fila", "MG Colima Créditos Finalizados fila")
+
+
+def filas_bitacora_del_sheet(base, solicitudes, fila_de_sol):
+    """Filas para la Bitacora con lo que solo está en el Sheet: rechazos de «MG Colima Rechazos» que no salen de
+    ninguna captura de Cetelem ni de la Bitácora de F&I (p. ej. capturados a mano o de meses anteriores) y los
+    créditos de «MG Colima Créditos Finalizados» que no están en ellas. Así la Bitacora es el acumulado de todo."""
+    from cuadres.saleu_sheet import solicitudes_del_sheet, ESTATUS_FINALIZADO
+    ligadas = {f for filas in fila_de_sol.values() for f in filas}
+    claves = [k for s in solicitudes for k in s["keys"]]
+    out = []
+    for _, r in solicitudes_del_sheet(base).iterrows():
+        if r["Hoja"] == "Rechazos":
+            if r["Fila"] in ligadas:
+                continue
+            estatus, fuente, fila_rech = "Rechazado", f"{FUENTE_SHEET[0]} {r['Fila']}", r["Fila"]
+        else:
+            if any(similar(name_key(r["Nombre"]), k) for k in claves):
+                continue
+            estatus, fuente, fila_rech = "Formalizado", f"{FUENTE_SHEET[1]} {r['Fila']}", ""
+        banco = "" if r["Fin_sol"] == "SIN FINANCIERA" else r["Fin_sol"]
+        tel = to_phone(r["Telefono"])
+        fecha = to_date(r["Fecha"]) if isinstance(r["Fecha"], dt.date) else None
+        out.append([fecha, to_folio(r["Folio"]), r["Nombre"], tel, r["Correo"] or None,
+                    None if r["Vendedor"] == "(sin vendedor)" else r["Vendedor"], r["Vehiculo"] or None, None,
+                    banco, estatus, None, estatus, banco, r["Plazo"], r["Mensualidad"], None, None, None, None,
+                    None, None, fila_rech, fuente])
+    return out
+
+
 def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi=None):
     """Escribe en la base las propuestas con Aplicar=True. Devuelve un resumen."""
     marca = propuestas["Aplicar"].astype(bool) if not propuestas.empty else pd.Series([], dtype=bool)
@@ -277,7 +307,10 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
                         capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist())
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi))
-    base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas_bitacora(solicitudes, contexto["fila_de_sol"]))
+    filas = filas_bitacora(solicitudes, contexto["fila_de_sol"])
+    filas += filas_bitacora_del_sheet(base, solicitudes, contexto["fila_de_sol"])
+    filas.sort(key=lambda f: (f[0] is None or f[0] == "", f[0] or dt.date.max))      # por fecha; sin fecha al final
+    base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas)
     try:
         aviso = None
         migrar_formalizado(base)

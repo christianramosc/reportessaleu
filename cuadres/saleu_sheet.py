@@ -87,15 +87,6 @@ def solicitudes_del_sheet(base):
     return pd.DataFrame(filas, columns=cols)
 
 
-def describir_sheet(sol):
-    """'128 en Rechazos (CETELEM 76, BBVA 36, …) · 32 en Finalizados'"""
-    if sol.empty:
-        return "sin registros"
-    r, f = sol[sol["Hoja"] == "Rechazos"], sol[sol["Hoja"] == "Finalizados"]
-    fins = ", ".join(f"{k} {v}" for k, v in r["Fin_sol"].value_counts().items())
-    return f"{len(r)} en Rechazos ({fins}) · {len(f)} en Créditos Finalizados"
-
-
 def periodo(su):
     """Periodo del reporte: el «Rango» de su encabezado (el mismo que usa el cuadre); si no lo trae,
     de la primera a la última fecha de alta de crédito."""
