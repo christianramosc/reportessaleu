@@ -141,6 +141,9 @@ def ejecutar_su_base(base, archivo_su, bitacora, escribir):
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
     res["escritos"] = saleu_sheet.aplicar(base, cambios, periodo) if escribir else 0
+    res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
+                                columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
+    res["datos_escritos"] = saleu_sheet.aplicar_datos(base, res["datos"].to_dict("records")) if escribir else 0
     return res
 
 
@@ -306,14 +309,26 @@ with tab_su:
         reg = res["registro"]
         cambian = reg[reg["Cambia"]]
         st.markdown(f"**Registro en Sale-U en el Sheet** · periodo del reporte {res['periodo_saleu']}")
-        k = st.columns(3)
+        datos = res.get("datos", pd.DataFrame())
+        k = st.columns(4)
         k[0].metric("Rechazos del periodo revisados", len(reg))
         k[1].metric("Registrados en Sale-U", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
         k[2].metric("Celdas actualizadas en el Sheet", res["escritos"])
+        escritos_datos = res.get("datos_escritos", 0)
+        k[3].metric("Datos faltantes llenados" if escritos_datos else "Datos faltantes encontrados",
+                    escritos_datos or len(datos),
+                    help="Celdas vacías de Rechazos y Finalizados que se llenan porque el cliente cuadra por teléfono "
+                         "o por nombre con Sale-U o con la bitácora. Si las dos traen el dato, manda la bitácora.")
         if res["escritos"]:
             st.success(f"Se actualizó «Cliente con Registro en SalesU» en {res['escritos']} fila(s); quedó en el Historial.")
         elif len(cambian):
             st.warning(f"{len(cambian)} fila(s) cambiarían, pero la escritura en el Sheet estaba apagada.")
+        if len(datos):
+            with st.expander(f"Ver datos faltantes {'llenados' if escritos_datos else 'que se llenarían'} "
+                             f"({len(datos)})"):
+                tabla(datos.assign(Hoja=datos["Hoja"].map(lambda h: "Finalizados" if "Finalizados" in h else "Rechazos"),
+                                   Después=datos["Después"].astype(str)),
+                      ["Hoja", "Fila", "Cliente", "Campo", "Después", "Motivo"])
         rev = reg[reg["Revisar"] != ""] if "Revisar" in reg.columns else reg.iloc[0:0]
         if len(rev):
             st.info(f"**{len(rev)} cliente(s) ya estaban marcados como registrados pero no aparecen en este reporte "
@@ -351,18 +366,18 @@ with tab_su:
                        "Estatus_final"])
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
-                                   "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU",
+                                   "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",
                                    "Observaciones"], ["Resultado", "Cuadre_estatus"])
         with t3:
             st.caption("Registros en Sale-U que no aparecen en la bitácora (pueden ser de meses anteriores). "
                        "Los de financieras que la bitácora no trae se ven en el Excel descargable.")
-            tabla(res["solo_cet"], ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera",
+            tabla(res["solo_cet"], ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fuente",
                                     "Fecha_Alta_Credito", "Observaciones"])
         with t4:
             df = filtro_vendedor(res["cuadre"], "fv_su_todo")
             tabla(df, ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor",
                        "Financiera", "Historial", "Cliente_SaleU", "Tel_SaleU", "Asesor_SaleU", "Estatus_SaleU",
-                       "Financiera_SaleU", "Observaciones"], ["Resultado", "Cuadre_estatus"], alto=550)
+                       "Financiera_SaleU", "Fuente_SaleU", "Observaciones"], ["Resultado", "Cuadre_estatus"], alto=550)
         with t5:
             st.dataframe(r.astype(str), hide_index=True, width="stretch")
 
