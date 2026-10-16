@@ -11,10 +11,12 @@ si no aparece en el reporte se deja como registrado y se lista para revisar.
 Los rechazos fuera del periodo del reporte no se tocan (no hay con qué compararlos).
 """
 
+import datetime as dt
+
 import pandas as pd
 
 from cuadres import saleu as cu
-from cuadres.base import TAB_RECHAZOS, letra, norm
+from cuadres.base import TAB_RECHAZOS, TAB_HISTORIAL, letra, norm
 from cuadres.actualizar import leer_rechazos, C
 
 REGISTRADO, NO_REGISTRADO = "Registrado", "No Registrado"
@@ -103,3 +105,55 @@ def aplicar(base, cambios, periodo_txt):
                 else f"No aparece en el reporte de Sale-U ({periodo_txt})"))
         for _, r in cambios.iterrows()])
     return len(cambios)
+
+
+# =============================================================================
+# Restaurar lo que una versión anterior bajó a "No Registrado"
+# =============================================================================
+def bajas_por_error(base):
+    """Filas que el cuadre de Sale-U cambió de Registrado/Sí a "No Registrado" (versión anterior de la app)
+    y que siguen así. Devuelve DataFrame con Fila, Columna, Celda, Cliente, Antes, Fecha."""
+    from cuadres.fuentes import name_key, similar
+    from cuadres.pendientes import _celda
+    cols = ["Fila", "Columna", "Celda", "Cliente", "Antes", "Fecha"]
+    if TAB_HISTORIAL not in base.pestanas():
+        return pd.DataFrame(columns=cols)
+    todo = base.leer(TAB_HISTORIAL)
+    if todo.empty or "Origen" not in todo.columns:
+        return pd.DataFrame(columns=cols)
+    origen = todo["Origen"].astype(str)
+    h = todo[(origen == "App · cuadre Sale-U") & (todo["Después"].astype(str) == NO_REGISTRADO)
+             & todo["Antes"].map(ya_registrado)]
+    if h.empty:
+        return pd.DataFrame(columns=cols)
+    restaurados = set(todo.loc[origen == "App · restaurar Sale-U", "Celda"].astype(str))
+    actuales = {r["fila"]: r for r in leer_rechazos(base)}
+    filas, vistas = [], set()
+    for _, r in h.iloc[::-1].iterrows():                  # la anotación más reciente de cada celda
+        ref = _celda(r["Celda"])
+        if not ref or str(r["Celda"]) in vistas:
+            continue
+        vistas.add(str(r["Celda"]))
+        fila, col = ref
+        act = actuales.get(fila)
+        if (act is None or (act["saleu"] or "") != NO_REGISTRADO or str(r["Celda"]) in restaurados
+                or not similar(name_key(act["nombre"]), name_key(r["Cliente"]))):
+            continue                                       # ya cambió, se movió la fila o ya se restauró
+        f = r["Fecha"]
+        filas.append(dict(Fila=fila, Columna=col, Celda=str(r["Celda"]), Cliente=r["Cliente"], Antes=r["Antes"],
+                          Fecha=f.strftime("%d/%m/%Y %H:%M") if isinstance(f, (dt.date, dt.datetime)) else str(f or "")))
+    return pd.DataFrame(filas, columns=cols)
+
+
+def restaurar(base, bajas):
+    """Regresa a "Registrado" las filas de bajas_por_error() y lo anota en el Historial."""
+    if bajas.empty:
+        return 0
+    base.respaldar(TAB_RECHAZOS)
+    base.escribir(TAB_RECHAZOS, [(int(r["Fila"]), int(r["Columna"]), REGISTRADO) for _, r in bajas.iterrows()])
+    base.anotar_historial([dict(
+        Origen="App · restaurar Sale-U", Hoja=TAB_RECHAZOS, Celda=r["Celda"], Cliente=r["Cliente"], Campo=C["saleu"],
+        Antes=NO_REGISTRADO, Después=REGISTRADO,
+        Motivo=f"Decía «{r['Antes']}» y el cuadre de Sale-U del {r['Fecha']} lo bajó a No Registrado (versión anterior)")
+        for _, r in bajas.iterrows()])
+    return len(bajas)

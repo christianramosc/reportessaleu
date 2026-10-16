@@ -314,7 +314,7 @@ with tab_su:
             st.success(f"Se actualizó «Cliente con Registro en SalesU» en {res['escritos']} fila(s); quedó en el Historial.")
         elif len(cambian):
             st.warning(f"{len(cambian)} fila(s) cambiarían, pero la escritura en el Sheet estaba apagada.")
-        rev = reg[reg["Revisar"] != ""]
+        rev = reg[reg["Revisar"] != ""] if "Revisar" in reg.columns else reg.iloc[0:0]
         if len(rev):
             st.info(f"**{len(rev)} cliente(s) ya estaban marcados como registrados pero no aparecen en este reporte "
                     "de Sale-U.** Se dejaron como *Registrado*; confírmalos en Sale-U.", icon=":material/fact_check:")
