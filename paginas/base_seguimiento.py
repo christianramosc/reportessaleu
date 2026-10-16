@@ -52,7 +52,8 @@ with tab_act:
     if tablas_fi is None:
         c2.caption("Guardada en el Sheet: " + (
             f"{len(fi_guardados)} registros" + (f" (cargada el {fi_fecha:%d/%m/%Y})" if hasattr(fi_fecha, "strftime") else "")
-            if fi_guardados else "ninguna todavía") + ". Si subes otra, reemplaza a la guardada.")
+            if fi_guardados else "ninguna todavía") + ". Si subes otra, se acumula: lo nuevo reemplaza lo mismo "
+            "y se conserva lo que ya no venga en el archivo.")
 
     puede = bool(archivos_cet) or not guardadas.empty or tablas_fi is not None or bool(fi_guardados)
     if st.button("Revisar cambios", type="primary", disabled=not puede, key="btn_revisar"):
@@ -64,6 +65,7 @@ with tab_act:
                 hojas_fi, regs_fi = [], []
                 if tablas_fi is not None:
                     regs_fi, hojas_fi = fuentes.registros_financiamiento(tablas_fi)
+                    regs_fi = fuentes.combinar_fi(fi_guardados, regs_fi)      # se acumula con lo ya guardado
                 elif fi_guardados:              # la copia guardada: así la Bitacora no pierde lo de F&I
                     regs_fi, hojas_fi = fi_guardados, ["copia guardada en el Sheet"]
                 regs += regs_fi

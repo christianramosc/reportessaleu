@@ -91,7 +91,7 @@ def to_phone(v):
         return None
     if isinstance(v, float):
         v = int(v)
-    s = re.sub(r"\D", "", str(v or ""))
+    s = re.sub(r"\D", "", re.sub(r"\.0+$", "", str(v or "").strip()))   # "3121045404.0" (número leído como texto)
     return int(s) if len(s) == 10 else None
 
 
@@ -421,7 +421,7 @@ def solicitudes_de_bitacora(df):
     Est_sol / Fin_sol (estatus y financiera de la solicitud) y Est_fin / Fin_fin (resultado final),
     con los estatus en mayúsculas sin acentos (RECHAZADO, APROBADO, FORMALIZADO, CONTRAPROPUESTA, ANALISIS)."""
     cols = ["Folio", "Nombre", "Telefono", "Vendedor", "Vehiculo", "Monto_Financiar", "Fecha", "Mes", "_anio", "_mes",
-            "Est_sol", "Fin_sol", "Est_fin", "Fin_fin", "Fuente", "Plazo", "Mensualidad", "Correo"]
+            "Est_sol", "Fin_sol", "Est_fin", "Fin_fin", "Fuente", "Plazo", "Mensualidad", "Correo", "Fila_rechazos"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
     g = lambda r, c: r[c] if c in r.index else None
@@ -447,7 +447,8 @@ def solicitudes_de_bitacora(df):
             Fuente=txt(g(r, "Fuente en la bitácora")) or "",
             Plazo=int(to_num(g(r, "Plazo"))) if to_num(g(r, "Plazo")) else None,
             Mensualidad=round(to_num(g(r, "Mensualidad")), 2) if to_num(g(r, "Mensualidad")) else None,
-            Correo=mail(g(r, "Correo")) or ""))
+            Correo=mail(g(r, "Correo")) or "",
+            Fila_rechazos=str(g(r, "Fila en 'MG Colima Rechazos'") or "")))
     return pd.DataFrame(filas, columns=cols)
 
 
@@ -496,3 +497,16 @@ def registros_fi_de_tabla(df):
             key=name_key(cliente)))
     return out
 
+
+def _llave_fi(r):
+    """Misma solicitud de F&I: por folio; sin folio, mismo cliente, banco y fecha."""
+    if r.get("folio"):
+        return ("folio", r["folio"])
+    return ("cliente", r.get("key") or name_key(r.get("cliente")), norm(r.get("banco")), r.get("fecha"))
+
+
+def combinar_fi(guardados, nuevos):
+    """Acumula la Bitácora de F&I: lo que viene en la carga nueva reemplaza al mismo registro guardado
+    (mismo folio o mismo cliente/banco/fecha) y lo demás guardado se conserva (meses que ya no trae el archivo)."""
+    llaves = {_llave_fi(r) for r in nuevos}
+    return [r for r in guardados if _llave_fi(r) not in llaves] + list(nuevos)

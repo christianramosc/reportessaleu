@@ -13,10 +13,11 @@ App de Streamlit con una página por herramienta:
    *Cliente con Registro en SalesU* en el Sheet:
    - **Seguimiento de rechazos vs bitácora** (solo pestañas de COLIMA). Cuadra solo las solicitudes
      **rechazadas** de cualquier financiera; cruza por folio, teléfono y nombre.
-   - **Sale-U vs el Sheet**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Compara
-     contra los clientes del Sheet: *MG Colima Rechazos* (todas las financieras, fecha de ingreso dentro del
-     periodo del reporte) y *MG Colima Créditos Finalizados* (todos; no traen fecha). Cruza por teléfono y nombre
-     y compara estatus y financiera.
+   - **Sale-U vs bitácora**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Compara
+     contra **todos los créditos de todas las financieras y estatus**: la pestaña *Bitacora* más lo que esté en
+     *MG Colima Rechazos* y *MG Colima Créditos Finalizados* (leídos al momento). Entran los que caen en el periodo
+     del reporte; los Finalizados (sin fecha) entran todos. Cruza por teléfono y nombre y compara estatus y
+     financiera.
    - **BlueService vs Inventario** (`PDIs_MG_Colima.xlsx` vs Excel de inventario, hoja ALMACEN o la que
      elijas). Cruza por VIN, detecta VIN mal capturados con el dígito verificador y dice en qué otra hoja
      aparece cada unidad.
@@ -78,13 +79,12 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    por Google, la Bitácora de F&I → *Revisar cambios* → desmarca lo que no quieras → *Aplicar*. Esto también
    actualiza la pestaña *Bitacora*, que es la que usan los cuadres. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
    proponer.
-2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra el
-   **Sheet**: *MG Colima Rechazos* (todas las financieras) y *MG Colima Créditos Finalizados*. Por eso conviene
-   hacer antes el paso 1: así los rechazos de la Bitácora de F&I y de Cetelem ya están en el Sheet. Un cliente está en Sale-U si coincide el
+2. **Cuadres para reportes → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra la
+   **bitácora completa** (todas las financieras y estatus; ver abajo). Por eso conviene hacer antes el paso 1.
+   Un cliente está en Sale-U si coincide el
    teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
    criterio que usa la columna *Cliente con Registro en SalesU*. La hoja *Faltan_en_SaleU* del Excel trae
-   nombre, celular, financiera, estatus (RECHAZADO o FINALIZADO), plazo, unidad, mensualidad y correo de cada
-   cliente para darlo de alta. Además del Excel/PDF,
+   nombre, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de alta. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
    Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
    el reporte se deja igual y se lista para que lo confirmes.
@@ -93,6 +93,13 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    *Revision* que ya tienen el dato capturado pasan a *Corregido* y se les quita el morado y la nota en la
    hoja. Si un pendiente no aplica o lo resolviste de otra forma, cámbialo a mano a *Corregido* o *No aplica*
    en *Revision* y el botón le quita la marca.
+
+**La pestaña *Bitacora*** es el acumulado de todos los créditos de todas las financieras. Se rehace cada vez que
+aplicas en *Actualizar con bitácoras* con: las capturas de Cetelem (cada mes que subes reemplaza al mismo mes), la
+Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se conserva lo que ya no
+venga en el archivo), los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas (columna *Fuente*:
+«MG Colima Rechazos fila N») y los créditos de *MG Colima Créditos Finalizados* que no están en ellas. El cuadre de
+*Seguimiento* usa solo lo que viene de las bitácoras (las filas que salen del propio Sheet no cuentan ahí).
 
 Reglas que sigue la app al escribir en el Sheet:
 - **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por
