@@ -35,6 +35,9 @@ def aplicar_estilo():
 .kpi.total .v {{ color: #fff; font-size: 2.4rem; }}
 .kpi.total .bar {{ background: rgba(255,255,255,.18); }}
 
+div[data-testid="stMetric"] {{ background: #F5F7FB; border-left: 4px solid {kc.AZUL_OSCURO};
+                               padding: .6rem .9rem; border-radius: 6px; }}
+
 .alerta {{ border-left: 4px solid {kc.AMBAR}; background: #FFF9EC; padding: 10px 14px;
           border-radius: 6px; margin-bottom: 8px; color: {kc.TEXTO}; font-size: .93rem; }}
 .vacio {{ border: 2px dashed #CBD4E1; border-radius: 14px; padding: 36px; text-align: center;

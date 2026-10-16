@@ -23,14 +23,6 @@ from cuadres import blueservice as cb
 from cuadres import fuentes, saleu_sheet
 from cuadres.base import a_excel, norm
 
-st.markdown("""
-<style>
-  div[data-testid="stMetric"] {background: #F5F7FB; border-left: 4px solid #1F3864;
-                               padding: .6rem .9rem; border-radius: 6px;}
-  div[data-testid="stMetric"].alerta {border-left-color: #C00000;}
-</style>""", unsafe_allow_html=True)
-
-
 # =============================================================================
 # Utilidades
 # =============================================================================
@@ -83,7 +75,7 @@ def filtro_vendedor(df, clave, columna="Vendedor"):
     if df.empty or columna not in df.columns:
         return df
     opciones = sorted(v for v in df[columna].dropna().unique() if str(v).strip())
-    elegidos = st.multiselect("Filtrar por vendedor", opciones, key=clave)
+    elegidos = st.multiselect("Filtrar por vendedor", opciones, key=clave, placeholder="Todos los vendedores")
     return df[df[columna].isin(elegidos)] if elegidos else df
 
 
@@ -180,8 +172,8 @@ with st.sidebar:
 ui.hero("Cuadres para reportes",
         "Elige el cuadre, sube los archivos fuente y descarga el resultado en Excel y PDF.")
 
-tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento Rechazos Financiera MG vs Capturas CETELEM",
-                                   "🟦 Sale - U Aprobados y Rechazados CETELEM",
+tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento de rechazos vs Cetelem",
+                                   "🟦 Sale-U vs Cetelem",
                                    "🔧 BlueService vs Inventario"])
 
 AGREGAR_MES = ("Para agregar un mes nuevo, súbelo en **Base de seguimiento → Actualizar con bitácoras**; "
@@ -193,8 +185,8 @@ AYUDA_CAPTURAS = ("Se solicitan al F&I. Son todas las capturas mensuales de la f
 # ---------------------------------------------------------------- SEGUIMIENTO
 with tab_seg:
     base = conexion.obtener_base()
-    st.info("Este cuadre toma **solo las solicitudes RECHAZADAS** de las capturas de Cetelem, porque el "
-            "Excel de seguimiento únicamente registra rechazos.")
+    st.markdown("Compara la base de seguimiento contra las **solicitudes RECHAZADAS** de las capturas de Cetelem "
+                "(la base solo registra rechazos).")
     if base is not None:
         guardadas = conexion.capturas_guardadas(base)
         meses = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
@@ -247,8 +239,8 @@ with tab_seg:
         with t1:
             df = filtro_vendedor(res["faltantes"], "fv_seg")
             if not df.empty:
-                st.bar_chart(df.groupby("Estatus_final_Cetelem").size().rename("Clientes"),
-                             color="#C00000", height=220)
+                st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
+                             height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             tabla(df, ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial",
                        "Estatus_final_Cetelem", "Observaciones"])
         with t2:
@@ -346,7 +338,7 @@ with tab_su:
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
-                             height=220, horizontal=True)
+                             height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             tabla(df, ["Cliente_Cetelem", "Tel_Cetelem", "Vendedor", "Folios", "Historial",
                        "Estatus_final_Cetelem"])
         with t2:
@@ -418,7 +410,8 @@ with tab_bs:
         with t2:
             df = res["falta_inv"]
             if not df.empty:
-                sit = st.multiselect("Filtrar por situación", sorted(df["Situacion"].unique()), key="f_sit")
+                sit = st.multiselect("Filtrar por situación", sorted(df["Situacion"].unique()), key="f_sit",
+                                     placeholder="Todas las situaciones")
                 if sit:
                     df = df[df["Situacion"].isin(sit)]
                 st.bar_chart(res["falta_inv"].groupby("Situacion").size().rename("Unidades"),

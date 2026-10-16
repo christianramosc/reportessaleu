@@ -82,11 +82,12 @@ with tab_act:
             st.markdown("Revisa los cambios. **Desmarca** los que no quieras aplicar; los desmarcados se anotan "
                         "como *ignorados* y no se vuelven a proponer.")
             vista = st.data_editor(
-                prop[["Aplicar", "Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]],
+                prop[["Aplicar", "Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]].assign(
+                    Fila=prop["Fila"].map(lambda f: "nueva" if f is None or f != f else str(int(f)))),
                 hide_index=True, width="stretch", height=min(520, 60 + 35 * len(prop)), key="editor_prop",
                 disabled=["Tipo", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"],
                 column_config={"Aplicar": st.column_config.CheckboxColumn(width="small"),
-                               "Fila": st.column_config.NumberColumn(format="%d", width="small"),
+                               "Fila": st.column_config.TextColumn(width="small"),
                                "Motivo": st.column_config.TextColumn(width="large")})
             prop = prop.assign(Aplicar=vista["Aplicar"].values)
         n = int(prop["Aplicar"].sum()) if not prop.empty else 0
@@ -132,7 +133,11 @@ with tab_pend:
             k[3].metric("Revisar a mano", int(cuenta.get("Revisar a mano", 0)))
             orden = {"Resuelto": 0, "Quitar marca": 1, "Sigue pendiente": 2, "Revisar a mano": 3}
             vista = pend.sort_values("Resultado", key=lambda x: x.map(orden))
-            st.dataframe(vista[["Resultado", "Hoja", "Celda", "Cliente", "Campo", "Detalle", "Problema"]],
+            colores = {"Resuelto": "#C6EFCE", "Quitar marca": "#C6EFCE", "Sigue pendiente": "#FFEB9C",
+                       "Revisar a mano": "#EDEFF3"}
+            st.dataframe(vista[["Resultado", "Hoja", "Celda", "Cliente", "Campo", "Detalle", "Problema"]].style.map(
+                             lambda v: f"background-color: {colores.get(v, '')}" if v in colores else "",
+                             subset=["Resultado"]),
                          hide_index=True, width="stretch", height=min(520, 60 + 35 * len(vista)))
             n = int(pend["Resultado"].isin(["Resuelto", "Quitar marca"]).sum())
             if st.button(f"Limpiar {n} pendiente(s) resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar"):
@@ -154,7 +159,8 @@ with tab_hist:
             st.info("Todavía no hay cambios registrados.")
         else:
             h = h.iloc[::-1]
-            origen = st.multiselect("Origen", sorted(h["Origen"].dropna().astype(str).unique()), key="f_hist")
+            origen = st.multiselect("Origen", sorted(h["Origen"].dropna().astype(str).unique()), key="f_hist",
+                                    placeholder="Todos los orígenes")
             if origen:
                 h = h[h["Origen"].isin(origen)]
             st.dataframe(h.head(500).astype(str), hide_index=True, width="stretch", height=520)
