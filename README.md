@@ -39,6 +39,7 @@ cuadres/fuentes.py             # bitácoras de Cetelem y Bitácora de F&I → so
 cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
 cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision
+cuadres/dashboard.py           # dashboard de la pestaña Resumen (KPI, lectura, gráficas)
 cuadres/seguimiento.py         # cuadre vs Excel de seguimiento
 cuadres/saleu.py               # cuadre vs Sale-U
 cuadres/blueservice.py         # cuadre BlueService vs Inventario
@@ -94,12 +95,21 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    hoja. Si un pendiente no aplica o lo resolviste de otra forma, cámbialo a mano a *Corregido* o *No aplica*
    en *Revision* y el botón le quita la marca.
 
-**La pestaña *Bitacora*** es el acumulado de todos los créditos de todas las financieras. Se rehace cada vez que
-aplicas en *Actualizar con bitácoras* con: las capturas de Cetelem (cada mes que subes reemplaza al mismo mes), la
-Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se conserva lo que ya no
-venga en el archivo), los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas (columna *Fuente*:
-«MG Colima Rechazos fila N») y los créditos de *MG Colima Créditos Finalizados* que no están en ellas. El cuadre de
-*Seguimiento* usa solo lo que viene de las bitácoras (las filas que salen del propio Sheet no cuentan ahí).
+**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras, **sin los formalizados**. Se
+rehace cada vez que aplicas en *Actualizar con bitácoras* con: las capturas de Cetelem (cada mes que subes reemplaza
+al mismo mes), la Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se
+conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas
+(columna *Fuente*: «MG Colima Rechazos fila N»). El vendedor se escribe con su nombre completo de *Catalogos*
+(«CARLA» → «CARLA YOVET CARDENAS AHUMADA») cuando corresponde a un solo asesor. Toda la pestaña queda con el mismo
+estilo (Calibri 9, encabezado gris), fechas dd/mm/aaaa y montos con $. El cuadre de *Seguimiento* usa solo lo que
+viene de las bitácoras; el de *Sale-U* sí cuenta los formalizados (los toma de las capturas y la copia de F&I).
+
+**La pestaña *Resumen*** es un dashboard: indicadores del año (rechazos, % con primer seguimiento, contacto
+efectivo, % registrado en Sale-U, seguimientos vencidos, pendientes en Revision), una *Lectura del periodo* con frases
+que interpretan la situación, 8 gráficas (rechazos por mes y financiera, seguimiento, por financiera, por asesor,
+registro en Sale-U, pendientes, bitácora por estatus y % de rechazo) y, debajo, las tablas de donde salen. Todo son
+fórmulas: se actualiza solo y el año se cambia en la celda B2. La app lo rehace cada vez que aplicas bitácoras (para
+tomar financieras y asesores nuevos) o con *Base de seguimiento → Dashboard (Resumen)*.
 
 Reglas que sigue la app al escribir en el Sheet:
 - **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por

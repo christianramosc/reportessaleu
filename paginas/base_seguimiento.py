@@ -19,7 +19,28 @@ base = conexion.panel_base()
 if base is None:
     st.stop()
 
-tab_act, tab_pend, tab_hist = st.tabs(["🔄 Actualizar con bitácoras", "✅ Pendientes", "🕘 Historial de cambios"])
+tab_act, tab_pend, tab_dash, tab_hist = st.tabs(["🔄 Actualizar con bitácoras", "✅ Pendientes",
+                                                 "📊 Dashboard (Resumen)", "🕘 Historial de cambios"])
+
+with tab_dash:
+    if st.session_state.get("msg_dash"):
+        st.success(st.session_state.pop("msg_dash"))
+    st.markdown("La pestaña **Resumen** del Sheet es un dashboard: indicadores del año, una *lectura del periodo* que "
+                "interpreta la situación, gráficas y las tablas de donde salen. Todo son fórmulas, así que se "
+                "actualiza solo cuando cambian *MG Colima Rechazos*, *Bitacora* o *Revision*, y puedes cambiar el año "
+                "en la celda B2. Se rehace cada vez que aplicas bitácoras; usa este botón para rehacerlo ahora "
+                "(p. ej. si agregaste un asesor o una financiera al catálogo).")
+    if st.button("Rehacer el dashboard del Resumen", type="primary", key="btn_dash"):
+        with st.spinner("Escribiendo el dashboard…"):
+            try:
+                from cuadres import dashboard
+                n = dashboard.construir(base)
+                st.session_state["msg_dash"] = (f"Listo: Resumen con {n} gráficas."
+                                                + (" Descarga el Excel actualizado con el botón de arriba."
+                                                   if isinstance(base, conexion.BaseExcel) else ""))
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo hacer el dashboard: {e}")
 
 with tab_act:
     if st.session_state.get("msg_act"):

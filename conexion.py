@@ -83,17 +83,27 @@ def bitacora_guardada(base, con_sheet=True):
 
 
 def clientes_saleu(base):
-    """Para el cuadre de Sale-U: todos los créditos de la Bitacora (todas las financieras y estatus) más los de
-    «MG Colima Rechazos» y «MG Colima Créditos Finalizados» leídos al momento (por si cambiaron después de la
-    última carga). Un rechazo que la Bitacora ya trae ligado a su fila no se repite."""
+    """Para el cuadre de Sale-U, todos los créditos de todas las financieras y estatus: la Bitacora, las solicitudes
+    formalizadas (la Bitacora no las guarda; salen de las capturas de Cetelem y la copia de la Bitácora de F&I) y
+    «MG Colima Rechazos» y «MG Colima Créditos Finalizados» leídos al momento. Un rechazo que la Bitacora ya trae
+    ligado a su fila no se repite."""
     import re
     from cuadres import saleu_sheet
     bit = bitacora_guardada(base, con_sheet=False)
+    bit = pd.concat([bit[bit["Est_sol"] != "FORMALIZADO"], _formalizados(base)], ignore_index=True)
     sheet = saleu_sheet.solicitudes_del_sheet(base)
     ligadas = {int(float(n)) for v in bit["Fila_rechazos"] for n in re.findall(r"\d+(?:\.\d+)?", str(v))}
     sheet = sheet[~((sheet["Hoja"] == "Rechazos") & sheet["Fila"].isin(ligadas))]
     bit = bit.assign(Hoja="Bitacora", Fila=None, _siempre=False)
     return pd.concat([bit, sheet], ignore_index=True) if not sheet.empty else bit
+
+
+def _formalizados(base):
+    """Solicitudes formalizadas de las capturas de Cetelem y la copia de la Bitácora de F&I guardadas en el Sheet."""
+    regs = fuentes.registros_capturas(capturas_guardadas(base)) + registros_fi_guardados(base)[0]
+    sol = [s for s in fuentes.consolidar(regs) if s["est_sol"] == "Formalizado"]
+    df = pd.DataFrame(fuentes.filas_bitacora(sol, {}), columns=fuentes.BITACORA_COLS)
+    return _unificar_vendedores(base, fuentes.solicitudes_de_bitacora(df))
 
 
 def _unificar_vendedores(base, sol):
