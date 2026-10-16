@@ -20,7 +20,7 @@ import conexion
 from cuadres import seguimiento as cs
 from cuadres import saleu as cu
 from cuadres import blueservice as cb
-from cuadres import fuentes, saleu_sheet
+from cuadres import saleu_sheet
 from cuadres.base import a_excel, norm
 
 # =============================================================================
@@ -278,7 +278,8 @@ with tab_su:
         c2.caption(AGREGAR_MES)
         escribir = c1.toggle("Escribir «Cliente con Registro en SalesU» en el Sheet", value=True, key="tg_su",
                              help="Marca Registrado / No Registrado a cada rechazo cuya fecha de ingreso cae dentro "
-                                  "del periodo del reporte de Sale-U. Lo demás no se toca.")
+                                  "del periodo del reporte de Sale-U. Lo que ya dice Registrado o Sí nunca se baja "
+                                  "a No Registrado. Lo demás no se toca.")
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
             with st.spinner("Cruzando teléfonos y nombres…"):
                 try:
@@ -313,6 +314,12 @@ with tab_su:
             st.success(f"Se actualizó «Cliente con Registro en SalesU» en {res['escritos']} fila(s); quedó en el Historial.")
         elif len(cambian):
             st.warning(f"{len(cambian)} fila(s) cambiarían, pero la escritura en el Sheet estaba apagada.")
+        rev = reg[reg["Revisar"] != ""]
+        if len(rev):
+            st.info(f"**{len(rev)} cliente(s) ya estaban marcados como registrados pero no aparecen en este reporte "
+                    "de Sale-U.** Se dejaron como *Registrado*; confírmalos en Sale-U.", icon=":material/fact_check:")
+            tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
+                  ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"])
         with st.expander(f"Ver detalle ({len(cambian)} cambio(s) de {len(reg)} revisados)"):
             tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
                   ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",

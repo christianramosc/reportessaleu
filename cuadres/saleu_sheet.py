@@ -6,16 +6,24 @@ Con el reporte de Sale-U (reporteLeadsconCredito) se revisa cada rechazo de la b
 de ingreso cae dentro del periodo del reporte:
   · encontrado (mismo teléfono y nombre parecido, o nombre muy parecido) → "Registrado"
   · no encontrado                                                        → "No Registrado"
+Lo que ya dice que SÍ está registrado (p. ej. marcado a mano) nunca se baja a "No Registrado":
+si no aparece en el reporte se deja como registrado y se lista para revisar.
 Los rechazos fuera del periodo del reporte no se tocan (no hay con qué compararlos).
 """
 
 import pandas as pd
 
 from cuadres import saleu as cu
-from cuadres.base import TAB_RECHAZOS, letra
+from cuadres.base import TAB_RECHAZOS, letra, norm
 from cuadres.actualizar import leer_rechazos, C
 
 REGISTRADO, NO_REGISTRADO = "Registrado", "No Registrado"
+
+
+def ya_registrado(valor):
+    """'Registrado', 'Sí', 'SI', 'Si registrado'… (no 'No Registrado')."""
+    n = norm(valor)
+    return n in ("REGISTRADO", "REGISTRADA") or n == "SI" or n.startswith("SI ")
 
 
 def periodo(su):
@@ -55,16 +63,24 @@ def proponer(base, su, ini=None, fin=None):
                     mejor = (r, k, s)
             if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= 2:
                 hallado, como = mejor[2], "nombre (teléfono distinto)"
-        nuevo = REGISTRADO if hallado is not None else NO_REGISTRADO
         actual = row["saleu"] or ""
+        revisar = ""
+        if hallado is not None:
+            nuevo = REGISTRADO
+        elif ya_registrado(actual):
+            nuevo = REGISTRADO          # lo marcaron como registrado: se respeta (solo se uniforma la palabra)
+            revisar = "Marcado como registrado, pero no aparece en este reporte de Sale-U"
+            como = "se respetó lo que ya decía"
+        else:
+            nuevo = NO_REGISTRADO
         filas.append(dict(
             Fila=row["fila"], Cliente=row["nombre"], Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo,
-            Cambia=actual != nuevo, Como=como,
+            Cambia=actual != nuevo, Como=como, Revisar=revisar,
             Cliente_SaleU=hallado["Nombre"] if hallado is not None else "",
             Estatus_SaleU=hallado["Estatus_SaleU"] if hallado is not None else "",
             Financiera_SaleU=hallado["Financiera"] if hallado is not None else ""))
     df = pd.DataFrame(filas, columns=["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como",
-                                      "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU"])
+                                      "Revisar", "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU"])
     return df, (ini, fin)
 
 
@@ -81,7 +97,9 @@ def aplicar(base, cambios, periodo_txt):
     base.anotar_historial([dict(
         Origen="App · cuadre Sale-U", Hoja=TAB_RECHAZOS, Celda=f"{letra(col)}{int(r['Fila'])}", Cliente=r["Cliente"],
         Campo=C["saleu"], Antes=r["Antes"], Después=r["Después"],
-        Motivo=(f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})" if r["Después"] == REGISTRADO
+        Motivo=(f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
+                if r["Revisar"] else
+                f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})" if r["Después"] == REGISTRADO
                 else f"No aparece en el reporte de Sale-U ({periodo_txt})"))
         for _, r in cambios.iterrows()])
     return len(cambios)
