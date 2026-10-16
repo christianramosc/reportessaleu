@@ -81,8 +81,10 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    **Bitácora de F&I** (la de Google si está configurada; si no, la copia que se guarda en la pestaña
    *Bitacora F&I* cada vez que la subes en Base de seguimiento). Un cliente está en Sale-U si coincide el
    teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
-   criterio que usa la columna *Cliente con Registro en SalesU*, y el Excel trae la hoja
-   *Rechazos_No_Registrado* con la misma lista que ves al filtrar esa columna. Además del Excel/PDF,
+   criterio que usa la columna *Cliente con Registro en SalesU*. La hoja *Faltan_en_SaleU* del Excel trae
+   nombre, celular, financiera, plazo, unidad, mensualidad y correo de cada cliente para darlo de alta.
+   Para que la app lea la Bitácora de F&I sola, pon su link en `FINANCIAMIENTO_SHEET_URL` (secrets) y
+   compártela como **Lector** con el `client_email` de la cuenta de servicio. Además del Excel/PDF,
    marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
    Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
    el reporte se deja igual y se lista para que lo confirmes.

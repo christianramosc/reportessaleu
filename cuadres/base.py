@@ -211,6 +211,15 @@ def _texto_historial(v):
 # =============================================================================
 # Google Sheets
 # =============================================================================
+_MES_ANIO = re.compile(r"(?i)^\s*(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|"
+                       r"octubre|noviembre|diciembre)\s+\d{4}\s*$")
+
+
+def _como_texto(v):
+    """Google interpreta "JUNIO 2026" como la fecha 01/06/2026; con apóstrofo se queda como texto."""
+    return "'" + v if isinstance(v, str) and _MES_ANIO.match(v) else v
+
+
 class BaseGoogle(_BaseComun):
     def __init__(self, info_cuenta_servicio, url):
         import gspread
@@ -263,7 +272,7 @@ class BaseGoogle(_BaseComun):
         max_col = max(c for _, c, _ in celdas)
         if max_fila > ws.row_count or max_col > ws.col_count:
             ws.resize(rows=max(ws.row_count, max_fila + 50), cols=max(ws.col_count, max_col))
-        datos = [{"range": f"{letra(c)}{f}", "values": [["" if v is None else v]]} for f, c, v in celdas]
+        datos = [{"range": f"{letra(c)}{f}", "values": [["" if v is None else _como_texto(v)]]} for f, c, v in celdas]
         for i in range(0, len(datos), 500):            # lotes para no rebasar la cuota de la API
             ws.batch_update(datos[i:i + 500], value_input_option=ValueInputOption.user_entered)
         self._limpiar_cache(pestana)
@@ -279,7 +288,7 @@ class BaseGoogle(_BaseComun):
         else:
             ws = self.libro.add_worksheet(pestana, rows=len(tabla) + 50, cols=ncols)
             self._hojas = None
-        tabla = [["" if v is None else v for v in f] + [""] * (ncols - len(f)) for f in tabla]
+        tabla = [["" if v is None else _como_texto(v) for v in f] + [""] * (ncols - len(f)) for f in tabla]
         ws.update(tabla, "A1", value_input_option=ValueInputOption.user_entered)
         if oculta:
             ws.hide()
