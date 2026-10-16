@@ -22,6 +22,7 @@ from cuadres import saleu as cu
 from cuadres import blueservice as cb
 from cuadres import saleu_sheet
 from cuadres.base import a_excel, norm
+from cuadres.actualizar import leer_rechazos
 
 # =============================================================================
 # Utilidades
@@ -132,7 +133,8 @@ def ejecutar_su_base(base, archivo_su, bitacora, escribir):
         ruta_su = guardar_temporal([archivo_su], tmp)[0]
         res = {}
         if not bitacora.empty:
-            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=bitacora)
+            rech = [dict(nombre=r["nombre"], tel=str(r["cel"] or ""), fila=r["fila"]) for r in leer_rechazos(base)]
+            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=bitacora, rechazos_base=rech)
             res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
             res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
         su = cu.leer_saleu(ruta_su)
@@ -364,6 +366,17 @@ with tab_su:
         m[3].metric("% de cuadre", valor_resumen(r, "Porcentaje"))
         m[4].metric("Estatus no cuadra", valor_resumen(r, "Estatus que no cuadra"))
         descargas(res, "su")
+        sin_seg = res.get("sin_seguimiento")
+        if sin_seg is not None:
+            if sin_seg.empty:
+                st.success("Todos los clientes con rechazo en este cuadre están en **MG Colima Rechazos**.",
+                           icon=":material/check_circle:")
+            else:
+                st.warning(f"**{len(sin_seg)} cliente(s) con rechazo en este cuadre no están en MG Colima Rechazos.** "
+                           "Agrégalos con **Base de seguimiento → Actualizar con bitácoras** (salen como «Nuevo "
+                           "rechazo»). También vienen en la hoja *Rechazos_sin_seguimiento* del Excel.",
+                           icon=":material/warning:")
+                tabla(sin_seg, cu.COLS_SIN_SEGUIMIENTO, ["Resultado"])
 
         t1, t2, t4, t5 = st.tabs([
             f"Faltan en Sale-U ({len(res['faltantes'])})",
