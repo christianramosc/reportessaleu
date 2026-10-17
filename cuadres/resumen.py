@@ -86,7 +86,8 @@ def indicadores(base, anio=None, hoy=None):
     vacio = pd.DataFrame(columns=["nombre", "tel", "asesor", "fseg", "dias"])
     if r.empty:
         return dict(anio=anio, rechazos=0, por_fin={}, ya_toca=0, al_dia=0, contactados=0, contestaron=0,
-                    sin_contesta=0, registrados=0, sin_registro=0, vencidos=vacio, por_vencer=vacio,
+                    sin_contesta=0, registrados=0, sin_registro=0, saleu_total=0, sin_registro_rech=0,
+                    sin_registro_aprob=0, aprob_sin_dato=0, vencidos=vacio, por_vencer=vacio,
                     pendientes=0, por_mes=pd.DataFrame(), por_asesor=pd.Series(dtype=int), revision=pd.DataFrame())
     del_anio = r[r["fecha"].map(lambda f: bool(f) and f.year == anio)]
     hecho = del_anio["hecho"].map(lambda v: v is not None)
@@ -115,10 +116,52 @@ def indicadores(base, anio=None, hoy=None):
         anio=anio, rechazos=len(del_anio), por_fin=fin.value_counts().to_dict(),
         ya_toca=int(toca.sum()), al_dia=int((toca & hecho).sum()),
         contactados=len(contactados), contestaron=contestaron, sin_contesta=sin_contesta,
-        registrados=int((del_anio["saleu"] == "REGISTRADO").sum()),
-        sin_registro=int((del_anio["saleu"] != "REGISTRADO").sum()),
+        **_registro_saleu(base, del_anio, anio),
         vencidos=vencidos, por_vencer=por_vencer, pendientes=len(revision), revision=revision, por_mes=por_mes,
         por_asesor=del_anio["asesor"].replace("", "(sin asesor)").value_counts())
+
+
+def _aprobados(base, anio):
+    """Aprobados del año en la Bitacora (Estatus final «Aprobado»): [(clave de nombre, SI / NO / "")]."""
+    if TAB_BITACORA not in base.pestanas():
+        return []
+    bit = base.leer(TAB_BITACORA)
+    c_est, c_cli, c_fecha = _col(bit, "Estatus final"), _col(bit, "Cliente"), _col(bit, "Fecha")
+    c_su = _col(bit, "Registro en Sale-U", "Sale-U")
+    if not (c_est and c_cli and c_fecha):
+        return []
+    out = []
+    for _, x in bit.iterrows():
+        f = to_date(x[c_fecha])
+        if norm(x[c_est]) != "APROBADO" or not f or f.year != anio or _vacio(x[c_cli]):
+            continue
+        su = norm(x[c_su]) if c_su else ""
+        out.append((name_key(x[c_cli]), {"REGISTRADO": "SI", "NO REGISTRADO": "NO"}.get(su, su)))
+    return out
+
+
+def _registro_saleu(base, del_anio, anio):
+    """Registro en Sale-U por cliente (como la lista «Faltan en Sale-U»): Rechazados del año (MG Colima Rechazos,
+    sin los que ya compraron) y Aprobados del año (Bitacora). Un cliente con varias filas cuenta una vez; está
+    registrado si alguna fila lo dice. Si también está en Rechazos, cuenta como rechazo."""
+    rech = {}                                         # clave de nombre → registrado (bool)
+    for _, x in del_anio.iterrows():
+        if "YA COMPRO" in x["com"]:
+            continue
+        k = name_key(x["nombre"])
+        clave = next((c for c in rech if similar(k, c)), k)
+        rech[clave] = rech.get(clave, False) or x["saleu"] == "REGISTRADO"
+    aprob = {}
+    for k, su in _aprobados(base, anio):
+        if any(similar(k, c) for c in rech):
+            continue
+        clave = next((c for c in aprob if similar(k, c)), k)
+        anterior = aprob.get(clave, "")
+        aprob[clave] = "SI" if "SI" in (su, anterior) else ("NO" if "NO" in (su, anterior) else "")
+    reg_r, sin_r = sum(rech.values()), sum(1 for v in rech.values() if not v)
+    reg_a, sin_a = sum(1 for v in aprob.values() if v == "SI"), sum(1 for v in aprob.values() if v == "NO")
+    return dict(registrados=reg_r + reg_a, sin_registro=sin_r + sin_a, saleu_total=len(rech) + len(aprob),
+                sin_registro_rech=sin_r, sin_registro_aprob=sin_a, aprob_sin_dato=len(aprob) - reg_a - sin_a)
 
 
 # =============================================================================

@@ -196,8 +196,10 @@ with tab_res:
             ui.tarjeta(fila1[2], "call", "Contacto efectivo", pct(k["contestaron"], k["contactados"]),
                        f"{k['contestaron']} de {k['contactados']} contactados"
                        + (f" · {k['sin_contesta']} sin dato" if k["sin_contesta"] else ""))
-            ui.tarjeta(fila2[0], "how_to_reg", "Registrados en Sale-U", pct(k["registrados"], k["rechazos"]),
-                       f"{k['sin_registro']} sin registro")
+            ui.tarjeta(fila2[0], "how_to_reg", "Registrados en Sale-U", pct(k["registrados"], k["saleu_total"]),
+                       f"{k['sin_registro']} sin registro: {k['sin_registro_rech']} rechazados · "
+                       f"{k['sin_registro_aprob']} aprobados"
+                       + (f" · {k['aprob_sin_dato']} por confirmar" if k["aprob_sin_dato"] else ""))
             ui.tarjeta(fila2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]),
                        f"{len(k['por_vencer'])} vencen en 15 días",
                        ESTADO["critico"] if len(k["vencidos"]) else ESTADO["bien"])

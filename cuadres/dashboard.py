@@ -112,7 +112,8 @@ def contenido(base):
     hay_bit = TAB_BITACORA in pestanas
     B = {k: _rng(TAB_BITACORA, letra(BITACORA_COLS.index(h) + 1)) for k, h in
          dict(fecha="Fecha", estatus="Estatus solicitud", banco="Banco solicitud", folio="Folio",
-              fuente="Fuente en la bitácora").items()}
+              fuente="Fuente en la bitácora", final="Estatus final", saleu="Registro en Sale-U",
+              id_rech="ID en 'MG Colima Rechazos'").items()}
 
     anio = _anio_actual(base)
     h = _Hoja()
@@ -273,12 +274,22 @@ def contenido(base):
         al_dia = f'COUNTIFS({anio_cond},{R("fseg")},"<="&TODAY(),{R("hecho")},"<>")'
     else:
         ya_toca = al_dia = "0"
+    # Registro en Sale-U: Rechazados (MG Colima Rechazos) + Aprobados del año de la Bitacora. Un aprobado ligado a
+    # una fila de Rechazos (columna ID) ya se cuenta ahí.
+    if hay_bit:
+        ap = f'{_entre(B["fecha"], 1, 13)},{B["final"]},"Aprobado",{B["id_rech"]},""'
+        ap_tot, ap_reg = f"COUNTIFS({ap})", f'COUNTIFS({ap},{B["saleu"]},"Registrado")'
+        ap_no = f'COUNTIFS({ap},{B["saleu"]},"No Registrado")'
+    else:
+        ap_tot = ap_reg = ap_no = "0"
+    su_total, su_reg, su_no = f"(B{tot}+{ap_tot})", f"(I{tot}+{ap_reg})", f"(J{tot}+{ap_no})"
     kpis = [("Rechazos en el año", f"=B{tot}", None,
              f'="CETELEM "&C{tot}&" · BBVA "&D{tot}&" · otras "&E{tot}'),
             ("Seguimiento al día", f'=IF({ya_toca}=0,1,{al_dia}/{ya_toca})', "pct",
              f'={al_dia}&" de "&{ya_toca}&" que ya cumplieron 180 días"'),
             ("Contacto efectivo", f'=IF(F{tot}=0,0,G{tot}/F{tot})', "pct", f'=G{tot}&" contestaron el 1er contacto"'),
-            ("Registrados en Sale-U", f'=IF(B{tot}=0,0,I{tot}/B{tot})', "pct", f'=J{tot}&" sin registro"'),
+            ("Registrados en Sale-U", f"=IF({su_total}=0,0,{su_reg}/{su_total})", "pct",
+             f'={su_no}&" sin registro: "&J{tot}&" rechazados · "&{ap_no}&" aprobados"'),
             ("Seguimientos vencidos", f"={pend_c(0)}", None, f'={pend_c(1)}&" vencen en 15 días"'),
             ("Pendientes en Revision", f"={pend_c(5)}", None, '="por resolver en la pestaña Revision"')]
     for i, (titulo, valor, fmt, sub) in enumerate(kpis):
@@ -306,8 +317,9 @@ def contenido(base):
         f'" por contactar","")&".")&IF(B{tot}>{ya_toca}," Otros "&(B{tot}-{ya_toca})&'
         f'" todavía no cumplen 180 días.","")&IF(F{tot}=0,""," Contestó el "&TEXT(G{tot}/F{tot},"0%")&'
         f'" de los contactados."))',
-        f'=IF(B{tot}=0,"","El "&TEXT(I{tot}/B{tot},"0%")&" de los rechazos está registrado en Sale-U"&'
-        f'IF(J{tot}>0,"; faltan "&J{tot}&" por registrar.","."))',
+        f'=IF({su_total}=0,"","El "&TEXT({su_reg}/{su_total},"0%")&" de los rechazados y aprobados del año está '
+        f'registrado en Sale-U"&IF({su_no}>0,"; faltan "&{su_no}&" por registrar ("&J{tot}&" rechazados y "&'
+        f'{ap_no}&" aprobados).","."))',
         f'={pend_c(0)}&" seguimientos vencidos sin hacer y "&{pend_c(1)}&" vencen en los próximos 15 días. Hay "&'
         f'{pend_c(5)}&" pendientes en Revision y "&{pend_c(3)}&" registros sin correo."',
     ]
