@@ -1,0 +1,223 @@
+# -*- coding: utf-8 -*-
+"""
+Resumen del Google Sheet de seguimiento: los indicadores principales y quién falta registrar en Sale-U.
+
+  indicadores(base, anio) → dict con los KPI del año y las tablas para las gráficas:
+      rechazos del año, seguimiento al día (de los que ya cumplieron 180 días), contacto efectivo,
+      registrados en Sale-U, seguimientos vencidos y pendientes en Revision.
+  faltantes_saleu(base)   → (faltan, por_confirmar): clientes Aprobados y Rechazados sin registro en Sale-U,
+      solo con lo que dice el Sheet:
+        · Rechazados: «MG Colima Rechazos» con Registro en Sale-U = «No Registrado» (lo marca el cuadre de Sale-U).
+        · Aprobados: pestaña Bitacora con Estatus final «Aprobado» y Sale-U = «NO» (lo dice la Bitácora de F&I).
+          Si la Bitácora no trae el dato, el cliente va a «por confirmar».
+      Un cliente que en cualquier fuente aparece registrado (Registrado / SI) no se lista. Cada cliente sale una
+      vez (mismo celular o nombre), con su estatus más reciente: si fue rechazado y después aprobado, es Aprobado.
+"""
+import datetime as dt
+
+import pandas as pd
+
+from cuadres.base import TAB_RECHAZOS, TAB_BITACORA, norm
+from cuadres.fuentes import name_key, similar, to_date, to_phone, to_num, txt
+from cuadres.salidas import telefono
+
+DIAS_SEGUIMIENTO = 180
+TAB_REVISION = "Revision"
+APROBADO, RECHAZADO = "Aprobado", "Rechazado"
+COLS_FALTAN = ["Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha", "Mensualidad",
+               "Correo", "Dias", "Fuente", "ID"]
+
+
+def _col(df, *nombres):
+    for n in nombres:
+        c = next((c for c in df.columns if norm(c) == norm(n)), None)
+        if c:
+            return c
+    return None
+
+
+def _vacio(v):
+    return v is None or (isinstance(v, float) and v != v) or str(v).strip() in ("", "None", "nan")
+
+
+def _rechazos(base):
+    """Filas de «MG Colima Rechazos» con los campos del resumen."""
+    if TAB_RECHAZOS not in base.pestanas():
+        return pd.DataFrame()
+    df = base.leer(TAB_RECHAZOS)
+    if df.empty:
+        return df
+    c = dict(fecha=_col(df, "Fecha ingreso"), nombre=_col(df, "Nombre de Cliente"), tel=_col(df, "Celular"),
+             fin=_col(df, "Financiera"), asesor=_col(df, "Asesor de Ventas"), unidad=_col(df, "Unidad"),
+             mens=_col(df, "Mensualidad"), correo=_col(df, "Correo"), saleu=_col(df, "Registro en Sale-U"),
+             hecho=_col(df, "FECHA REALIZADO 1"), contesta=_col(df, "CONTESTA 1"), com=_col(df, "COMENTARIOS"),
+             id=_col(df, "ID"))
+    g = lambda r, k: r[c[k]] if c[k] else None
+    filas = []
+    for _, r in df.iterrows():
+        if _vacio(g(r, "nombre")):
+            continue
+        fecha = to_date(g(r, "fecha"))
+        filas.append(dict(
+            fila=int(r["_fila"]), fecha=fecha, nombre=" ".join(str(g(r, "nombre")).split()),
+            tel=to_phone(g(r, "tel")), fin=(txt(g(r, "fin")) or "").upper(), asesor=(txt(g(r, "asesor")) or "").upper(),
+            unidad=txt(g(r, "unidad")) or "", mens=to_num(g(r, "mens")), correo=txt(g(r, "correo")) or "",
+            saleu=norm(g(r, "saleu")), hecho=to_date(g(r, "hecho")) or (None if _vacio(g(r, "hecho")) else True),
+            contesta=norm(g(r, "contesta")), com=norm(g(r, "com")), id=txt(g(r, "id")) or "",
+            fseg=fecha + dt.timedelta(days=DIAS_SEGUIMIENTO) if fecha else None))
+    return pd.DataFrame(filas)
+
+
+# =============================================================================
+# Indicadores
+# =============================================================================
+def anios(base):
+    r = _rechazos(base)
+    hoy = dt.date.today().year
+    if r.empty:
+        return [hoy]
+    return sorted({f.year for f in r["fecha"] if f} | {hoy}, reverse=True)
+
+
+def indicadores(base, anio=None, hoy=None):
+    hoy = hoy or dt.date.today()
+    anio = anio or hoy.year
+    r = _rechazos(base)
+    vacio = pd.DataFrame(columns=["nombre", "tel", "asesor", "fseg", "dias"])
+    if r.empty:
+        return dict(anio=anio, rechazos=0, por_fin={}, ya_toca=0, al_dia=0, contactados=0, contestaron=0,
+                    sin_contesta=0, registrados=0, sin_registro=0, vencidos=vacio, por_vencer=vacio,
+                    pendientes=0, por_mes=pd.DataFrame(), por_asesor=pd.Series(dtype=int), revision=pd.DataFrame())
+    del_anio = r[r["fecha"].map(lambda f: bool(f) and f.year == anio)]
+    hecho = del_anio["hecho"].map(lambda v: v is not None)
+    toca = del_anio["fseg"].map(lambda f: bool(f) and f <= hoy)
+    contactados = del_anio[hecho]
+    contestaron = int((contactados["contesta"] == "SI RESPONDE").sum())
+    sin_contesta = int((contactados["contesta"] == "").sum())
+
+    fin = del_anio["fin"].map(lambda f: f if f in ("CETELEM", "BBVA") else "Otras")
+    por_mes = (pd.DataFrame({"mes": del_anio["fecha"].map(lambda f: f.month), "fin": fin})
+               .groupby(["mes", "fin"]).size().rename("rechazos").reset_index())
+
+    # Vencidos y por vencer: toda la hoja (como el Resumen del Sheet), sin primer seguimiento
+    sin_hacer = r[r["hecho"].isna() & r["fseg"].notna()].copy()
+    sin_hacer["dias"] = sin_hacer["fseg"].map(lambda f: (hoy - f).days)
+    vencidos = sin_hacer[sin_hacer["dias"] >= 0].sort_values("dias", ascending=False)
+    por_vencer = sin_hacer[(sin_hacer["dias"] < 0) & (sin_hacer["dias"] >= -15)].sort_values("dias", ascending=False)
+
+    revision = pd.DataFrame()
+    if TAB_REVISION in base.pestanas():
+        rev = base.leer(TAB_REVISION)
+        c_est = _col(rev, "Estado")
+        if c_est:
+            revision = rev[rev[c_est].map(lambda v: norm(v) == "PENDIENTE")].drop(columns="_fila", errors="ignore")
+    return dict(
+        anio=anio, rechazos=len(del_anio), por_fin=fin.value_counts().to_dict(),
+        ya_toca=int(toca.sum()), al_dia=int((toca & hecho).sum()),
+        contactados=len(contactados), contestaron=contestaron, sin_contesta=sin_contesta,
+        registrados=int((del_anio["saleu"] == "REGISTRADO").sum()),
+        sin_registro=int((del_anio["saleu"] != "REGISTRADO").sum()),
+        vencidos=vencidos, por_vencer=por_vencer, pendientes=len(revision), revision=revision, por_mes=por_mes,
+        por_asesor=del_anio["asesor"].replace("", "(sin asesor)").value_counts())
+
+
+# =============================================================================
+# Faltan en Sale-U
+# =============================================================================
+class _Clientes:
+    """Agrupa registros de la misma persona: mismo celular (con nombre parecido) o el mismo nombre."""
+
+    def __init__(self):
+        self.grupos = []
+
+    def grupo(self, nombre, tel):
+        key = name_key(nombre)
+        for g in self.grupos:
+            if (tel and tel in g["tels"] and any(similar(key, k) or _palabras(key, k) for k in g["keys"])) \
+                    or any(similar(key, k) for k in g["keys"]):
+                g["keys"].add(key)
+                if tel:
+                    g["tels"].add(tel)
+                return g
+        g = dict(keys={key}, tels={tel} if tel else set(), regs=[])
+        self.grupos.append(g)
+        return g
+
+
+def _palabras(a, b):
+    pa, pb = set(a.split()), set(b.split())
+    return bool(pa and pb) and len(pa & pb) >= min(len(pa), len(pb)) / 2
+
+
+def _asesor_completo(base):
+    from cuadres.actualizar import _catalogo_asesores, _asesor
+    catalogo = _catalogo_asesores(base)
+    return lambda v: ((_asesor(v, catalogo) or v) if catalogo and v else (v or "")).upper()
+
+
+def faltantes_saleu(base, hoy=None):
+    """(faltan, por_confirmar): DataFrames con COLS_FALTAN, ordenados Aprobados primero y por vendedor."""
+    hoy = hoy or dt.date.today()
+    asesor = _asesor_completo(base)
+    clientes = _Clientes()
+
+    r = _rechazos(base)
+    for _, x in r.iterrows() if not r.empty else []:
+        if "YA COMPRO" in x["com"]:
+            continue                                  # ya compró: es formalizado, no rechazado
+        clientes.grupo(x["nombre"], x["tel"])["regs"].append(dict(
+            estatus=RECHAZADO, saleu={"REGISTRADO": "SI", "NO REGISTRADO": "NO"}.get(x["saleu"], ""),
+            cliente=x["nombre"], tel=x["tel"], vendedor=asesor(x["asesor"]), fin=x["fin"], unidad=x["unidad"],
+            fecha=x["fecha"], mens=x["mens"], correo=x["correo"], fuente="MG Colima Rechazos", id=x["id"]))
+
+    if TAB_BITACORA in base.pestanas():
+        bit = base.leer(TAB_BITACORA)
+        c = dict(est=_col(bit, "Estatus final"), cli=_col(bit, "Cliente"), tel=_col(bit, "Teléfono"),
+                 ven=_col(bit, "Vendedor"), fin=_col(bit, "Financiera final", "Banco solicitud"),
+                 uni=_col(bit, "Unidad"), fecha=_col(bit, "Fecha"), mens=_col(bit, "Mensualidad"),
+                 correo=_col(bit, "Correo"), su=_col(bit, "Sale-U"), fuente=_col(bit, "Fuente en la bitácora"))
+        g = lambda x, k: x[c[k]] if c[k] else None
+        for _, x in bit.iterrows() if c["est"] and c["cli"] else []:
+            nombre = txt(g(x, "cli"))
+            if not nombre:
+                continue
+            est = norm(g(x, "est"))
+            su = norm(g(x, "su"))
+            if est != "APROBADO" and su != "SI":
+                continue                              # solo interesan aprobados (y cualquier «sí está en Sale-U»)
+            clientes.grupo(nombre, to_phone(g(x, "tel")))["regs"].append(dict(
+                estatus=APROBADO if est == "APROBADO" else "otro", saleu=su if su in ("SI", "NO") else "",
+                cliente=" ".join(nombre.split()).upper(), tel=to_phone(g(x, "tel")), vendedor=asesor(txt(g(x, "ven"))),
+                fin=(txt(g(x, "fin")) or "").upper(), unidad=txt(g(x, "uni")) or "", fecha=to_date(g(x, "fecha")),
+                mens=to_num(g(x, "mens")), correo=txt(g(x, "correo")) or "", fuente=txt(g(x, "fuente")) or "Bitacora",
+                id=""))
+
+    faltan, confirmar = [], []
+    for grupo in clientes.grupos:
+        regs = grupo["regs"]
+        if any(x["saleu"] == "SI" for x in regs):
+            continue                                  # ya está en Sale-U según alguna fuente
+        aprobados = [x for x in regs if x["estatus"] == APROBADO]
+        rechazados = [x for x in regs if x["estatus"] == RECHAZADO]
+        if aprobados:
+            x = max(aprobados, key=lambda y: y["fecha"] or dt.date.min)
+            destino = faltan if any(y["saleu"] == "NO" for y in aprobados) or any(
+                y["saleu"] == "NO" for y in rechazados) else confirmar
+        elif rechazados and any(y["saleu"] == "NO" for y in rechazados):
+            x, destino = max(rechazados, key=lambda y: y["fecha"] or dt.date.min), faltan
+        else:
+            continue
+        ids = ", ".join(dict.fromkeys(y["id"] for y in rechazados if y["id"]))
+        destino.append(dict(
+            Estatus=x["estatus"], Cliente=x["cliente"], Telefono=telefono(x["tel"]), Vendedor=x["vendedor"] or "",
+            Financiera=x["fin"], Unidad=x["unidad"], Fecha=x["fecha"], Mensualidad=x["mens"], Correo=x["correo"],
+            Dias=(hoy - x["fecha"]).days if x["fecha"] else None,
+            Fuente=x["fuente"] + (" · antes rechazado" if x["estatus"] == APROBADO and rechazados else ""), ID=ids))
+
+    def tabla(filas):
+        df = pd.DataFrame(filas, columns=COLS_FALTAN)
+        if df.empty:
+            return df
+        df["_o"] = df["Estatus"].map({APROBADO: 0, RECHAZADO: 1})
+        return df.sort_values(["_o", "Vendedor", "Fecha"], na_position="last").drop(columns="_o").reset_index(drop=True)
+    return tabla(faltan), tabla(confirmar)

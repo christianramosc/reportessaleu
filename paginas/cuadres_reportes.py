@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Página: Cuadres para reportes
+Página: Resumen y cuadres
 
-  · Seguimiento de rechazos vs bitácora (solo rechazos, todas las financieras)
+  · Resumen: indicadores del Sheet y PDF de quién falta en Sale-U
   · Sale-U vs bitácora (todas las financieras)
   · BlueService vs Inventario (por VIN)
 
 Se abre desde streamlit_app.py (navegación de la app).
 """
 
+import datetime as dt
 import os
 import tempfile
 import pandas as pd
@@ -17,12 +18,12 @@ import streamlit as st
 import ui
 import conexion
 
-from cuadres import seguimiento as cs
 from cuadres import saleu as cu
 from cuadres import blueservice as cb
 from cuadres import saleu_sheet
 from cuadres.base import a_excel, norm
-from cuadres.salidas import etiqueta
+from cuadres.salidas import etiqueta, telefono
+from cuadres import resumen
 
 # =============================================================================
 # Utilidades
@@ -115,19 +116,6 @@ def ejecutar(modulo, archivo_base, capturas):
     return res
 
 
-def ejecutar_seg_base(base, bitacora):
-    """Cuadre de seguimiento: pestañas de Colima de la base vs rechazos de la bitácora (todas las financieras)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        hojas = [h for h in base.pestanas() if cs.FILTRO_HOJAS in norm(h) and not h.startswith("_")]
-        ruta_seg = os.path.join(tmp, "Seguimiento_base.xlsx")
-        with open(ruta_seg, "wb") as f:
-            f.write(a_excel(base, hojas))
-        res = cs.procesar(ruta_seg, carpeta=tmp, bitacora=bitacora)
-        res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
-        res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
-    return res
-
-
 def ejecutar_su_base(base, archivo_su, clientes):
     """Cuadre Sale-U contra los clientes del Sheet (MG Colima Rechazos, todas las financieras, y Créditos
     Finalizados) + cambios propuestos para el Sheet (registro en Sale-U y datos faltantes). No escribe:
@@ -157,8 +145,7 @@ with st.sidebar.expander("Ajustes avanzados", icon=":material/tune:"):
     st.caption("Cambian los resultados de los cuadres. Déjalos como están salvo que sepas por qué.")
     fuerte = st.slider("Parecido: solo por nombre", 0.6, 1.0, 0.80, 0.05, help="Cuando el teléfono es distinto.")
     con_tel = st.slider("Parecido: con teléfono igual", 0.3, 1.0, 0.50, 0.05, help="Cuando el teléfono coincide.")
-    for m in (cs, cu):
-        m.UMBRAL_NOMBRE_FUERTE, m.UMBRAL_NOMBRE_CON_TEL = fuerte, con_tel
+    cu.UMBRAL_NOMBRE_FUERTE, cu.UMBRAL_NOMBRE_CON_TEL = fuerte, con_tel
     contra = st.selectbox("Contrapropuesta en Sale-U", ["Revisar", "Aceptado", "Rechazado"])
     cu.ESTATUS_ESPERADO["CONTRAPROPUESTA"] = {"Aceptado": "ACEPTADO",
                                               "Rechazado": "RECHAZADO"}.get(contra)
@@ -167,7 +154,7 @@ with st.sidebar.expander("Ajustes avanzados", icon=":material/tune:"):
 # =============================================================================
 # Página
 # =============================================================================
-ui.hero("Cuadres para reportes", "Elige el cuadre y descarga el resultado en Excel y PDF.")
+ui.hero("Resumen y cuadres", "Indicadores del Sheet, cuadres y sus reportes en Excel y PDF.")
 ui.guia_mes()
 
 try:
@@ -177,85 +164,142 @@ except Exception as e:
     st.error(f"No se pudo abrir el Google Sheet: {e}. Mientras, puedes subir los archivos.",
              icon=":material/cloud_off:")
 
-tab_seg, tab_su, tab_bs = st.tabs(["📒 Seguimiento", "🟦 Sale-U", "🔧 BlueService"])
+tab_res, tab_su, tab_bs = st.tabs(["📊 Resumen", "🟦 Sale-U", "🔧 BlueService"])
 
 AGREGAR_MES = "Para agregar un mes: **Base de seguimiento → Actualizar**."
 AYUDA_CAPTURAS = "Las pide el F&I. Un Excel por mes (ej. JULIO_2026_FINAL.xlsx); puedes subir varios."
 
-# ---------------------------------------------------------------- SEGUIMIENTO
-with tab_seg:
-    st.markdown("Busca en el seguimiento los **rechazos** de la bitácora (todas las financieras).")
-    if base is not None:
-        bit = conexion.bitacora_guardada(base, con_sheet=False)    # solo bitácoras: el Sheet es lo que se revisa
-        st.success(f"Bitácora: {conexion.describir_bitacora(bit)}", icon=":material/cloud_done:")
-        st.caption(AGREGAR_MES)
-        if st.button("Hacer cuadre", type="primary", disabled=bit.empty, key="btn_seg"):
-            with st.spinner("Cruzando…"):
-                try:
-                    st.session_state["res_seg"] = ejecutar_seg_base(base, bit)
-                except Exception as e:
-                    st.session_state.pop("res_seg", None)
-                    st.error(f"No se pudo hacer el cuadre: {e}")
+# ---------------------------------------------------------------- RESUMEN
+ESTADO = dict(bien="#0ca30c", aviso="#c98500", critico="#d03b3b", neutro=ui.kc.AZUL_OSCURO)
+with tab_res:
+    if base is None:
+        st.info("Conecta el Google Sheet (o sube el Excel en **Base de seguimiento**) para ver el resumen.",
+                icon=":material/cloud_off:")
     else:
-        c1, c2 = st.columns(2)
-        f_seg = c1.file_uploader("Excel de seguimiento", type=["xlsx"], key="up_seg",
-                                 help="Solo se leen las pestañas de COLIMA.")
-        f_cet = c2.file_uploader("Capturas de Cetelem", type=["xlsx"], accept_multiple_files=True,
-                                 key="up_cet_seg", help=AYUDA_CAPTURAS)
-        c2.caption("Sin el Sheet conectado solo se cuadra Cetelem.")
+        try:
+            c_anio, _ = st.columns([1, 5])
+            anio = c_anio.selectbox("Año", resumen.anios(base), key="anio_res")
+            k = resumen.indicadores(base, anio)
+        except Exception as e:
+            k = None
+            st.error(f"No se pudo leer el Sheet: {e}")
+        if k:
+            pct = lambda a, b: f"{a / b:.0%}" if b else "—"
+            al_dia = k["al_dia"] / k["ya_toca"] if k["ya_toca"] else 1
+            fila1, fila2 = st.columns(3), st.columns(3)
+            ui.tarjeta(fila1[0], "event_busy", "Rechazos en el año", k["rechazos"],
+                       " · ".join(f"{f} {n}" for f, n in sorted(k["por_fin"].items(), key=lambda x: -x[1])))
+            ui.tarjeta(fila1[1], "event_available", "Seguimiento al día", pct(k["al_dia"], k["ya_toca"]),
+                       f"{k['al_dia']} de {k['ya_toca']} que ya cumplieron 180 días",
+                       ESTADO["bien"] if al_dia >= 0.9 else ESTADO["aviso"])
+            ui.tarjeta(fila1[2], "call", "Contacto efectivo", pct(k["contestaron"], k["contactados"]),
+                       f"{k['contestaron']} de {k['contactados']} contactados"
+                       + (f" · {k['sin_contesta']} sin dato" if k["sin_contesta"] else ""))
+            ui.tarjeta(fila2[0], "how_to_reg", "Registrados en Sale-U", pct(k["registrados"], k["rechazos"]),
+                       f"{k['sin_registro']} sin registro")
+            ui.tarjeta(fila2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]),
+                       f"{len(k['por_vencer'])} vencen en 15 días",
+                       ESTADO["critico"] if len(k["vencidos"]) else ESTADO["bien"])
+            ui.tarjeta(fila2[2], "rule", "Pendientes en Revision", k["pendientes"], "por resolver",
+                       ESTADO["aviso"] if k["pendientes"] else ESTADO["bien"])
 
-        if st.button("Hacer cuadre", type="primary", disabled=not (f_seg and f_cet), key="btn_seg"):
-            with st.spinner("Cruzando…"):
-                try:
-                    st.session_state["res_seg"] = ejecutar(cs, f_seg, f_cet)
-                except Exception as e:
-                    st.session_state.pop("res_seg", None)
-                    st.error(f"No se pudo hacer el cuadre: {e}")
+            import altair as alt
+            g1, g2 = st.columns([3, 2])
+            if not k["por_mes"].empty:
+                meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+                pm = k["por_mes"].assign(Mes=k["por_mes"]["mes"].map(lambda m: meses[m - 1]))
+                orden_fin = ["CETELEM", "BBVA", "Otras"]
+                g1.markdown("**Rechazos por mes**")
+                g1.altair_chart(alt.Chart(pm).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, size=22,
+                                                      stroke="white", strokeWidth=2).encode(
+                    x=alt.X("Mes:N", sort=meses, title=None, axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("sum(rechazos):Q", title=None, axis=alt.Axis(tickMinStep=1, grid=True)),
+                    color=alt.Color("fin:N", title=None, sort=orden_fin, legend=alt.Legend(orient="top"),
+                                    scale=alt.Scale(domain=orden_fin, range=["#2a78d6", "#eb6834", "#1baf7a"])),
+                    order=alt.Order("orden:Q"),
+                    tooltip=[alt.Tooltip("Mes:N"), alt.Tooltip("fin:N", title="Financiera"),
+                             alt.Tooltip("rechazos:Q", title="Rechazos")]
+                ).transform_calculate(orden="indexof(['CETELEM','BBVA','Otras'], datum.fin)").properties(height=260),
+                    width="stretch")
+            embudo = pd.DataFrame({"Etapa": ["Ya cumplieron 180 días", "Con 1er seguimiento", "Contestaron"],
+                                   "Clientes": [k["ya_toca"], k["al_dia"], k["contestaron"]]})
+            g2.markdown("**Seguimiento de los que ya cumplieron 180 días**")
+            base_e = alt.Chart(embudo).encode(
+                y=alt.Y("Etapa:N", sort=list(embudo["Etapa"]), title=None, axis=alt.Axis(labelLimit=180)),
+                x=alt.X("Clientes:Q", title=None, axis=None))
+            g2.altair_chart((base_e.mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, size=26).encode(
+                color=alt.Color("Etapa:N", legend=None, sort=list(embudo["Etapa"]),
+                                scale=alt.Scale(range=["#86b6ef", "#2a78d6", "#104281"])),
+                tooltip=["Etapa", "Clientes"])
+                + base_e.mark_text(align="left", dx=4, fontWeight="bold", color=ui.kc.TEXTO).encode(text="Clientes:Q")
+            ).properties(height=260), width="stretch")
 
-    res = st.session_state.get("res_seg")
-    if res:
-        r = res["resumen"]
-        st.success(f"Bitácora: {', '.join(res['meses'])}  ·  Financieras: {', '.join(res.get('financieras', []))}"
-                   f"  ·  Pestañas: {', '.join(res['hojas'])}")
-        m = st.columns(5)
-        m[0].metric("Rechazados", valor_resumen(r, "Clientes únicos rechazados"))
-        m[1].metric("Encontrados", valor_resumen(r, "Clientes rechazados encontrados"))
-        m[2].metric("Faltan", valor_resumen(r, "Clientes rechazados NO"))
-        m[3].metric("% cuadre", valor_resumen(r, "Porcentaje"))
-        m[4].metric("A corregir", valor_resumen(r, "Datos a corregir"))
-        descargas(res, "seg")
+            def lista(df, cols, nombres):
+                vista = df[cols].copy()
+                vista.columns = nombres
+                return vista
 
-        t1, t2, t3, t4, t5 = st.tabs([
-            f"Faltan en seguimiento ({len(res['faltantes'])})",
-            f"A corregir ({len(res['revisar'])})",
-            f"No están en la bitácora ({len(res['solo_periodo'])})",
-            "Completo", "Resumen"])
-        with t1:
-            df = filtro_vendedor(res["faltantes"], "fv_seg")
-            if not df.empty:
-                st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
-                             height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
-            tabla(df, ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial",
-                       "Observaciones"])
-        with t2:
-            tabla(res["revisar"], ["Resultado", "Cuadre_pestana", "Cliente_bitacora", "Tel_bitacora",
-                                   "Cliente_seguimiento", "Tel_seguimiento", "Folio_seguimiento",
-                                   "Pestanas_encontrado", "Observaciones"],
-                  ["Resultado", "Cuadre_pestana"])
-        with t3:
-            st.caption("Rechazos del seguimiento, dentro de los meses de la bitácora, que ahí no salen como "
-                       "rechazo. *Observaciones* dice con qué estatus aparecen.")
-            tabla(res["solo_periodo"], ["Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre",
-                                        "Telefono", "Asesor", "Observaciones"])
-            with st.expander("Fuera del periodo, sin fecha u otras financieras"):
-                tabla(res["solo"], ["Clasificacion", "Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm",
-                                    "Nombre", "Telefono", "Financiera", "Asesor", "Observaciones"],
-                      ["Clasificacion"])
-        with t4:
-            df = filtro_vendedor(res["cuadre"], "fv_seg_todo")
-            tabla(df, cs.COLS_CUADRE, ["Resultado", "Cuadre_pestana"], alto=550)
-        with t5:
-            st.dataframe(r.astype(str), hide_index=True, width="stretch")
+            v, pv = k["vencidos"], k["por_vencer"]
+            with st.expander(f"Seguimientos vencidos ({len(v)})", icon=":material/alarm:", expanded=bool(len(v))):
+                if v.empty:
+                    st.success("No hay seguimientos vencidos.")
+                else:
+                    st.dataframe(lista(v.assign(tel=v["tel"].map(telefono), fseg=v["fseg"].map(cu.fecha_txt)),
+                                       ["nombre", "tel", "asesor", "fseg", "dias", "id"],
+                                       ["Cliente", "Celular", "Asesor", "Tocaba el", "Días de atraso", "ID"]),
+                                 hide_index=True, width="stretch")
+            with st.expander(f"Vencen en los próximos 15 días ({len(pv)})", icon=":material/schedule:"):
+                if pv.empty:
+                    st.info("Ninguno vence en los próximos 15 días.")
+                else:
+                    st.dataframe(lista(pv.assign(tel=pv["tel"].map(telefono), fseg=pv["fseg"].map(cu.fecha_txt),
+                                                 dias=-pv["dias"]),
+                                       ["nombre", "tel", "asesor", "fseg", "dias", "id"],
+                                       ["Cliente", "Celular", "Asesor", "Toca el", "Faltan días", "ID"]),
+                                 hide_index=True, width="stretch")
+            with st.expander(f"Pendientes en Revision ({k['pendientes']})", icon=":material/rule:"):
+                rv = k["revision"]
+                if rv.empty:
+                    st.success("No hay pendientes.")
+                else:
+                    st.dataframe(rv[[c for c in ["Hoja", "Celda", "Cliente", "Campo", "Motivo / qué falta"]
+                                     if c in rv.columns]], hide_index=True, width="stretch")
+
+        # ------------------------------------------------ reporte de faltantes en Sale-U
+        st.divider()
+        st.markdown("#### :material/person_add: Faltan en Sale-U")
+        st.caption("Aprobados y Rechazados sin registro, según el Sheet: Rechazos con «No Registrado» y Aprobados "
+                   "de la Bitacora con Sale-U = NO (F&I).")
+        try:
+            faltan, confirmar = resumen.faltantes_saleu(base)
+        except Exception as e:
+            faltan = confirmar = None
+            st.error(f"No se pudo armar la lista: {e}")
+        if faltan is not None:
+            m = st.columns(4)
+            m[0].metric("Por registrar", len(faltan))
+            m[1].metric("Aprobados", int((faltan["Estatus"] == resumen.APROBADO).sum()))
+            m[2].metric("Rechazados", int((faltan["Estatus"] == resumen.RECHAZADO).sum()))
+            m[3].metric("Aprobados por confirmar", len(confirmar), help="F&I no trae el dato de Sale-U.")
+            if st.button("Generar PDF", type="primary", icon=":material/picture_as_pdf:", key="btn_pdf_su"):
+                with st.spinner("Armando el reporte…"):
+                    try:
+                        from cuadres import reporte_saleu
+                        st.session_state["pdf_su"] = (reporte_saleu.pdf(faltan, confirmar),
+                                                      f"PorRegistrar_SaleU_{dt.date.today():%Y%m%d}.pdf")
+                    except Exception as e:
+                        st.error(f"No se pudo generar el PDF: {e}")
+            if st.session_state.get("pdf_su"):
+                datos_pdf, nombre_pdf = st.session_state["pdf_su"]
+                st.download_button("Descargar PDF", datos_pdf, file_name=nombre_pdf, mime="application/pdf",
+                                   icon=":material/download:", key="dl_pdf_su")
+            if not faltan.empty:
+                vista = faltan.assign(Fecha=faltan["Fecha"].map(cu.fecha_txt),
+                                      Mensualidad=faltan["Mensualidad"].map(
+                                          lambda v: f"${v:,.2f}" if v == v and v else ""))
+                st.dataframe(vista[["Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
+                                    "Mensualidad"]].rename(columns={"Telefono": "Celular", "Dias": "Días"}),
+                             hide_index=True, width="stretch")
 
 # ---------------------------------------------------------------- SALE-U
 with tab_su:
