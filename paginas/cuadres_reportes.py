@@ -20,7 +20,7 @@ import conexion
 
 from cuadres import saleu as cu
 from cuadres import blueservice as cb
-from cuadres import saleu_sheet
+from cuadres import saleu_sheet, saleu_fuente
 from cuadres.base import a_excel, norm
 from cuadres.salidas import etiqueta, telefono
 from cuadres import resumen
@@ -47,6 +47,10 @@ def leer_bytes(ruta):
 def colorear(valor):
     verde, amarillo, rojo = "#C6EFCE", "#FFEB9C", "#FFC7CE"
     v = str(valor)
+    if v in ("Falta crédito", "Registrar crédito"):
+        return f"background-color: {amarillo}"
+    if v == "Dar de alta":
+        return f"background-color: {rojo}"
     if v in ("OK", "Coincide por folio", "Coincide (teléfono y nombre)", "Cuadra"):
         return f"background-color: {verde}"
     if (v.startswith("NO ") or v == "No cuadra" or "pero NO" in v or v.startswith("Falta")
@@ -116,22 +120,38 @@ def ejecutar(modulo, archivo_base, capturas):
     return res
 
 
-def ejecutar_su_base(base, archivo_su, clientes):
+def revisar_reportes(ruta_su, ruta_fuente):
+    """Error claro si los reportes vienen cambiados de lugar."""
+    if saleu_fuente.es_fuente(ruta_su):
+        raise ValueError("En «Reporte de Crédito» subiste el reporte Fuente. Ahí va el reporteLeadsconCredito; "
+                         "el de Fuente va en el segundo campo.")
+    if ruta_fuente and not saleu_fuente.es_fuente(ruta_fuente):
+        raise ValueError("El archivo de «Reporte Fuente» no es el reporte Fuente de Sale-U "
+                         "(ReporteFuentes_Agencia_MG-Colima…).")
+
+
+def ejecutar_su_base(base, archivo_su, clientes, archivo_fuente=None):
     """Cuadre Sale-U contra los clientes del Sheet (MG Colima Rechazos, todas las financieras, y Créditos
-    Finalizados) + cambios propuestos para el Sheet (registro en Sale-U y datos faltantes). No escribe:
-    los cambios se aplican con el botón «Aplicar» después de revisarlos."""
+    Finalizados) + cambios propuestos para el Sheet (registro en Sale-U y datos faltantes). Con el reporte Fuente
+    (opcional) separa a quién falta dar de alta de a quién solo le falta el crédito. No escribe: los cambios se
+    aplican con el botón «Aplicar» después de revisarlos."""
     with tempfile.TemporaryDirectory() as tmp:
         ruta_su = guardar_temporal([archivo_su], tmp)[0]
+        ruta_fu = guardar_temporal([archivo_fuente], tmp)[0] if archivo_fuente else None
+        revisar_reportes(ruta_su, ruta_fu)
+        fu = saleu_fuente.leer_fuente(ruta_fu) if ruta_fu else None
         res = {}
         if not clientes.empty:
-            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=clientes, fuente="la bitácora")
+            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=clientes, fuente="la bitácora", ruta_fuente=fu)
             res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
             res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
         su = cu.leer_saleu(ruta_su)
-    cambios, (ini, fin) = saleu_sheet.proponer(base, su)
+    cambios, (ini, fin) = saleu_sheet.proponer(base, su, fuente=fu)
     periodo = f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}"
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
+    res["con_fuente"] = fu is not None
+    res["periodo_fuente"] = saleu_fuente.periodo_txt(fu)
     res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
                                 columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
     res["escritos"], res["datos_escritos"], res["aplicado"] = 0, 0, False
@@ -197,8 +217,7 @@ with tab_res:
                        f"{k['contestaron']} de {k['contactados']} contactados"
                        + (f" · {k['sin_contesta']} sin dato" if k["sin_contesta"] else ""))
             ui.tarjeta(fila2[0], "how_to_reg", "Registrados en Sale-U", pct(k["registrados"], k["saleu_total"]),
-                       f"{k['sin_registro']} sin registro: {k['sin_registro_rech']} rechazados · "
-                       f"{k['sin_registro_aprob']} aprobados"
+                       f"{k['falta_alta']} falta alta · {k['falta_credito']} falta crédito"
                        + (f" · {k['aprob_sin_dato']} por confirmar" if k["aprob_sin_dato"] else ""))
             ui.tarjeta(fila2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]),
                        f"{len(k['por_vencer'])} vencen en 15 días",
@@ -271,19 +290,24 @@ with tab_res:
         # ------------------------------------------------ reporte de faltantes en Sale-U
         st.divider()
         st.markdown("#### :material/person_add: Faltan en Sale-U")
-        st.caption("Aprobados y Rechazados sin registro, según el Sheet: Rechazos con «No Registrado» y Aprobados "
-                   "de la Bitacora con «No Registrado» (los marca el cuadre de Sale-U).")
+        st.caption("Aprobados y Rechazados sin registro, según el Sheet (lo marca el cuadre de Sale-U): «No Registrado» "
+                   "= falta darlos de alta; «Falta crédito» = ya son lead (reporte Fuente), falta su crédito.")
         try:
             faltan, confirmar = resumen.faltantes_saleu(base)
         except Exception as e:
             faltan = confirmar = None
             st.error(f"No se pudo armar la lista: {e}")
         if faltan is not None:
-            m = st.columns(4)
-            m[0].metric("Por registrar", len(faltan))
-            m[1].metric("Aprobados", int((faltan["Estatus"] == resumen.APROBADO).sum()))
-            m[2].metric("Rechazados", int((faltan["Estatus"] == resumen.RECHAZADO).sum()))
-            m[3].metric("Aprobados por confirmar", len(confirmar), help="F&I no trae el dato de Sale-U.")
+            m = st.columns(5)
+            m[0].metric("Por registrar", len(faltan),
+                        help=f"{int((faltan['Estatus'] == resumen.APROBADO).sum())} aprobados · "
+                             f"{int((faltan['Estatus'] == resumen.RECHAZADO).sum())} rechazados")
+            m[1].metric("Dar de alta", int((faltan["Falta"] == resumen.FALTA_ALTA).sum()),
+                        help="No están en Sale-U (ni Fuente ni Crédito).")
+            m[2].metric("Registrar crédito", int((faltan["Falta"] == resumen.FALTA_CREDITO).sum()),
+                        help="Ya son lead (reporte Fuente); falta registrar su crédito.")
+            m[3].metric("Aprobados", int((faltan["Estatus"] == resumen.APROBADO).sum()))
+            m[4].metric("Por confirmar", len(confirmar), help="Aprobados sin dato de Sale-U.")
             if st.button("Generar PDF", type="primary", icon=":material/picture_as_pdf:", key="btn_pdf_su"):
                 with st.spinner("Armando el reporte…"):
                     try:
@@ -300,15 +324,18 @@ with tab_res:
                 vista = faltan.assign(Fecha=faltan["Fecha"].map(cu.fecha_txt),
                                       Mensualidad=faltan["Mensualidad"].map(
                                           lambda v: f"${v:,.2f}" if v == v and v else ""))
-                st.dataframe(vista[["Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
+                st.dataframe(vista[["Falta", "Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
                                     "Mensualidad"]].rename(columns={"Telefono": "Celular", "Dias": "Días"}),
                              hide_index=True, width="stretch")
 
 # ---------------------------------------------------------------- SALE-U
 with tab_su:
     c1, c2 = st.columns(2)
-    f_su = c1.file_uploader("Reporte de Sale-U", type=["csv", "xlsx"], key="up_su",
+    f_su = c1.file_uploader("Reporte de Crédito (Sale-U)", type=["csv", "xlsx"], key="up_su",
                             help="reporteLeadsconCredito…, tal cual se descarga (sin abrirlo en Excel).")
+    f_fu = c1.file_uploader("Reporte Fuente (opcional)", type=["csv", "xlsx"], key="up_fuente",
+                            help="ReporteFuentes_Agencia_MG-Colima…: todos los leads. Con él se separa a quién falta "
+                                 "dar de alta de a quién solo le falta el crédito. Bájalo desde enero.")
     if base is not None:
         bit = conexion.clientes_saleu(base)
         if not bit.empty:
@@ -322,7 +349,7 @@ with tab_su:
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
             with st.spinner("Cruzando…"):
                 try:
-                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, bit)
+                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, bit, f_fu)
                 except Exception as e:
                     st.session_state.pop("res_su", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
@@ -343,17 +370,24 @@ with tab_su:
     if res and "registro" in res:
         reg = res["registro"]
         cambian = reg[reg["Cambia"]]
-        st.markdown(f"**Registro en Sale-U** · {res['periodo_saleu']}")
+        st.markdown(f"**Registro en Sale-U** · Crédito {res['periodo_saleu']}"
+                    + (f" · Fuente {res['periodo_fuente']}" if res.get("con_fuente") else " · sin reporte Fuente"))
         datos = res.get("datos", pd.DataFrame())
         aplicado = res.get("aplicado", False)
         escritos_datos = res.get("datos_escritos", 0)
-        k = st.columns(4)
-        k[0].metric("Revisados", len(reg), help="Rechazos de MG Colima Rechazos y Aprobados de la Bitacora del periodo.")
+        k = st.columns(6)
+        k[0].metric("Revisados", len(reg), help="Rechazos de MG Colima Rechazos y Aprobados de la Bitacora del periodo del reporte de Crédito "
+                                           "(más los «No Registrado» de otras fechas que salen en Fuente).")
         k[1].metric("Registrados", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
-        k[2].metric("Celdas actualizadas" if aplicado else "Celdas por actualizar",
+        k[2].metric("Falta crédito", int((reg["Después"] == saleu_sheet.FALTA_CREDITO).sum()),
+                    help="Están en el reporte Fuente, pero no en el de Crédito." if res.get("con_fuente")
+                    else "Sube el reporte Fuente para separarlos de los «No Registrado».")
+        k[3].metric("No Registrado", int((reg["Después"] == saleu_sheet.NO_REGISTRADO).sum()),
+                    help="No están en Sale-U: falta darlos de alta.")
+        k[4].metric("Celdas actualizadas" if aplicado else "Celdas por actualizar",
                     res["escritos"] if aplicado else len(cambian),
-                    help="Registrado / No Registrado. Nunca baja un «Registrado» a «No Registrado».")
-        k[3].metric("Datos llenados" if aplicado else "Datos faltantes", escritos_datos if aplicado else len(datos),
+                    help="Registrado / Falta crédito / No Registrado. Nunca baja de nivel lo que ya dice el Sheet.")
+        k[5].metric("Datos llenados" if aplicado else "Datos faltantes", escritos_datos if aplicado else len(datos),
                     help="Celdas vacías que se llenan con Sale-U o la bitácora (si ambas lo traen, manda la bitácora).")
         if aplicado:
             st.success(f"Listo: {res['escritos']} registro(s) en Sale-U y {escritos_datos} dato(s) escritos en el Sheet.")
@@ -382,12 +416,12 @@ with tab_su:
                     "confírmalos en Sale-U.", icon=":material/fact_check:")
             tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""),
                              Hoja=rev["Hoja"].map(HOJA_CORTA)),
-                  ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"])
+                  ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Revisar"])
         with st.expander(f"Detalle del registro ({len(cambian)} cambio(s) de {len(reg)})"):
             tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""),
                              Hoja=reg["Hoja"].map(HOJA_CORTA)),
                   ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",
-                   "Financiera_SaleU"])
+                   "Financiera_SaleU"] + (["Cliente_Fuente", "Alta_Fuente"] if res.get("con_fuente") else []))
         if isinstance(base, conexion.BaseExcel):
             st.info("Modo Excel: descarga el archivo en **Base de seguimiento**.")
     if res and "resumen" in res:
@@ -411,8 +445,12 @@ with tab_su:
             if "registro" in res:
                 est = res["faltantes"]["Estatus_final"]
                 n_hoja = int((res["registro"]["Después"] == saleu_sheet.NO_REGISTRADO).sum())
+                n_cred = int((res["registro"]["Después"] == saleu_sheet.FALTA_CREDITO).sum())
                 por_est = " · ".join(f"{k.capitalize()} {v}" for k, v in est.value_counts().items())
-                st.caption(f"Por estatus: {por_est} · En el Sheet: **{n_hoja}** rechazos *No Registrado*.")
+                por_falta = (" · " + " · ".join(f"{k} {v}" for k, v in res["faltantes"]["Falta"].value_counts().items())
+                             if "Falta" in res["faltantes"] else "")
+                st.caption(f"Por estatus: {por_est}{por_falta} · En el Sheet: **{n_hoja}** *No Registrado* y "
+                           f"**{n_cred}** *Falta crédito*.")
             df = filtro_vendedor(res["faltantes"], "fv_su")
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
@@ -422,7 +460,11 @@ with tab_su:
             vista["Fecha"] = vista["Fecha"].map(cu.fecha_txt)
             vista["Mensualidad"] = vista["Mensualidad"].map(lambda v: f"${v:,.2f}" if v == v and v else "")
             vista["Plazo"] = vista["Plazo"].map(lambda v: str(int(v)) if v == v and v else "")
-            tabla(vista, cu.COLS_FALTANTES[:2] + ["Vendedor"] + cu.COLS_FALTANTES[2:] + ["Historial", "Observaciones"])
+            con_f = "Falta" in df
+            if con_f:
+                vista = vista.assign(Falta=df["Falta"].values, Lead_Fuente=df["Lead_Fuente"].values)
+            tabla(vista, (["Falta"] if con_f else []) + cu.COLS_FALTANTES[:2] + ["Vendedor"] + cu.COLS_FALTANTES[2:]
+                  + (["Lead_Fuente"] if con_f else []) + ["Historial", "Observaciones"], ["Falta"] if con_f else ())
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",

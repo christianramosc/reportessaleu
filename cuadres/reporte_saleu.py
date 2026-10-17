@@ -5,8 +5,9 @@ Reporte PDF «Clientes por registrar en Sale-U»: Aprobados y Rechazados que fal
 
   pdf(faltan, por_confirmar) → bytes del PDF
 
-Portada con cifras, un pictograma (una figura por cliente), gráficas por asesor y de antigüedad, y después el
-detalle por asesor (Aprobados primero) y los aprobados por confirmar. Letra Archivo e iconos de Font Awesome
+Portada con cifras (cuántos falta dar de alta y a cuántos les falta el crédito), un pictograma (una figura por
+cliente), gráficas por asesor y de antigüedad, y después el detalle en dos partes —«Dar de alta en Sale-U» y
+«Registrar el crédito»—, cada una por asesor (Aprobados primero), y los aprobados por confirmar. Letra Archivo e iconos de Font Awesome
 Free (assets/fonts, licencias SIL OFL y CC BY 4.0).
 """
 import datetime as dt
@@ -25,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (BaseDocTemplate, CondPageBreak, Flowable, Frame, KeepTogether, PageTemplate,
                                 Paragraph, Spacer, Table, TableStyle, NextPageTemplate, PageBreak)
 
-from cuadres.resumen import APROBADO, RECHAZADO
+from cuadres.resumen import APROBADO, RECHAZADO, FALTA_ALTA, FALTA_CREDITO
 
 FUENTES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
 ANCHO, ALTO = letter
@@ -37,6 +38,12 @@ NAVY, NAVY_2 = "#12305C", "#1D4A86"
 TINTA, TINTA_2, TINTA_3 = "#1B2A41", "#5B6B82", "#8A96A8"
 SUPERFICIE, LINEA = "#F5F7FB", "#E3E8EF"
 COLOR = {APROBADO: "#2a78d6", RECHAZADO: "#eb6834", "confirmar": "#8a8984"}
+FALTA = {FALTA_ALTA: ("#d03b3b", "usuario_mas", "Dar de alta en Sale-U",
+                      "No aparecen en Sale-U: ni en el reporte Fuente ni en el de Crédito. Dalos de alta como lead y "
+                      "registra su crédito."),
+         FALTA_CREDITO: ("#C98A00", "dinero", "Registrar el crédito en Sale-U",
+                         "Ya son lead en Sale-U (salen en el reporte Fuente), pero su crédito no está registrado: "
+                         "captura la solicitud en el lead que ya existe, sin darlos de alta otra vez.")}
 TINTE = {APROBADO: "#E3EEFB", RECHAZADO: "#FDEBE3", "confirmar": "#EFEFEC"}
 
 ICONO = dict(auto="", usuario_mas="", aprobado="", rechazado="", asesores="",
@@ -492,17 +499,18 @@ def pdf(faltan, por_confirmar=None, hoy=None):
     por_confirmar = por_confirmar if por_confirmar is not None else faltan.iloc[0:0]
     buf = io.BytesIO()
     doc = _Doc(buf, hoy, len(faltan))
+    if "Falta" not in faltan.columns:
+        faltan = faltan.assign(Falta=FALTA_ALTA)
     n_ap = int((faltan["Estatus"] == APROBADO).sum()) if not faltan.empty else 0
     n_re = int((faltan["Estatus"] == RECHAZADO).sum()) if not faltan.empty else 0
-    asesores = faltan["Vendedor"].replace("", "(sin asesor)").nunique() if not faltan.empty else 0
-    dias = faltan["Dias"].dropna()
+    n_alta = int((faltan["Falta"] == FALTA_ALTA).sum()) if not faltan.empty else 0
+    n_cred = int((faltan["Falta"] == FALTA_CREDITO).sum()) if not faltan.empty else 0
     el = [NextPageTemplate("resto"),
-          Cifras([("Por registrar", len(faltan), "Aprobados + Rechazados", "usuario_mas", NAVY_2),
+          Cifras([("Por registrar", len(faltan), "Aprobados + Rechazados", "meta", NAVY_2),
+                  ("Dar de alta", n_alta, "no están en Sale-U", "usuario_mas", FALTA[FALTA_ALTA][0]),
+                  ("Registrar crédito", n_cred, "ya son lead en Sale-U", "dinero", FALTA[FALTA_CREDITO][0]),
                   ("Aprobados", n_ap, "ya tienen crédito", "aprobado", COLOR[APROBADO]),
-                  ("Rechazados", n_re, "para seguimiento", "rechazado", COLOR[RECHAZADO]),
-                  ("Asesores", asesores, "con clientes pendientes", "asesores", NAVY_2),
-                  ("Espera promedio", f"{dias.mean():.0f}" if len(dias) else "—", "días desde la solicitud",
-                   "reloj", NAVY_2)]),
+                  ("Rechazados", n_re, "para seguimiento", "rechazado", COLOR[RECHAZADO])]),
           Spacer(1, 12)]
     if faltan.empty:
         el += [Aviso("aprobado", "Todo al día.", "No hay Aprobados ni Rechazados pendientes de registrar en Sale-U "
@@ -518,19 +526,27 @@ def pdf(faltan, por_confirmar=None, hoy=None):
         el += [graf, Spacer(1, 10)]
         if n_ap:
             el.append(Aviso("idea", "Empieza por los Aprobados.",
-                            f"{n_ap} cliente(s) ya tienen el crédito aprobado y no están en Sale-U: son la venta más "
-                            "cercana. Los Rechazados se registran para darles seguimiento a los 180 días."))
-        el += [PageBreak(), Paragraph("Detalle por asesor", st["h2"]),
-               Paragraph("Aprobados primero. Cada cliente con su contacto, la fecha de su solicitud y la mensualidad "
-                         "que se le cotizó.", st["sub"]), Spacer(1, 8)]
-        orden = (faltan.assign(_ap=(faltan["Estatus"] == APROBADO).astype(int), _v=faltan["Vendedor"].replace("", "~"))
-                 .groupby("_v").agg(ap=("_ap", "sum"), n=("Cliente", "count"))
-                 .sort_values(["ap", "n"], ascending=False).index)
-        for v in orden:
-            sub = faltan[faltan["Vendedor"].replace("", "~") == v]
-            cab = EncabezadoAsesor("" if v == "~" else v, int((sub["Estatus"] == APROBADO).sum()),
-                                   int((sub["Estatus"] == RECHAZADO).sum()))
-            el += [CondPageBreak(110), KeepTogether([cab, Spacer(1, 4), _tabla_clientes(sub)]), Spacer(1, 14)]
+                            f"{n_ap} cliente(s) ya tienen el crédito aprobado y no están registrados en Sale-U: son la "
+                            "venta más cercana. Los Rechazados se registran para darles seguimiento a los 180 días."))
+        primera = True
+        for falta in (FALTA_ALTA, FALTA_CREDITO):
+            parte = faltan[faltan["Falta"] == falta]
+            if parte.empty:
+                continue
+            color, icono, titulo, texto = FALTA[falta]
+            el += [PageBreak() if primera else CondPageBreak(200),
+                   Paragraph(f'{_ico(icono, color, 13)}  {_e(titulo)} ({len(parte)})', st["h2"]),
+                   Paragraph(_e(texto + " Por asesor, Aprobados primero, con su contacto, la fecha de su solicitud "
+                                        "y la mensualidad que se le cotizó."), st["sub"]), Spacer(1, 8)]
+            primera = False
+            orden = (parte.assign(_ap=(parte["Estatus"] == APROBADO).astype(int), _v=parte["Vendedor"].replace("", "~"))
+                     .groupby("_v").agg(ap=("_ap", "sum"), n=("Cliente", "count"))
+                     .sort_values(["ap", "n"], ascending=False).index)
+            for v in orden:
+                sub = parte[parte["Vendedor"].replace("", "~") == v]
+                cab = EncabezadoAsesor("" if v == "~" else v, int((sub["Estatus"] == APROBADO).sum()),
+                                       int((sub["Estatus"] == RECHAZADO).sum()))
+                el += [CondPageBreak(110), KeepTogether([cab, Spacer(1, 4), _tabla_clientes(sub)]), Spacer(1, 14)]
     if por_confirmar is not None and not por_confirmar.empty:
         el += [CondPageBreak(160), Paragraph(f'{_ico("espera", "#8a8984", 13)}  Aprobados por confirmar '
                                              f'({len(por_confirmar)})', st["h2"]),
@@ -538,9 +554,11 @@ def pdf(faltan, por_confirmar=None, hoy=None):
                             "si faltan, regístralos."), st["sub"]), Spacer(1, 6),
                _tabla_clientes(por_confirmar, color_estatus=False), Spacer(1, 14)]
     el += [CondPageBreak(70), Aviso("info", "Cómo se armó.",
-                                    "Rechazados: «MG Colima Rechazos» con Registro en Sale-U = No Registrado (lo marca el "
-                                    "cuadre de Sale-U). Aprobados: Bitacora con estatus final Aprobado y Registro en Sale-U = No "
-                                    "Registrado (lo marca el cuadre de Sale-U; si no, lo que dice F&I). Si un cliente aparece registrado en cualquiera de las dos, no se lista; cada "
-                                    "cliente sale una vez con su estatus más reciente.", TINTA_3)]
+                                    "Rechazados de «MG Colima Rechazos» y Aprobados de la Bitacora, según su Registro en "
+                                    "Sale-U, que marca el cuadre de Sale-U: «No Registrado» = no está ni en el reporte Fuente "
+                                    "ni en el de Crédito (dar de alta); «Falta crédito» = está en Fuente pero no en Crédito "
+                                    "(registrar el crédito). Si un cliente aparece registrado en cualquiera de las dos "
+                                    "pestañas, no se lista; cada cliente sale una vez con su estatus más reciente.",
+                                    TINTA_3)]
     doc.build(el)
     return buf.getvalue()
