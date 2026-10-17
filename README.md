@@ -125,14 +125,14 @@ aplicado, no duplica nada:
   *CLIENTE CON REGISTRO EN SALE-U*). La app lee los dos nombres.
 - Fechas de *Historial* y *Bitacora F&I* con formato de fecha.
 
-**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras, **sin los formalizados**. Se
+**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras y **todos los estatus** (formalizados incluidos). Se
 rehace cada vez que aplicas en *Actualizar* con: las capturas de Cetelem (cada mes que subes reemplaza
 al mismo mes), la Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se
 conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas
 (columna *Fuente*: «MG Colima Rechazos R-0005»; la columna *ID en 'MG Colima Rechazos'* liga cada solicitud con su rechazo). El vendedor se escribe con su nombre completo de *Catalogos*
 («CARLA» → «CARLA YOVET CARDENAS AHUMADA») cuando corresponde a un solo asesor. Toda la pestaña queda con el mismo
-estilo (Calibri 9, encabezado gris), fechas dd/mm/aaaa y montos con $. El cuadre de *Seguimiento* usa solo lo que
-viene de las bitácoras; el de *Sale-U* sí cuenta los formalizados (los toma de las capturas y la copia de F&I).
+estilo (Calibri 9, encabezado gris), fechas dd/mm/aaaa y montos con $. El cuadre de *Sale-U* cuenta también los
+formalizados.
 
 **La pestaña *Resumen*** es un dashboard: indicadores del año (rechazos, seguimiento al día —de los que ya cumplieron
 180 días, cuántos tienen primer seguimiento—, contacto

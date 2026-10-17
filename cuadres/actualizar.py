@@ -233,7 +233,6 @@ def migrar_formalizado(base):
 
 
 FUENTE_SHEET = ("MG Colima Rechazos", "MG Colima Créditos Finalizados")    # «MG Colima Rechazos R-0005»
-SIN_FORMALIZADOS = "Formalizado"     # la pestaña Bitacora no guarda las solicitudes formalizadas
 
 
 def filas_bitacora_del_sheet(base, fila_de_sol):
@@ -269,13 +268,13 @@ FORMATO_FI = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", "Año"
 
 def filas_bitacora_completa(base, solicitudes, fila_de_sol, id_de_fila=None):
     """Filas de la pestaña Bitacora: solicitudes de las bitácoras + rechazos que solo están en el Sheet, sin las
-    formalizadas, con el vendedor según Catalogos y ordenadas por fecha (sin fecha al final).
+    con todos los estatus (formalizadas incluidas), con el vendedor según Catalogos y ordenadas por fecha (sin
+    fecha al final).
     id_de_fila: {fila: ID}; la Bitacora guarda el ID del rechazo (si no hay, el número de fila)."""
     catalogo = _catalogo_asesores(base)
     id_de_fila = id_de_fila or {}
     ids_de_sol = {k: [id_de_fila.get(f, f) for f in filas] for k, filas in fila_de_sol.items()}
     filas = filas_bitacora(solicitudes, ids_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
-    filas = [f for f in filas if f[COL_ESTATUS_SOL] != SIN_FORMALIZADOS]
     for f in filas:
         if f[COL_VENDEDOR] and catalogo:
             f[COL_VENDEDOR] = _asesor(f[COL_VENDEDOR], catalogo)
