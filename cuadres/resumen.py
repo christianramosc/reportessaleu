@@ -175,14 +175,14 @@ def faltantes_saleu(base, hoy=None):
         c = dict(est=_col(bit, "Estatus final"), cli=_col(bit, "Cliente"), tel=_col(bit, "Teléfono"),
                  ven=_col(bit, "Vendedor"), fin=_col(bit, "Financiera final", "Banco solicitud"),
                  uni=_col(bit, "Unidad"), fecha=_col(bit, "Fecha"), mens=_col(bit, "Mensualidad"),
-                 correo=_col(bit, "Correo"), su=_col(bit, "Sale-U"), fuente=_col(bit, "Fuente en la bitácora"))
+                 correo=_col(bit, "Correo"), su=_col(bit, "Registro en Sale-U", "Sale-U"), fuente=_col(bit, "Fuente en la bitácora"))
         g = lambda x, k: x[c[k]] if c[k] else None
         for _, x in bit.iterrows() if c["est"] and c["cli"] else []:
             nombre = txt(g(x, "cli"))
             if not nombre:
                 continue
             est = norm(g(x, "est"))
-            su = norm(g(x, "su"))
+            su = {"REGISTRADO": "SI", "NO REGISTRADO": "NO"}.get(norm(g(x, "su")), norm(g(x, "su")))
             if est != "APROBADO" and su != "SI":
                 continue                              # solo interesan aprobados (y cualquier «sí está en Sale-U»)
             clientes.grupo(nombre, to_phone(g(x, "tel")))["regs"].append(dict(

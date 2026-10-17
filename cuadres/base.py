@@ -233,10 +233,15 @@ class _BaseComun:
         if numeros:
             self._formato_columnas(pestana, numeros, fila_fin)
 
-    def regla_color(self, pestana, columnas, formula, color, fila_fin=1000):
+    def regla_color(self, pestana, columnas, formula, color, fila_fin=1000, letra_color=None):
         """Formato condicional: pinta el fondo de `columnas` (filas 2..fila_fin) cuando `formula` (escrita para la
-        fila 2, p. ej. '=AND($V2<>"",$X2="")') es verdadera. No la duplica si ya existe. Devuelve True si la agregó."""
-        return self._regla_color(pestana, columnas, formula, color, fila_fin)
+        fila 2, p. ej. '=AND($V2<>"",$X2="")') es verdadera; letra_color, el color de la letra (opcional).
+        No la duplica si ya existe. Devuelve True si la agregó."""
+        return self._regla_color(pestana, columnas, formula, color, fila_fin, letra_color)
+
+    def ocultar(self, pestana):
+        if pestana in self.pestanas():
+            self._ocultar(pestana)
 
     def lista_valores(self, pestana, columnas, valores, fila_fin=1000):
         """Validación de lista desplegable en `columnas` (filas 2..fila_fin)."""
@@ -453,7 +458,10 @@ class BaseGoogle(_BaseComun):
                                            "cell": {"userEnteredFormat": {"numberFormat": {"type": t, "pattern": patron}}}}})
         self.libro.batch_update({"requests": pedidos})
 
-    def _regla_color(self, pestana, columnas, formula, color, fila_fin):
+    def _ocultar(self, pestana):
+        self._hoja(pestana).hide()
+
+    def _regla_color(self, pestana, columnas, formula, color, fila_fin, letra_color=None):
         ws = self._hoja(pestana)
         fila_fin = min(fila_fin, ws.row_count)          # un rango más allá de la hoja lo rechaza la API
         for regla in self._meta(ws, "conditionalFormats").get("conditionalFormats", []):
@@ -463,7 +471,8 @@ class BaseGoogle(_BaseComun):
         self.libro.batch_update({"requests": [{"addConditionalFormatRule": {"index": 0, "rule": {
             "ranges": [self._rango(ws, 1, fila_fin, c - 1, c) for c in columnas],
             "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": formula}]},
-                            "format": {"backgroundColor": _rgb(color)}}}}}]})
+                            "format": dict({"backgroundColor": _rgb(color)}, **(
+                                {"textFormat": {"foregroundColor": _rgb(letra_color)}} if letra_color else {}))}}}}]})
         return True
 
     def _lista_valores(self, pestana, columnas, valores, fila_fin):
@@ -636,9 +645,12 @@ class BaseExcel(_BaseComun):
             for f in range(2, (fila_fin or ws.max_row) + 1):
                 ws.cell(f, col).number_format = FORMATO_NUMERO[tipo][2]
 
-    def _regla_color(self, pestana, columnas, formula, color, fila_fin):
+    def _ocultar(self, pestana):
+        self.libro[pestana].sheet_state = "hidden"
+
+    def _regla_color(self, pestana, columnas, formula, color, fila_fin, letra_color=None):
         from openpyxl.formatting.rule import FormulaRule
-        from openpyxl.styles import PatternFill
+        from openpyxl.styles import Font, PatternFill
         ws = self.libro[pestana]
         f_sin = formula.lstrip("=")
         for rango in ws.conditional_formatting:
@@ -647,7 +659,8 @@ class BaseExcel(_BaseComun):
                     return False
         sqref = " ".join(f"{letra(c)}2:{letra(c)}{fila_fin}" for c in columnas)
         relleno = PatternFill("solid", fgColor="FF" + color.lstrip("#").upper(), bgColor="FF" + color.lstrip("#").upper())
-        ws.conditional_formatting.add(sqref, FormulaRule(formula=[f_sin], fill=relleno))
+        letra_ = Font(color="FF" + letra_color.lstrip("#").upper()) if letra_color else None
+        ws.conditional_formatting.add(sqref, FormulaRule(formula=[f_sin], fill=relleno, font=letra_))
         return True
 
     def _quitar_validaciones(self, ws, columnas, fila_fin):

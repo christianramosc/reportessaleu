@@ -14,7 +14,8 @@ from cuadres.base import (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, TAB_CAPTU
                           norm, letra, canonico)
 from cuadres import ids
 from cuadres.fuentes import (name_key, similar, to_folio, to_phone, to_num, to_date, folio_date,
-                             BITACORA_COLS, CAP_COLS, CAP_EXTRA, filas_bitacora, FI_COLS, filas_fi)
+                             BITACORA_COLS, CAP_COLS, CAP_EXTRA, filas_bitacora, FI_COLS, filas_fi,
+                             COL_SALEU_BITACORA, COL_ID_RECHAZOS)
 
 AZUL_NUEVO = "#CFE2F3"     # mismo azul claro de "Agregado desde la bitácora" en la leyenda del Resumen
 
@@ -257,6 +258,57 @@ def filas_bitacora_del_sheet(base, fila_de_sol):
 
 
 COL_VENDEDOR, COL_ESTATUS_SOL = BITACORA_COLS.index("Vendedor"), BITACORA_COLS.index("Estatus solicitud")
+COL_ESTATUS_FIN, COL_SALEU = BITACORA_COLS.index("Estatus final"), BITACORA_COLS.index(COL_SALEU_BITACORA)
+COL_LIGA = BITACORA_COLS.index(COL_ID_RECHAZOS)
+NO_APLICA = "No aplica"
+# Mismo estilo que la columna de Sale-U de Rechazos y Finalizados
+ESTILO_SALEU = [('="Registrado"', "#D9EAD3", "#274E13"), ('="No Registrado"', "#F4CCCC", "#990000"),
+                ('="No aplica"', "#EFEFEF", "#434343")]
+
+
+def _registro_de_rechazos(base):
+    """{ID o fila: Registro en Sale-U} de MG Colima Rechazos (lo que dejó el cuadre de Sale-U)."""
+    out = {}
+    if TAB_RECHAZOS not in base.pestanas():
+        return out
+    df = base.leer(TAB_RECHAZOS)
+    c_su = next((c for c in df.columns if norm(c) == norm(C["saleu"])), None)
+    c_id = next((c for c in df.columns if norm(c) == norm(ids.COL_ID)), None)
+    if not c_su:
+        return out
+    for _, r in df.iterrows():
+        v = {"REGISTRADO": "Registrado", "NO REGISTRADO": "No Registrado"}.get(norm(r[c_su]))
+        if v:
+            out[str(r["_fila"])] = v
+            if c_id and r[c_id]:
+                out[str(r[c_id]).strip().upper()] = v
+    return out
+
+
+def _registro_saleu(fila, registro):
+    """Registrado / No Registrado para Aprobados y Rechazados; «No aplica» para los demás estatus.
+    Rechazados ligados a Rechazos: lo que dice esa pestaña; si no, lo que dice F&I (SI / NO)."""
+    est = norm(fila[COL_ESTATUS_FIN])
+    if not (est.startswith("APROBAD") or est.startswith("RECHAZAD")):
+        return NO_APLICA
+    for liga in str(fila[COL_LIGA] or "").split(","):
+        liga = liga.strip().upper()
+        if liga.endswith(".0"):
+            liga = liga[:-2]
+        if liga in registro:
+            return registro[liga]
+    return {"SI": "Registrado", "NO": "No Registrado"}.get(norm(fila[COL_SALEU]), None)
+
+
+def estilo_bitacora(base):
+    """Colores y lista de la columna Registro en Sale-U de la Bitacora (no duplica reglas)."""
+    c = base.col(TAB_BITACORA, COL_SALEU_BITACORA)
+    if not c:
+        return
+    L = letra(c)
+    for valor, fondo, tinta in ESTILO_SALEU:
+        base.regla_color(TAB_BITACORA, [c], f"=${L}2{valor}", fondo, 1000, tinta)
+    base.lista_valores(TAB_BITACORA, [c], ["Registrado", "No Registrado", NO_APLICA], 1000)
 # Formato uniforme de la Bitacora: tipo de número por columna (lo demás, texto)
 FORMATO_BITACORA = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", "Año": "entero", "Plazo": "entero",
                     "Mensualidad": "moneda", "Monto a financiar": "moneda"}
@@ -267,17 +319,20 @@ FORMATO_FI = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", "Año"
 
 
 def filas_bitacora_completa(base, solicitudes, fila_de_sol, id_de_fila=None):
-    """Filas de la pestaña Bitacora: solicitudes de las bitácoras + rechazos que solo están en el Sheet, sin las
-    con todos los estatus (formalizadas incluidas), con el vendedor según Catalogos y ordenadas por fecha (sin
-    fecha al final).
-    id_de_fila: {fila: ID}; la Bitacora guarda el ID del rechazo (si no hay, el número de fila)."""
+    """Filas de la pestaña Bitacora: solicitudes de las bitácoras + rechazos que solo están en el Sheet, con todos
+    los estatus (formalizadas incluidas), con el vendedor según Catalogos y ordenadas por fecha (sin fecha al final).
+    id_de_fila: {fila: ID}; la Bitacora guarda el ID del rechazo (si no hay, el número de fila).
+    Registro en Sale-U: igual que en MG Colima Rechazos (Registrado / No Registrado) para Aprobados y Rechazados;
+    «No aplica» para los demás estatus."""
     catalogo = _catalogo_asesores(base)
     id_de_fila = id_de_fila or {}
     ids_de_sol = {k: [id_de_fila.get(f, f) for f in filas] for k, filas in fila_de_sol.items()}
     filas = filas_bitacora(solicitudes, ids_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
+    registro = _registro_de_rechazos(base)
     for f in filas:
         if f[COL_VENDEDOR] and catalogo:
             f[COL_VENDEDOR] = _asesor(f[COL_VENDEDOR], catalogo)
+        f[COL_SALEU] = _registro_saleu(f, registro)
     filas.sort(key=lambda f: (f[0] is None or f[0] == "", f[0] or dt.date.max))
     return filas
 
@@ -347,13 +402,17 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
 
     if capturas is not None and not capturas.empty:
         base.reemplazar(TAB_CAPTURAS, CAP_COLS + CAP_EXTRA,
-                        capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist())
+                        capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist(), oculta=True)
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
-        base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi))
+        base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi), oculta=True)
         base.dar_formato(TAB_FI, FORMATO_FI)
     base.reemplazar(TAB_BITACORA, BITACORA_COLS,
                     filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"], id_de_fila))
     base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)
+    try:
+        estilo_bitacora(base)
+    except Exception:
+        pass
     aviso = None
     try:
         migrar_formalizado(base)

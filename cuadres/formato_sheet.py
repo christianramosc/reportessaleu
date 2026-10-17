@@ -8,7 +8,8 @@ duplica nada).
   3. CONTESTA 1/2/3: opción «No responde» y color cuando hay fecha de contacto pero no se capturó si contestó.
   4. Columnas que siempre traen lo mismo (Tipo de Subvención, Accesorios, Status 1) agrupadas y contraídas.
   5. MG Colima Créditos Finalizados: columna FECHA DE ENTREGA (con ella entran al cuadre de Sale-U por periodo).
-  6. Historial y Bitacora F&I: las fechas con formato de fecha (antes se veían como números).
+  6. Historial y Bitacora F&I: las fechas con formato de fecha (antes se veían como números); Capturas Cetelem y
+     Bitacora F&I ocultas; en la Bitacora, «Registro en Sale-U» con los mismos colores que en Rechazos.
   7. Revision: ID de cada pendiente y los resueltos pasan a «Revision resueltos».
   8. Se rehace el Resumen.
 Antes de tocar una pestaña se guarda su respaldo oculto.
@@ -93,6 +94,17 @@ def aplicar(base):
         from cuadres.actualizar import FORMATO_FI
         base.dar_formato(TAB_FI, FORMATO_FI)
         hecho.append("Fechas de Bitacora F&I con formato de fecha")
+
+    # 6b. pestañas de apoyo ocultas y estilo de Sale-U en la Bitacora
+    from cuadres.base import TAB_CAPTURAS, TAB_BITACORA
+    for p in (TAB_CAPTURAS, TAB_FI):
+        if p in pestanas:
+            base.ocultar(p)
+    if any(p in pestanas for p in (TAB_CAPTURAS, TAB_FI)):
+        hecho.append("Pestañas Capturas Cetelem y Bitacora F&I ocultas")
+    if TAB_BITACORA in pestanas:
+        from cuadres.actualizar import estilo_bitacora
+        estilo_bitacora(base)
 
     # 7. Revision
     if pendientes.TAB_REVISION in pestanas:

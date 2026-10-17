@@ -123,9 +123,10 @@ aplicado, no duplica nada:
   solo en su periodo.
 - La columna de Sale-U se llama **Registro en Sale-U** en las dos pestañas (antes *Cliente con Registro en SalesU* y
   *CLIENTE CON REGISTRO EN SALE-U*). La app lee los dos nombres.
-- Fechas de *Historial* y *Bitacora F&I* con formato de fecha.
+- Fechas de *Historial* y *Bitacora F&I* con formato de fecha. *Capturas Cetelem* y *Bitacora F&I* quedan ocultas
+  (la app las sigue usando).
 
-**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras y **todos los estatus** (formalizados incluidos). Se
+**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras y **todos los estatus** (formalizados incluidos). Su columna **Registro en Sale-U** usa los mismos valores y colores que Rechazos y Finalizados: *Registrado* / *No Registrado* para Aprobados y Rechazados (en los rechazos ligados por ID, lo que dice *MG Colima Rechazos*; si no, lo que dice F&I) y *No aplica* para los demás estatus. Se
 rehace cada vez que aplicas en *Actualizar* con: las capturas de Cetelem (cada mes que subes reemplaza
 al mismo mes), la Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se
 conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas
