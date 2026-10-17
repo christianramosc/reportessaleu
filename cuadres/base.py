@@ -33,7 +33,13 @@ _EPOCA = datetime(1899, 12, 30)        # día 0 de Google Sheets / Excel
 # Estilo uniforme de las pestañas que escribe la app (el mismo que ya usaba la Bitacora)
 ESTILO = dict(fuente="Calibri", tamano=9, texto="#000000", fondo="#FFFFFF", enc_texto="#FFFFFF", enc_fondo="#666666")
 FORMATO_NUMERO = {"fecha": ("DATE", "dd/mm/yyyy", "DD/MM/YYYY"), "entero": ("NUMBER", "0", "0"),
-                  "moneda": ("CURRENCY", "$#,##0.00", '"$"#,##0.00')}   # (tipo Google, patrón Google, patrón Excel)
+                  "moneda": ("CURRENCY", "$#,##0.00", '"$"#,##0.00'),
+                  "fechahora": ("DATE_TIME", "dd/mm/yyyy hh:mm", "DD/MM/YYYY HH:MM")}
+# (tipo Google, patrón Google, patrón Excel)
+
+# Encabezados que cambiaron de nombre: la app los lee con el nombre nuevo aunque el Sheet todavía tenga el viejo.
+ALIAS_ENCABEZADO = {"CLIENTE CON REGISTRO EN SALESU": "Registro en Sale-U",
+                    "CLIENTE CON REGISTRO EN SALE-U": "REGISTRO EN SALE-U"}
 
 
 def _rgb(color):
@@ -67,6 +73,11 @@ def de_serial(v):
     return v
 
 
+def canonico(encabezado):
+    """Nombre actual de un encabezado (los renombrados se traducen con ALIAS_ENCABEZADO)."""
+    return ALIAS_ENCABEZADO.get(norm(encabezado), encabezado)
+
+
 def letra(col):
     s = ""
     while col:
@@ -85,13 +96,16 @@ class _BaseComun:
 
     origen = "App"
 
+    def _limpiar_cache(self, pestana):
+        pass
+
     # ---------------------------------------------------------------- lectura
     def leer(self, pestana):
         """DataFrame con los encabezados de la fila 1 y la columna '_fila' (número de fila en la hoja)."""
         valores = self._valores(pestana)
         if not valores:
             return pd.DataFrame(columns=["_fila"])
-        enc = [str(h).strip() if h not in (None, "") else f"_col{i + 1}" for i, h in enumerate(valores[0])]
+        enc = [canonico(str(h).strip()) if h not in (None, "") else f"_col{i + 1}" for i, h in enumerate(valores[0])]
         vistos = {}
         for i, h in enumerate(enc):                       # encabezados repetidos → "X", "X (2)"
             if h in vistos:
@@ -114,11 +128,11 @@ class _BaseComun:
 
     def columnas(self, pestana):
         valores = self._valores(pestana, solo_encabezado=True)
-        return [str(h).strip() for h in (valores[0] if valores else [])]
+        return [canonico(str(h).strip()) if h not in (None, "") else "" for h in (valores[0] if valores else [])]
 
     def col(self, pestana, nombre):
         """Número de columna (1-based) por nombre de encabezado, sin importar acentos/mayúsculas."""
-        objetivo = norm(nombre)
+        objetivo = norm(canonico(nombre))
         for i, h in enumerate(self.columnas(pestana), start=1):
             if norm(h) == objetivo:
                 return i
@@ -189,6 +203,52 @@ class _BaseComun:
                 if norm(h) == norm(nombre)}
         self._dar_formato(pestana, len(enc), cols)
 
+    # ---------------------------------------------------------------- estructura y formato (sin tocar datos)
+    def agregar_columna(self, pestana, nombre):
+        """Columna con ese encabezado; si no existe se agrega al final (después del último encabezado), con el
+        formato de la columna anterior. Devuelve su número (1-based)."""
+        c = self.col(pestana, nombre)
+        if c:
+            return c
+        enc = self.columnas(pestana)
+        c = max([i for i, h in enumerate(enc, start=1) if h] or [0]) + 1
+        self.escribir(pestana, [(1, c, nombre)])
+        if c > 1:
+            self._copiar_formato_columna(pestana, c - 1, c)
+        self._limpiar_cache(pestana)
+        return c
+
+    def renombrar_encabezado(self, pestana, viejo, nuevo):
+        """Cambia el texto del encabezado (fila 1). Devuelve True si lo cambió."""
+        valores = self._valores(pestana, solo_encabezado=True)
+        for i, h in enumerate(valores[0] if valores else [], start=1):
+            if norm(h) == norm(viejo) and str(h).strip() != nuevo:
+                self.escribir(pestana, [(1, i, nuevo)])
+                return True
+        return False
+
+    def formato_columnas(self, pestana, numeros, fila_fin=None):
+        """Solo el formato de número de esas columnas {columna: "fecha" | "fechahora" | "entero" | "moneda"};
+        no cambia letra, colores ni nada más."""
+        if numeros:
+            self._formato_columnas(pestana, numeros, fila_fin)
+
+    def regla_color(self, pestana, columnas, formula, color, fila_fin=1000):
+        """Formato condicional: pinta el fondo de `columnas` (filas 2..fila_fin) cuando `formula` (escrita para la
+        fila 2, p. ej. '=AND($V2<>"",$X2="")') es verdadera. No la duplica si ya existe. Devuelve True si la agregó."""
+        return self._regla_color(pestana, columnas, formula, color, fila_fin)
+
+    def lista_valores(self, pestana, columnas, valores, fila_fin=1000):
+        """Validación de lista desplegable en `columnas` (filas 2..fila_fin)."""
+        self._lista_valores(pestana, columnas, valores, fila_fin)
+
+    def validar_fecha(self, pestana, columnas, fila_fin=1000):
+        self._validar_fecha(pestana, columnas, fila_fin)
+
+    def agrupar_columnas(self, pestana, columnas):
+        """Agrupa y contrae cada columna (se abre con el «+» de arriba). No duplica grupos. Devuelve cuántas agrupó."""
+        return self._agrupar_columnas(pestana, sorted(set(columnas)))
+
     def anotar_historial(self, registros):
         """registros: dicts con las llaves de HISTORIAL_COLS (Fecha se llena sola)."""
         if not registros:
@@ -205,6 +265,10 @@ class _BaseComun:
                     v = self.origen
                 celdas.append((inicio + i, j, _texto_historial(v)))
         self.escribir(TAB_HISTORIAL, celdas)
+        try:                                   # la fecha con formato de fecha y hora (no como número)
+            self.formato_columnas(TAB_HISTORIAL, {1: "fechahora"})
+        except Exception:
+            pass
 
 
 def _cambiar_texto(obj, cambios):
@@ -361,6 +425,88 @@ class BaseGoogle(_BaseComun):
                                                "horizontalAlignment": "LEFT" if tipo == "fecha" else "RIGHT"}}}})
         self.libro.batch_update({"requests": pedidos})
 
+    def _rango(self, ws, f0, f1, c0, c1):
+        """GridRange con índices 0-based y fin exclusivo."""
+        return {"sheetId": ws.id, "startRowIndex": f0, "endRowIndex": f1, "startColumnIndex": c0, "endColumnIndex": c1}
+
+    def _meta(self, ws, campos):
+        meta = self.libro.fetch_sheet_metadata(params={"fields": f"sheets(properties(sheetId),{campos})"})
+        return next((h for h in meta.get("sheets", []) if h.get("properties", {}).get("sheetId") == ws.id), {})
+
+    def _copiar_formato_columna(self, pestana, de, a):
+        ws = self._hoja(pestana)
+        filas = ws.row_count
+        if a > ws.col_count:
+            ws.resize(cols=a)
+        self.libro.batch_update({"requests": [{"copyPaste": {
+            "source": self._rango(ws, 0, filas, de - 1, de), "destination": self._rango(ws, 0, filas, a - 1, a),
+            "pasteType": "PASTE_FORMAT"}}]})
+
+    def _formato_columnas(self, pestana, numeros, fila_fin):
+        ws = self._hoja(pestana)
+        fin = min(fila_fin or ws.row_count, ws.row_count)
+        pedidos = []
+        for col, tipo in numeros.items():
+            t, patron, _ = FORMATO_NUMERO[tipo]
+            pedidos.append({"repeatCell": {"range": self._rango(ws, 1, fin, col - 1, col),
+                                           "fields": "userEnteredFormat.numberFormat",
+                                           "cell": {"userEnteredFormat": {"numberFormat": {"type": t, "pattern": patron}}}}})
+        self.libro.batch_update({"requests": pedidos})
+
+    def _regla_color(self, pestana, columnas, formula, color, fila_fin):
+        ws = self._hoja(pestana)
+        fila_fin = min(fila_fin, ws.row_count)          # un rango más allá de la hoja lo rechaza la API
+        for regla in self._meta(ws, "conditionalFormats").get("conditionalFormats", []):
+            valores = regla.get("booleanRule", {}).get("condition", {}).get("values", [])
+            if any(v.get("userEnteredValue") == formula for v in valores):
+                return False
+        self.libro.batch_update({"requests": [{"addConditionalFormatRule": {"index": 0, "rule": {
+            "ranges": [self._rango(ws, 1, fila_fin, c - 1, c) for c in columnas],
+            "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": formula}]},
+                            "format": {"backgroundColor": _rgb(color)}}}}}]})
+        return True
+
+    def _lista_valores(self, pestana, columnas, valores, fila_fin):
+        ws = self._hoja(pestana)
+        fila_fin = min(fila_fin, ws.row_count)
+        regla = {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in valores]},
+                 "showCustomUi": True, "strict": False}
+        self.libro.batch_update({"requests": [{"setDataValidation": {
+            "range": self._rango(ws, 1, fila_fin, c - 1, c), "rule": regla}} for c in columnas]})
+
+    def _validar_fecha(self, pestana, columnas, fila_fin):
+        ws = self._hoja(pestana)
+        fila_fin = min(fila_fin, ws.row_count)
+        self.libro.batch_update({"requests": [{"setDataValidation": {
+            "range": self._rango(ws, 1, fila_fin, c - 1, c),
+            "rule": {"condition": {"type": "DATE_IS_VALID"}, "strict": False}}} for c in columnas]})
+
+    def _agrupar_columnas(self, pestana, columnas):
+        ws = self._hoja(pestana)
+        agrupadas = set()
+        for g in self._meta(ws, "columnGroups").get("columnGroups", []):
+            agrupadas.update(range(g["range"].get("startIndex", 0) + 1, g["range"].get("endIndex", 0) + 1))
+        nuevos = [c for c in columnas if c not in agrupadas]
+        if not nuevos:
+            return 0
+        tramos = []                                # columnas seguidas en un solo grupo (Google une las vecinas)
+        for c in nuevos:
+            if tramos and c == tramos[-1][1] + 1:
+                tramos[-1][1] = c
+            else:
+                tramos.append([c, c])
+        rango = lambda a, b: {"sheetId": ws.id, "dimension": "COLUMNS", "startIndex": a - 1, "endIndex": b}
+        self.libro.batch_update({"requests": [{"addDimensionGroup": {"range": rango(a, b)}} for a, b in tramos]})
+        try:                                       # contraerlos (si Google los unió distinto, quedan abiertos)
+            grupos = self._meta(ws, "columnGroups").get("columnGroups", [])
+            self.libro.batch_update({"requests": [
+                {"updateDimensionGroup": {"dimensionGroup": dict(g, collapsed=True), "fields": "collapsed"}}
+                for g in grupos if any(g["range"].get("startIndex", 0) < c <= g["range"].get("endIndex", 0)
+                                       for c in nuevos)]})
+        except Exception:
+            pass
+        return len(nuevos)
+
     def _marcar(self, pestana, celdas, color):
         r, g, b = (int(color.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
         formatos = [{"range": f"{letra(c)}{f}", "format": {"backgroundColor": {"red": r, "green": g, "blue": b}}}
@@ -427,9 +573,11 @@ class BaseExcel(_BaseComun):
         if pestana in self.libro.sheetnames:
             idx = self.libro.sheetnames.index(pestana)
             formatos = self.libro[pestana].conditional_formatting      # se conservan los colores condicionales
+            validaciones = self.libro[pestana].data_validations          # y las listas desplegables
             del self.libro[pestana]
             ws = self.libro.create_sheet(pestana, idx)
             ws.conditional_formatting = formatos
+            ws.data_validations = validaciones
         else:
             ws = self.libro.create_sheet(pestana)
         for fila in tabla:
@@ -468,6 +616,88 @@ class BaseExcel(_BaseComun):
                     c.alignment = Alignment(horizontal="right" if tipo in ("entero", "moneda") else "left",
                                             vertical="center")
         ws.freeze_panes = ws.freeze_panes or "A2"
+
+    def _copiar_formato_columna(self, pestana, de, a):
+        from copy import copy
+        ws = self.libro[pestana]
+        for f in range(1, ws.max_row + 1):
+            origen, destino = ws.cell(f, de), ws.cell(f, a)
+            if origen.has_style:
+                destino.font, destino.fill = copy(origen.font), copy(origen.fill)
+                destino.border, destino.alignment = copy(origen.border), copy(origen.alignment)
+                destino.number_format = origen.number_format
+        ancho = ws.column_dimensions[letra(de)].width
+        if ancho:
+            ws.column_dimensions[letra(a)].width = ancho
+
+    def _formato_columnas(self, pestana, numeros, fila_fin):
+        ws = self.libro[pestana]
+        for col, tipo in numeros.items():
+            for f in range(2, (fila_fin or ws.max_row) + 1):
+                ws.cell(f, col).number_format = FORMATO_NUMERO[tipo][2]
+
+    def _regla_color(self, pestana, columnas, formula, color, fila_fin):
+        from openpyxl.formatting.rule import FormulaRule
+        from openpyxl.styles import PatternFill
+        ws = self.libro[pestana]
+        f_sin = formula.lstrip("=")
+        for rango in ws.conditional_formatting:
+            for r in rango.rules:
+                if any(str(x).lstrip("=") == f_sin for x in (r.formula or [])):
+                    return False
+        sqref = " ".join(f"{letra(c)}2:{letra(c)}{fila_fin}" for c in columnas)
+        relleno = PatternFill("solid", fgColor="FF" + color.lstrip("#").upper(), bgColor="FF" + color.lstrip("#").upper())
+        ws.conditional_formatting.add(sqref, FormulaRule(formula=[f_sin], fill=relleno))
+        return True
+
+    def _quitar_validaciones(self, ws, columnas, fila_fin):
+        from openpyxl.worksheet.cell_range import CellRange, MultiCellRange
+        quitar = [CellRange(f"{letra(c)}2:{letra(c)}{fila_fin}") for c in columnas]
+        for dv in list(ws.data_validations.dataValidation):
+            quedan = [r for r in dv.sqref.ranges if not any(r.min_col == q.min_col and r.max_col == q.max_col
+                                                            for q in quitar)]
+            if len(quedan) != len(dv.sqref.ranges):
+                if quedan:
+                    dv.sqref = MultiCellRange(" ".join(r.coord for r in quedan))
+                else:
+                    ws.data_validations.dataValidation.remove(dv)
+
+    def _lista_valores(self, pestana, columnas, valores, fila_fin):
+        from openpyxl.worksheet.datavalidation import DataValidation
+        ws = self.libro[pestana]
+        self._quitar_validaciones(ws, columnas, fila_fin)
+        dv = DataValidation(type="list", formula1='"' + ",".join(valores) + '"', allow_blank=True,
+                            showErrorMessage=False)
+        dv.sqref = " ".join(f"{letra(c)}2:{letra(c)}{fila_fin}" for c in columnas)
+        ws.add_data_validation(dv)
+
+    def _validar_fecha(self, pestana, columnas, fila_fin):
+        from openpyxl.worksheet.datavalidation import DataValidation
+        ws = self.libro[pestana]
+        self._quitar_validaciones(ws, columnas, fila_fin)
+        dv = DataValidation(type="date", operator="greaterThan", formula1="DATE(2020,1,1)", allow_blank=True,
+                            showErrorMessage=False)
+        dv.sqref = " ".join(f"{letra(c)}2:{letra(c)}{fila_fin}" for c in columnas)
+        ws.add_data_validation(dv)
+
+    def _agrupar_columnas(self, pestana, columnas):
+        from copy import copy
+        ws = self.libro[pestana]
+        n = 0
+        for c in columnas:
+            # openpyxl guarda a veces varias columnas en una sola dimensión (P:Q); se separa para no ocultar de más
+            for k, d in list(ws.column_dimensions.items()):
+                if d.min and d.max and d.min <= c <= d.max and d.min != d.max:
+                    for j in range(d.min, d.max + 1):
+                        nueva = copy(d)
+                        nueva.index, nueva.min, nueva.max = letra(j), j, j
+                        ws.column_dimensions[letra(j)] = nueva
+                    break
+            d = ws.column_dimensions[letra(c)]
+            if not d.outline_level:
+                d.outline_level, d.hidden = 1, True
+                n += 1
+        return n
 
     def _reemplazar_en_formatos(self, pestana, cambios, filas_min):
         n = 0

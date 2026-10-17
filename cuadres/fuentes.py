@@ -382,14 +382,16 @@ def consolidar(registros):
     return out
 
 
+COL_ID_RECHAZOS = "ID en 'MG Colima Rechazos'"      # antes «Fila en 'MG Colima Rechazos'» (el número de fila)
+COL_FILA_VIEJA = "Fila en 'MG Colima Rechazos'"
 BITACORA_COLS = ["Fecha", "Folio", "Cliente", "Teléfono", "Correo", "Vendedor", "Unidad", "Año", "Banco solicitud",
                  "Estatus solicitud", "Canal 2", "Estatus final", "Financiera final", "Plazo", "Mensualidad",
                  "Monto a financiar", "Sale-U", "Comentarios F&I", "Comentarios asesor", "# Factura", "VIN",
-                 "Fila en 'MG Colima Rechazos'", "Fuente en la bitácora"]
+                 COL_ID_RECHAZOS, "Fuente en la bitácora"]
 
 
 def filas_bitacora(solicitudes, filas_en_rechazos):
-    """filas_en_rechazos: {id(solicitud): [filas]}"""
+    """filas_en_rechazos: {id(solicitud): [IDs de MG Colima Rechazos]} (o números de fila si aún no hay IDs)"""
     out = []
     for s in solicitudes:
         out.append([s["fecha"], s["folio"], s["cliente"], s["telefono"], s["correo"], s["vendedor"], s["unidad"],
@@ -448,7 +450,7 @@ def solicitudes_de_bitacora(df):
             Plazo=int(to_num(g(r, "Plazo"))) if to_num(g(r, "Plazo")) else None,
             Mensualidad=round(to_num(g(r, "Mensualidad")), 2) if to_num(g(r, "Mensualidad")) else None,
             Correo=mail(g(r, "Correo")) or "",
-            Fila_rechazos=str(g(r, "Fila en 'MG Colima Rechazos'") or "")))
+            Fila_rechazos=str(g(r, COL_ID_RECHAZOS) or g(r, COL_FILA_VIEJA) or "")))
     return pd.DataFrame(filas, columns=cols)
 
 

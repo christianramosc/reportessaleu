@@ -94,8 +94,17 @@ def clientes_saleu(base):
     bit = bitacora_guardada(base, con_sheet=False)
     bit = pd.concat([bit[bit["Est_sol"] != "FORMALIZADO"], _formalizados(base)], ignore_index=True)
     sheet = saleu_sheet.solicitudes_del_sheet(base)
-    ligadas = {int(float(n)) for v in bit["Fila_rechazos"] for n in re.findall(r"\d+(?:\.\d+)?", str(v))}
-    sheet = sheet[~((sheet["Hoja"] == "Rechazos") & sheet["Fila"].isin(ligadas))]
+    # La Bitacora guarda el ID del rechazo (R-0005); las versiones anteriores guardaban el número de fila.
+    ligadas_id, ligadas_fila = set(), set()
+    for v in bit["Fila_rechazos"]:
+        for parte in re.split(r"[,;]\s*", str(v or "")):
+            parte = parte.strip().upper()
+            if re.fullmatch(r"R-\d+", parte):
+                ligadas_id.add(parte)
+            elif re.fullmatch(r"\d+(?:\.0)?", parte):
+                ligadas_fila.add(int(float(parte)))
+    en_rech = sheet["Hoja"] == "Rechazos"
+    sheet = sheet[~(en_rech & (sheet["ID"].str.upper().isin(ligadas_id) | sheet["Fila"].isin(ligadas_fila)))]
     bit = bit.assign(Hoja="Bitacora", Fila=None, _siempre=False)
     todo = pd.concat([bit, sheet], ignore_index=True) if not sheet.empty else bit
     return _unificar_vendedores(base, todo)          # también los asesores que vienen del Sheet

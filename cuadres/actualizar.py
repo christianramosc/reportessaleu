@@ -11,7 +11,8 @@ import datetime as dt
 import pandas as pd
 
 from cuadres.base import (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, TAB_CAPTURAS, TAB_FI, TAB_HISTORIAL,
-                          norm, letra)
+                          norm, letra, canonico)
+from cuadres import ids
 from cuadres.fuentes import (name_key, similar, to_folio, to_phone, to_num, to_date, folio_date,
                              BITACORA_COLS, CAP_COLS, CAP_EXTRA, filas_bitacora, FI_COLS, filas_fi)
 
@@ -21,7 +22,7 @@ AZUL_NUEVO = "#CFE2F3"     # mismo azul claro de "Agregado desde la bitácora" e
 C = dict(fecha="Fecha ingreso", folio="Folio", nombre="Nombre de Cliente", cel="Celular", perfil="Perfil",
          fin="Financiera", plazo="Plazo", unidad="Unidad", asesor="Asesor de Ventas", gap="GAP",
          acc="Accesorios", status="Status 1", mens="Mensualidad", correo="Correo",
-         obs="Condición / Observaciones", saleu="Cliente con Registro en SalesU", fseg="Fecha de Seguimiento",
+         obs="Condición / Observaciones", saleu="Registro en Sale-U", fseg="Fecha de Seguimiento",
          com="COMENTARIOS")
 
 
@@ -61,7 +62,7 @@ def _ignorados(base):
     if h.empty or "Origen" not in h.columns:
         return set()
     h = h[h["Origen"].astype(str).str.startswith("Ignorado")]
-    return {(norm(r["Cliente"]), norm(r["Campo"]), norm(r["Después"])) for _, r in h.iterrows()}
+    return {(norm(r["Cliente"]), norm(canonico(r["Campo"] or "")), norm(r["Después"])) for _, r in h.iterrows()}
 
 
 def _catalogo_asesores(base):
@@ -231,7 +232,7 @@ def migrar_formalizado(base):
     return n
 
 
-FUENTE_SHEET = ("MG Colima Rechazos fila", "MG Colima Créditos Finalizados fila")
+FUENTE_SHEET = ("MG Colima Rechazos", "MG Colima Créditos Finalizados")    # «MG Colima Rechazos R-0005»
 SIN_FORMALIZADOS = "Formalizado"     # la pestaña Bitacora no guarda las solicitudes formalizadas
 
 
@@ -244,7 +245,8 @@ def filas_bitacora_del_sheet(base, fila_de_sol):
     for _, r in solicitudes_del_sheet(base).iterrows():
         if r["Hoja"] != "Rechazos" or r["Fila"] in ligadas:
             continue
-        estatus, fuente, fila_rech = "Rechazado", f"{FUENTE_SHEET[0]} {r['Fila']}", r["Fila"]
+        fila_rech = r["ID"] or r["Fila"]          # el ID no cambia aunque se ordene la hoja
+        estatus, fuente = "Rechazado", f"{FUENTE_SHEET[0]} {r['ID'] or 'fila ' + str(r['Fila'])}"
         banco = "" if r["Fin_sol"] == "SIN FINANCIERA" else r["Fin_sol"]
         tel = to_phone(r["Telefono"])
         fecha = to_date(r["Fecha"]) if isinstance(r["Fecha"], dt.date) else None
@@ -261,11 +263,18 @@ FORMATO_BITACORA = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", 
                     "Mensualidad": "moneda", "Monto a financiar": "moneda"}
 
 
-def filas_bitacora_completa(base, solicitudes, fila_de_sol):
+FORMATO_FI = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", "Año": "entero", "Plazo": "entero",
+              "Mensualidad": "moneda", "Monto": "moneda", "Fecha de carga": "fechahora"}
+
+
+def filas_bitacora_completa(base, solicitudes, fila_de_sol, id_de_fila=None):
     """Filas de la pestaña Bitacora: solicitudes de las bitácoras + rechazos que solo están en el Sheet, sin las
-    formalizadas, con el vendedor según Catalogos y ordenadas por fecha (sin fecha al final)."""
+    formalizadas, con el vendedor según Catalogos y ordenadas por fecha (sin fecha al final).
+    id_de_fila: {fila: ID}; la Bitacora guarda el ID del rechazo (si no hay, el número de fila)."""
     catalogo = _catalogo_asesores(base)
-    filas = filas_bitacora(solicitudes, fila_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
+    id_de_fila = id_de_fila or {}
+    ids_de_sol = {k: [id_de_fila.get(f, f) for f in filas] for k, filas in fila_de_sol.items()}
+    filas = filas_bitacora(solicitudes, ids_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
     filas = [f for f in filas if f[COL_ESTATUS_SOL] != SIN_FORMALIZADOS]
     for f in filas:
         if f[COL_VENDEDOR] and catalogo:
@@ -284,6 +293,10 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
         raise ValueError(f"No encuentro las columnas {', '.join(faltan)} en '{TAB_RECHAZOS}'.")
     hoja_de = lambda p: p["Hoja"] if "Hoja" in p and p["Hoja"] else TAB_RECHAZOS
     respaldo = base.respaldar(TAB_RECHAZOS) if len(elegidas) else None
+    id_de_fila = ids.asegurar(base)        # ID fijo a los rechazos que no lo tengan (p. ej. capturados a mano)
+    c_id, c_rein = base.col(TAB_RECHAZOS, ids.COL_ID), base.col(TAB_RECHAZOS, ids.COL_REINGRESO)
+    l_nom, l_tel = ids.letras(base)
+    siguiente_id = ids.siguiente(id_de_fila.values())
     if any(hoja_de(p) == TAB_FINALIZADOS for _, p in elegidas.iterrows()):
         base.respaldar(TAB_FINALIZADOS)
 
@@ -312,6 +325,12 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
             cc, ce = base.col(TAB_RECHAZOS, f"CONTESTA {i}"), base.col(TAB_RECHAZOS, f"EFECTIVIDAD {i}")
             if cc and ce:
                 celdas.append((fila, ce, f'=IF(${F}{fila}="","",IF({letra(cc)}{fila}="Si Responde",1,0))'))
+        if c_id:
+            id_de_fila[fila] = ids.formato(siguiente_id)
+            celdas.append((fila, c_id, id_de_fila[fila]))
+            siguiente_id += 1
+        if c_rein and l_nom:
+            celdas.append((fila, c_rein, ids.formula_reingreso(fila, l_nom, l_tel)))
         nuevas_marcas.append((fila, col["nombre"]))
         contexto["fila_de_sol"].setdefault(id(p["_sol"]), []).append(fila)
         historial.append(dict(Origen="App · bitácoras", Hoja=TAB_RECHAZOS, Celda=f"Fila {fila}", Cliente=p["Cliente"],
@@ -332,7 +351,9 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
                         capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist())
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi))
-    base.reemplazar(TAB_BITACORA, BITACORA_COLS, filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"]))
+        base.dar_formato(TAB_FI, FORMATO_FI)
+    base.reemplazar(TAB_BITACORA, BITACORA_COLS,
+                    filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"], id_de_fila))
     base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)
     aviso = None
     try:

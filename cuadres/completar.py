@@ -24,7 +24,7 @@ COLUMNAS = {
                        fin="Financiera", correo="Correo", plazo="Plazo", mens="Mensualidad", unidad="Unidad",
                        asesor="Asesor de Ventas", gap="GAP", acc="Accesorios", perfil="Perfil"),
     # en Rechazos el registro en Sale-U lo maneja el cuadre de Sale-U (con su periodo); aquí solo Finalizados
-    TAB_FINALIZADOS: dict(nombre="NOMBRE", tel="TELEFONO", correo="CORREO", saleu="CLIENTE CON REGISTRO EN SALE-U"),
+    TAB_FINALIZADOS: dict(nombre="NOMBRE", tel="TELEFONO", correo="CORREO", saleu="REGISTRO EN SALE-U"),
 }
 CAMPOS = ["tel", "correo", "folio", "plazo", "mens", "unidad", "asesor", "gap", "acc", "perfil", "saleu"]
 

@@ -1,0 +1,110 @@
+# -*- coding: utf-8 -*-
+"""
+Ajustes de estructura y formato del Google Sheet de seguimiento (se corren una vez con un botón; repetirlos no
+duplica nada).
+
+  1. Encabezado del registro en Sale-U con el mismo nombre en las dos pestañas («Registro en Sale-U»).
+  2. MG Colima Rechazos: columnas Reingreso e ID al final (ver cuadres/ids.py).
+  3. CONTESTA 1/2/3: opción «No responde» y color cuando hay fecha de contacto pero no se capturó si contestó.
+  4. Columnas que siempre traen lo mismo (Tipo de Subvención, Accesorios, Status 1) agrupadas y contraídas.
+  5. MG Colima Créditos Finalizados: columna FECHA DE ENTREGA (con ella entran al cuadre de Sale-U por periodo).
+  6. Historial y Bitacora F&I: las fechas con formato de fecha (antes se veían como números).
+  7. Revision: ID de cada pendiente y los resueltos pasan a «Revision resueltos».
+  8. Se rehace el Resumen.
+Antes de tocar una pestaña se guarda su respaldo oculto.
+"""
+from cuadres.base import TAB_RECHAZOS, TAB_FINALIZADOS, TAB_HISTORIAL, TAB_FI, letra
+from cuadres import ids, pendientes
+from cuadres.saleu_sheet import COL_FECHA_ENTREGA
+
+ENCABEZADOS_SALEU = {TAB_RECHAZOS: ("Cliente con Registro en SalesU", "Registro en Sale-U"),
+                     TAB_FINALIZADOS: ("CLIENTE CON REGISTRO EN SALE-U", "REGISTRO EN SALE-U")}
+CONTESTA = ["Si Responde", "No responde", "No Responde. Enviar WhatsApp"]
+COLOR_FALTA = "#FCE5CD"                           # mismo naranja claro de «falta correo o Sale-U»
+COLUMNAS_FIJAS = ["Tipo de Subvención", "Accesorios", "Status 1"]
+FILAS = ids.FILAS_FORMULA
+
+
+def aplicar(base):
+    """Aplica los ajustes que falten. Devuelve una lista de frases con lo que hizo."""
+    hecho = []
+    pestanas = set(base.pestanas())
+    respaldadas = set()
+
+    def respaldar(p):
+        if p not in respaldadas:
+            base.respaldar(p)
+            respaldadas.add(p)
+
+    # 1. encabezado de Sale-U
+    for hoja, (viejo, nuevo) in ENCABEZADOS_SALEU.items():
+        if hoja in pestanas and base.renombrar_encabezado(hoja, viejo, nuevo):
+            hecho.append(f"«{viejo}» ahora se llama «{nuevo}» en {hoja}")
+
+    if TAB_RECHAZOS in pestanas:
+        # 2. Reingreso e ID
+        tenia_id = bool(base.col(TAB_RECHAZOS, ids.COL_ID))
+        tenia_rein = bool(base.col(TAB_RECHAZOS, ids.COL_REINGRESO))
+        if not (tenia_id and tenia_rein):
+            respaldar(TAB_RECHAZOS)
+        if not tenia_rein:
+            ids.asegurar_reingreso(base)
+            hecho.append("Columna Reingreso en MG Colima Rechazos")
+        antes = ids.mapa(base)
+        todos = ids.asegurar(base)
+        nuevos = len(todos) - len(antes)
+        if nuevos:
+            hecho.append(f"ID a {nuevos} rechazo(s) en MG Colima Rechazos")
+
+        # 3. CONTESTA
+        cols_contesta, nuevas = [], 0
+        for i in (1, 2, 3):
+            cc, cf = base.col(TAB_RECHAZOS, f"CONTESTA {i}"), base.col(TAB_RECHAZOS, f"FECHA REALIZADO {i}")
+            if cc and cf:
+                cols_contesta.append(cc)
+                if base.regla_color(TAB_RECHAZOS, [cc], f'=AND(${letra(cf)}2<>"",${letra(cc)}2="")', COLOR_FALTA,
+                                    FILAS):
+                    nuevas += 1
+        if nuevas:
+            hecho.append("Color en CONTESTA 1, 2 y 3 cuando hay fecha de contacto pero no se capturó si contestó")
+        if cols_contesta and nuevas:
+            base.lista_valores(TAB_RECHAZOS, cols_contesta, CONTESTA, FILAS)
+            hecho.append("Opción «No responde» en CONTESTA 1, 2 y 3")
+
+        # 4. columnas que siempre traen lo mismo
+        fijas = [c for c in (base.col(TAB_RECHAZOS, n) for n in COLUMNAS_FIJAS) if c]
+        n = base.agrupar_columnas(TAB_RECHAZOS, fijas) if fijas else 0
+        if n:
+            hecho.append(f"{n} columna(s) agrupadas en MG Colima Rechazos ({', '.join(COLUMNAS_FIJAS)})")
+
+    # 5. fecha de entrega en Finalizados
+    if TAB_FINALIZADOS in pestanas and not base.col(TAB_FINALIZADOS, COL_FECHA_ENTREGA):
+        respaldar(TAB_FINALIZADOS)
+        c = base.agregar_columna(TAB_FINALIZADOS, COL_FECHA_ENTREGA)
+        base.formato_columnas(TAB_FINALIZADOS, {c: "fecha"}, FILAS)
+        base.validar_fecha(TAB_FINALIZADOS, [c], FILAS)
+        hecho.append("Columna FECHA DE ENTREGA en MG Colima Créditos Finalizados")
+
+    # 6. fechas que se veían como número
+    if TAB_HISTORIAL in pestanas:
+        base.formato_columnas(TAB_HISTORIAL, {1: "fechahora"})
+        hecho.append("Fechas del Historial con formato de fecha")
+    if TAB_FI in pestanas:
+        from cuadres.actualizar import FORMATO_FI
+        base.dar_formato(TAB_FI, FORMATO_FI)
+        hecho.append("Fechas de Bitacora F&I con formato de fecha")
+
+    # 7. Revision
+    if pendientes.TAB_REVISION in pestanas:
+        n = pendientes.ligar_ids(base)
+        if n:
+            hecho.append(f"ID en {n} pendiente(s) de Revision")
+        n = pendientes.archivar(base)
+        if n:
+            hecho.append(f"{n} renglón(es) resueltos pasaron a «{pendientes.TAB_ARCHIVO}»")
+
+    # 8. Resumen
+    from cuadres import dashboard
+    dashboard.construir(base)
+    hecho.append("Resumen rehecho")
+    return hecho
