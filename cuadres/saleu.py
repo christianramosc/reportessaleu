@@ -505,7 +505,7 @@ COLS_SOLO = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "
 
 def _faltantes_con_vendedor(faltantes):
     vista = tabla_faltantes(faltantes)
-    vista.insert(2, "Vendedor", faltantes["Vendedor"].values)
+    vista.insert(2, "Vendedor", faltantes["Vendedor"].replace("(sin vendedor)", "").values)
     return vista
 
 

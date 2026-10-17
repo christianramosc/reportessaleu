@@ -367,12 +367,12 @@ with tab_su:
             if not df.empty:
                 st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
                              height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
-            vista = cu.tabla_faltantes(df).assign(Vendedor=df["Vendedor"].values, Historial=df["Historial"].values,
-                                                  Observaciones=df["Observaciones"].values)
+            vista = cu._faltantes_con_vendedor(df).assign(Historial=df["Historial"].values,
+                                                          Observaciones=df["Observaciones"].values)
             vista["Fecha"] = vista["Fecha"].map(cu.fecha_txt)
             vista["Mensualidad"] = vista["Mensualidad"].map(lambda v: f"${v:,.2f}" if v == v and v else "")
             vista["Plazo"] = vista["Plazo"].map(lambda v: str(int(v)) if v == v and v else "")
-            tabla(vista, cu.COLS_FALTANTES + ["Vendedor", "Historial", "Observaciones"])
+            tabla(vista, cu.COLS_FALTANTES[:2] + ["Vendedor"] + cu.COLS_FALTANTES[2:] + ["Historial", "Observaciones"])
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",
