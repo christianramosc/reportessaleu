@@ -16,15 +16,13 @@ import os, re, glob, unicodedata, subprocess, sys, warnings
 from datetime import datetime
 import pandas as pd
 
+try:
+    from cuadres import salidas as sal
+except ModuleNotFoundError:          # corrido suelto (Colab): python cuadres/blueservice.py
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from cuadres import salidas as sal
+
 warnings.filterwarnings("ignore")
-from openpyxl import load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 
 PDV = "MG COLIMA"
 ETAPAS_PDI = ["PDI ARRIBO", "PDI 1", "PDI 2", "PDI 3"]
@@ -320,90 +318,39 @@ COLS_BS = ["Resultado", "Situacion", "VIN", "Modelo_BS", "Dealer_origen", "Deale
            "Observaciones"]
 
 
-def exportar_excel(ruta, resumen, cuadre_inv, solo_bs, revisar):
-    with pd.ExcelWriter(ruta, engine="openpyxl") as w:
-        resumen.to_excel(w, sheet_name="Resumen", index=False)
-        cuadre_inv[COLS_INV].to_excel(w, sheet_name="Inventario_vs_BS", index=False)
-        cuadre_inv[cuadre_inv["Resultado"] == R_FALTA_BS][COLS_INV].to_excel(
-            w, sheet_name="Falta_en_BlueService", index=False)
-        solo_bs[solo_bs["Resultado"] == R_FALTA_INV][COLS_BS].to_excel(
-            w, sheet_name="En_BS_no_en_inventario", index=False)
-        revisar[COLS_INV].to_excel(w, sheet_name="Revisar", index=False)
-        solo_bs[solo_bs["Resultado"] == R_VENDIDA][COLS_BS].to_excel(
-            w, sheet_name="Vendidas_BS", index=False)
-    wb = load_workbook(ruta)
-    b = Side(style="thin", color="BFBFBF")
-    for ws in wb.worksheets:
-        for c in ws[1]:
-            c.font = Font(name="Arial", bold=True, color="FFFFFF")
-            c.fill = PatternFill("solid", fgColor="1F3864")
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        for fila in ws.iter_rows(min_row=2):
-            for c in fila:
-                c.font = Font(name="Arial", size=10)
-                c.border = Border(top=b, bottom=b, left=b, right=b)
-                if isinstance(c.value, str) and c.value in COLORES:
-                    c.fill = PatternFill("solid", fgColor=COLORES[c.value])
-        for i, col in enumerate(ws.columns, 1):
-            largo = max(len(str(c.value)) if c.value is not None else 0 for c in col)
-            ws.column_dimensions[get_column_letter(i)].width = min(max(largo + 2, 10), 60)
-        ws.freeze_panes = "A2"
-        if ws.max_row > 1:
-            ws.auto_filter.ref = ws.dimensions
-    wb.save(ruta)
+def exportar_excel(ruta, resumen, cuadre_inv, solo_bs, revisar, sub="", titulo=""):
+    cols_bs = [c for c in COLS_BS if c in solo_bs.columns]
+    sal.excel(ruta, titulo or f"Cuadre BlueService vs Inventario – {sal.PDV}", sub, [
+        ("Resumen", resumen, ["Concepto", "Valor"]),
+        ("Faltan en BlueService", cuadre_inv[cuadre_inv["Resultado"] == R_FALTA_BS], COLS_INV),
+        ("Solo en BlueService", solo_bs[solo_bs["Resultado"] == R_FALTA_INV], cols_bs),
+        ("A revisar", revisar, COLS_INV),
+        ("Vendidas en BlueService", solo_bs[solo_bs["Resultado"] == R_VENDIDA], cols_bs),
+        ("Inventario vs BlueService", cuadre_inv, COLS_INV),
+    ], COLORES)
 
 
-def exportar_pdf(ruta, resumen, falta_bs, falta_inv, revisar, corte, hoja):
-    st = getSampleStyleSheet()
-    chico = ParagraphStyle("c", parent=st["Normal"], fontSize=7.5, leading=9)
-    blanco = ParagraphStyle("b", parent=chico, textColor=colors.white)
-    h1 = ParagraphStyle("h1", parent=st["Title"], fontSize=18, textColor=colors.HexColor("#1F3864"))
-    h2 = ParagraphStyle("h2", parent=st["Heading2"], textColor=colors.HexColor("#1F3864"))
-    txt = ParagraphStyle("t", parent=st["Normal"], fontSize=9.5, leading=13)
-
-    def tabla(df, cols, anchos, color="#1F3864"):
-        if df.empty:
-            return Paragraph("<i>Sin registros.</i>", txt)
-        datos = [[Paragraph(f"<b>{c.replace('_', ' ')}</b>", blanco) for c in cols]]
-        for _, r in df.iterrows():
-            datos.append([Paragraph("" if pd.isna(r[c]) else str(r[c]), chico) for c in cols])
-        t = Table(datos, colWidths=[a * cm for a in anchos], repeatRows=1)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(color)),
-            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#BFBFBF")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        return t
-
-    doc = SimpleDocTemplate(ruta, pagesize=landscape(letter), leftMargin=1.2 * cm, rightMargin=1.2 * cm,
-                            topMargin=1.2 * cm, bottomMargin=1.2 * cm)
-    el = [Paragraph(f"Cuadre BlueService vs Inventario – {PDV}", h1),
-          Paragraph(f"Hoja de inventario: {hoja} · Fecha de corte: {fmt(corte)} · "
-                    f"Generado: {datetime.now():%d/%m/%Y %H:%M}", txt), Spacer(1, 10),
-          tabla(resumen.assign(Valor=resumen["Valor"].astype(str)), ["Concepto", "Valor"], [13, 4]),
-          Spacer(1, 10),
-          Paragraph("El cruce es por VIN. Si un VIN del inventario no existe en BlueService, se busca uno "
-                    "que difiera en uno o dos caracteres y se usa el dígito verificador (posición 9) para "
-                    "saber cuál está bien capturado.", txt)]
-    el += [PageBreak(), Paragraph(f"1. Unidades en {hoja.lower()} que NO están en BlueService ({len(falta_bs)})", h2),
-           tabla(falta_bs, ["VIN", "Modelo_inventario", "Version", "Color", "Ubicacion", "Entrada_inventario",
-                            "Observaciones"], [3.6, 2.2, 4.2, 1.8, 2.4, 2.2, 9], "#C00000")]
-    el += [Spacer(1, 14), Paragraph(f"2. Datos a revisar ({len(revisar)})", h2),
-           Paragraph("VIN mal capturados, fechas de PDI inválidas y PDIs que no coinciden entre archivos.", txt),
-           Spacer(1, 6),
-           tabla(revisar, ["Resultado", "VIN", "Modelo_inventario", "Ultimo_PDI_inventario", "Etapa_BS",
-                           "Status_BS", "Observaciones"], [3.4, 3.4, 2, 3.4, 1.6, 1.8, 9.8], "#BF8F00")]
-    el += [PageBreak(), Paragraph(f"3. En BlueService sin venta, pero no en {hoja.lower()} ({len(falta_inv)})", h2),
-           Paragraph("BlueService las considera en el inventario de la agencia. La columna 'Situación' "
-                     "indica dónde aparecen en el Excel de inventario.", txt), Spacer(1, 6)]
-    if not falta_inv.empty:
-        conteo = falta_inv.groupby("Situacion").size().sort_values(ascending=False)
-        el.append(Paragraph(" · ".join(f"<b>{k}</b>: {v}" for k, v in conteo.items()), txt))
-        el.append(Spacer(1, 6))
-    el.append(tabla(falta_inv.sort_values(["Situacion", "Fecha_inventario_BS"]),
-                    ["VIN", "Modelo_BS", "Dealer_origen", "Fecha_inventario_BS", "Etapa_BS", "Situacion",
-                     "Aparece_en_inventario"], [3.5, 2.6, 2.8, 2.2, 1.8, 6.2, 6.3], "#7F7F7F"))
-    doc.build(el)
+def exportar_pdf(ruta, resumen, falta_bs, falta_inv, revisar, hoja, sub="", cifras=None, titulo=""):
+    pdf = sal.PDF(ruta, titulo or f"Cuadre BlueService vs Inventario – {sal.PDV}", sub)
+    pdf.cifras(cifras or [])
+    pdf.seccion(f"Unidades en {hoja.lower()} que no están en BlueService", falta_bs,
+                ["VIN", "Modelo_inventario", "Version", "Color", "Ubicacion", "Entrada_inventario", "Observaciones"],
+                [3.6, 2.2, 4.2, 1.8, 2.4, 2.2, 9], "#C00000", "Darlas de alta en BlueService o revisar el VIN.")
+    pdf.seccion("Datos a revisar", revisar,
+                ["Resultado", "VIN", "Modelo_inventario", "Ultimo_PDI_inventario", "Etapa_BS", "Status_BS",
+                 "Observaciones"], [3.4, 3.4, 2, 3.4, 1.6, 2.3, 9.3], "#BF8F00",
+                "VIN mal capturados, fechas de PDI inválidas y PDIs que no coinciden entre archivos.")
+    pdf.seccion(f"En BlueService sin venta, pero no en {hoja.lower()}",
+                falta_inv.sort_values(["Situacion", "Fecha_inventario_BS"]) if not falta_inv.empty else falta_inv,
+                ["VIN", "Modelo_BS", "Dealer_origen", "Fecha_inventario_BS", "Etapa_BS", "Situacion",
+                 "Aparece_en_inventario"], [3.5, 2.6, 2.8, 2.2, 1.8, 6.2, 6.3], "#7F7F7F",
+                "BlueService las considera en el inventario de la agencia. Situación dice dónde aparecen en el "
+                "Excel de inventario.",
+                [("Por situación", falta_inv.groupby("Situacion").size().sort_values(ascending=False))]
+                if not falta_inv.empty else None)
+    pdf.guardar(resumen, "El cruce es por VIN. Si un VIN del inventario no existe en BlueService, se busca uno que "
+                         "difiera en uno o dos caracteres y se usa el dígito verificador (posición 9) para saber cuál "
+                         "está bien capturado.")
 
 
 # =============================================================================
@@ -439,11 +386,19 @@ def procesar(ruta_bs, ruta_inv, carpeta=".", hoja=None):
         ("Unidades con datos a revisar", len(revisar)),
     ], columns=["Concepto", "Valor"])
 
-    sello = datetime.now().strftime("%Y%m%d_%H%M")
-    rx = os.path.join(carpeta, f"Cuadre_BlueService_{sello}.xlsx")
-    rp = os.path.join(carpeta, f"Cuadre_BlueService_{sello}.pdf")
-    exportar_excel(rx, resumen, cuadre_inv, solo_bs, revisar)
-    exportar_pdf(rp, resumen, falta_bs, falta_inv, revisar, corte, hoja)
+    base_nombre = sal.nombre_archivo("BlueService", f"Corte{corte.day:02d}{sal.MESES_CORTOS[corte.month - 1]}{corte.year}")
+    rx = os.path.join(carpeta, base_nombre + ".xlsx")
+    rp = os.path.join(carpeta, base_nombre + ".pdf")
+    sub = f"Hoja de inventario: {hoja} · Fecha de corte: {fmt(corte)} · Generado: {datetime.now():%d/%m/%Y %H:%M}"
+    cifras = [
+        (f"Unidades en {hoja.title()}", len(cuadre_inv), "inventario físico", "neutro"),
+        ("Cuadran", int(en_bs.sum()), f"{en_bs.mean():.0%} de cuadre" if len(cuadre_inv) else "", "bien"),
+        ("Faltan en BlueService", len(falta_bs), "por dar de alta", "mal" if len(falta_bs) else "bien"),
+        ("Solo en BlueService", len(falta_inv), f"no están en {hoja.lower()}", "aviso" if len(falta_inv) else "bien"),
+        ("A revisar", len(revisar), "VIN o PDI", "aviso" if len(revisar) else "bien"),
+    ]
+    exportar_excel(rx, resumen, cuadre_inv, solo_bs, revisar, sub)
+    exportar_pdf(rp, resumen, falta_bs, falta_inv, revisar, hoja, sub, cifras)
     return dict(resumen=resumen, cuadre_inv=cuadre_inv, solo_bs=solo_bs, falta_bs=falta_bs,
                 falta_inv=falta_inv, vendidas=vendidas, revisar=revisar, corte=corte, hoja=hoja,
                 xlsx=rx, pdf=rp)

@@ -13,6 +13,7 @@ from cuadres import fuentes, actualizar, pendientes, saleu_sheet
 from cuadres.base import TAB_HISTORIAL, TAB_FINALIZADOS
 
 ui.hero("Base de seguimiento", "Actualiza el Sheet de rechazos con las bitácoras de Cetelem y F&I.")
+ui.guia_mes()
 
 base = conexion.panel_base()
 if base is None:

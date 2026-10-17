@@ -9,8 +9,8 @@ App de Streamlit con una página por herramienta:
    marques. Antes de escribir guarda un respaldo oculto y todo queda en la pestaña **Historial**.
 3. **Cuadres para reportes**: cuadra la **bitácora** (pestaña *Bitacora* del Sheet: capturas de Cetelem +
    Bitácora de F&I, **todas las financieras**) y el inventario. Con el Google Sheet conectado, el seguimiento
-   y la bitácora se leen de la base; para Sale-U solo subes el reporte y la app escribe
-   *Cliente con Registro en SalesU* en el Sheet:
+   y la bitácora se leen de la base; para Sale-U solo subes el reporte, revisas los cambios y la app escribe
+   *Cliente con Registro en SalesU* en el Sheet al pulsar *Aplicar*:
    - **Seguimiento de rechazos vs bitácora** (solo pestañas de COLIMA). Cuadra solo las solicitudes
      **rechazadas** de cualquier financiera; cruza por folio, teléfono y nombre.
    - **Sale-U vs bitácora**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Compara
@@ -22,7 +22,9 @@ App de Streamlit con una página por herramienta:
      elijas). Cruza por VIN, detecta VIN mal capturados con el dígito verificador y dice en qué otra hoja
      aparece cada unidad.
 
-   Cada cuadre genera un **Excel** y un **PDF** descargables.
+   Cada cuadre genera un **Excel** y un **PDF** descargables (`Cuadre_<tipo>_<periodo>_<fecha>`). El PDF abre con
+   las cifras clave y solo trae las secciones con pendientes; el Excel usa el estilo del Sheet (Calibri 9),
+   nombres de columna legibles y teléfonos como texto.
 
 ## Estructura
 
@@ -43,6 +45,7 @@ cuadres/dashboard.py           # dashboard de la pestaña Resumen (KPI, lectura,
 cuadres/seguimiento.py         # cuadre vs Excel de seguimiento
 cuadres/saleu.py               # cuadre vs Sale-U
 cuadres/blueservice.py         # cuadre BlueService vs Inventario
+cuadres/salidas.py             # formato común de los Excel y PDF de los cuadres
 .streamlit/config.toml         # tema
 ```
 
@@ -84,9 +87,10 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    **bitácora completa** (todas las financieras y estatus; ver abajo). Por eso conviene hacer antes el paso 1.
    Un cliente está en Sale-U si coincide el
    teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
-   criterio que usa la columna *Cliente con Registro en SalesU*. La hoja *Faltan_en_SaleU* del Excel trae
-   nombre, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de alta. Además del Excel/PDF,
-   marca *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae en el periodo del reporte.
+   criterio que usa la columna *Cliente con Registro en SalesU*. La hoja *Faltan en Sale-U* del Excel trae
+   nombre, vendedor, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de
+   alta. Además del Excel/PDF, propone marcar *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae
+   en el periodo del reporte; revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
    Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
    el reporte se deja igual y se lista para que lo confirmes.
 3. **Cuadres para reportes → Seguimiento** → *Hacer cuadre* (ya no pide archivos).
@@ -117,8 +121,7 @@ Reglas que sigue la app al escribir en el Sheet:
   Sale-U, sus celdas **vacías** se llenan (teléfono, correo, folio, plazo, mensualidad, unidad, asesor, GAP,
   accesorios y, en Finalizados, el registro en Sale-U). Nunca se sobreescribe un dato. Si la bitácora y Sale-U
   traen el mismo dato, manda la bitácora (la mensualidad de Sale-U es aproximada). En *Actualizar*
-  salen como "Dato faltante" para que los revises; en el cuadre de Sale-U se escriben solos si la
-  escritura está encendida.
+  salen como "Dato faltante" para que los revises; en el cuadre de Sale-U se escriben al pulsar *Aplicar*.
 - **Formalizado** = el crédito terminó en contrato con cualquier financiera (FINANCIADO en Cetelem,
   CONTRATO en la Bitácora de F&I). Así aparece en la *Bitacora* y en el *Resumen*.
 - Lo de Cetelem manda en folio, estatus, mensualidad (máxima), plazo, teléfono, GAP y accesorios.

@@ -43,6 +43,13 @@ div[data-testid="stMetric"] {{ background: #F5F7FB; border-left: 4px solid {kc.A
 .vacio {{ border: 2px dashed #CBD4E1; border-radius: 14px; padding: 36px; text-align: center;
          color: {kc.TEXTO_2}; }}
 .vacio b {{ color: {kc.TEXTO}; font-size: 1.1rem; }}
+
+.pasos {{ display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; font-family: 'Archivo', sans-serif;
+         font-size: .86rem; color: {kc.TEXTO_2}; margin: -6px 0 14px; }}
+.pasos b {{ color: {kc.TEXTO}; }}
+.pasos .n {{ display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: {kc.AZUL_OSCURO};
+            color: #fff; font-size: .75rem; font-weight: 700; align-items: center; justify-content: center;
+            margin-right: 6px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -81,3 +88,14 @@ def archivo_persistente(etiqueta, key, tipos, donde=st, ayuda=None):
         return guardado
     donde.file_uploader(etiqueta, type=tipos, key=key, help=ayuda, on_change=_al_cambiar)
     return st.session_state.get(slot)
+
+
+PASOS_MES = [("Base de seguimiento", "Actualizar"), ("Cuadres", "Sale-U"), ("Cuadres", "Seguimiento"),
+             ("Base de seguimiento", "Pendientes")]
+
+
+def guia_mes():
+    """Orden del cierre mensual, para no saltarse pasos."""
+    pasos = "".join(f'<span><span class="n">{i}</span>{html.escape(pagina)} → <b>{html.escape(pestana)}</b></span>'
+                    for i, (pagina, pestana) in enumerate(PASOS_MES, 1))
+    st.markdown(f'<div class="pasos"><span>Cierre del mes:</span>{pasos}</div>', unsafe_allow_html=True)

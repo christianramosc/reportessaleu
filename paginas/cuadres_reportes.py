@@ -22,6 +22,7 @@ from cuadres import saleu as cu
 from cuadres import blueservice as cb
 from cuadres import saleu_sheet
 from cuadres.base import a_excel, norm
+from cuadres.salidas import etiqueta
 
 # =============================================================================
 # Utilidades
@@ -62,9 +63,9 @@ def tabla(df, columnas, columnas_color=(), alto=None):
         st.info("Sin registros.")
         return
     vista = df[cols].copy()
-    vista.columns = [c.replace("_", " ") for c in cols]
+    vista.columns = [etiqueta(c) for c in cols]
     estilo = vista.style
-    color_cols = [c.replace("_", " ") for c in columnas_color if c in cols]
+    color_cols = [etiqueta(c) for c in columnas_color if c in cols]
     if color_cols:
         estilo = estilo.map(colorear, subset=color_cols)
     extra = {"height": alto} if alto else {}
@@ -127,9 +128,10 @@ def ejecutar_seg_base(base, bitacora):
     return res
 
 
-def ejecutar_su_base(base, archivo_su, clientes, escribir):
+def ejecutar_su_base(base, archivo_su, clientes):
     """Cuadre Sale-U contra los clientes del Sheet (MG Colima Rechazos, todas las financieras, y Créditos
-    Finalizados) + registro en Sale-U escrito en la base."""
+    Finalizados) + cambios propuestos para el Sheet (registro en Sale-U y datos faltantes). No escribe:
+    los cambios se aplican con el botón «Aplicar» después de revisarlos."""
     with tempfile.TemporaryDirectory() as tmp:
         ruta_su = guardar_temporal([archivo_su], tmp)[0]
         res = {}
@@ -142,26 +144,21 @@ def ejecutar_su_base(base, archivo_su, clientes, escribir):
     periodo = f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}"
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
-    res["escritos"] = saleu_sheet.aplicar(base, cambios, periodo) if escribir else 0
     res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
                                 columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
-    res["datos_escritos"] = saleu_sheet.aplicar_datos(base, res["datos"].to_dict("records")) if escribir else 0
+    res["escritos"], res["datos_escritos"], res["aplicado"] = 0, 0, False
     return res
 
 
 # =============================================================================
 # Barra lateral: ajustes
 # =============================================================================
-with st.sidebar:
-    st.header("Ajustes")
-    st.caption("Parecido mínimo de nombres.")
-    fuerte = st.slider("Solo por nombre", 0.6, 1.0, 0.80, 0.05, help="Cuando el teléfono es distinto.")
-    con_tel = st.slider("Con teléfono igual", 0.3, 1.0, 0.50, 0.05, help="Cuando el teléfono coincide.")
+with st.sidebar.expander("Ajustes avanzados", icon=":material/tune:"):
+    st.caption("Cambian los resultados de los cuadres. Déjalos como están salvo que sepas por qué.")
+    fuerte = st.slider("Parecido: solo por nombre", 0.6, 1.0, 0.80, 0.05, help="Cuando el teléfono es distinto.")
+    con_tel = st.slider("Parecido: con teléfono igual", 0.3, 1.0, 0.50, 0.05, help="Cuando el teléfono coincide.")
     for m in (cs, cu):
         m.UMBRAL_NOMBRE_FUERTE, m.UMBRAL_NOMBRE_CON_TEL = fuerte, con_tel
-
-    st.divider()
-    st.subheader("Sale-U")
     contra = st.selectbox("Contrapropuesta en Sale-U", ["Revisar", "Aceptado", "Rechazado"])
     cu.ESTATUS_ESPERADO["CONTRAPROPUESTA"] = {"Aceptado": "ACEPTADO",
                                               "Rechazado": "RECHAZADO"}.get(contra)
@@ -171,6 +168,7 @@ with st.sidebar:
 # Página
 # =============================================================================
 ui.hero("Cuadres para reportes", "Elige el cuadre y descarga el resultado en Excel y PDF.")
+ui.guia_mes()
 
 try:
     base = conexion.obtener_base()      # una sola lectura del Sheet por ejecución (cuenta en la cuota de Google)
@@ -273,13 +271,10 @@ with tab_su:
         else:
             c2.warning("No hay créditos en la bitácora ni en Rechazos / Finalizados.",
                        icon=":material/warning:")
-        escribir = c1.toggle("Escribir el registro en Sale-U en el Sheet", value=True, key="tg_su",
-                             help="Marca Registrado / No Registrado en los rechazos del periodo. "
-                                  "Nunca baja un «Registrado» a «No Registrado».")
         if st.button("Hacer cuadre", type="primary", disabled=not f_su, key="btn_su"):
             with st.spinner("Cruzando…"):
                 try:
-                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, bit, escribir)
+                    st.session_state["res_su"] = ejecutar_su_base(base, f_su, bit)
                 except Exception as e:
                     st.session_state.pop("res_su", None)
                     st.error(f"No se pudo hacer el cuadre: {e}")
@@ -302,19 +297,34 @@ with tab_su:
         cambian = reg[reg["Cambia"]]
         st.markdown(f"**Registro en Sale-U** · {res['periodo_saleu']}")
         datos = res.get("datos", pd.DataFrame())
+        aplicado = res.get("aplicado", False)
+        escritos_datos = res.get("datos_escritos", 0)
         k = st.columns(4)
         k[0].metric("Rechazos revisados", len(reg))
         k[1].metric("Registrados", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
-        k[2].metric("Celdas actualizadas", res["escritos"])
-        escritos_datos = res.get("datos_escritos", 0)
-        k[3].metric("Datos llenados" if escritos_datos else "Datos faltantes", escritos_datos or len(datos),
+        k[2].metric("Celdas actualizadas" if aplicado else "Celdas por actualizar",
+                    res["escritos"] if aplicado else len(cambian),
+                    help="Registrado / No Registrado. Nunca baja un «Registrado» a «No Registrado».")
+        k[3].metric("Datos llenados" if aplicado else "Datos faltantes", escritos_datos if aplicado else len(datos),
                     help="Celdas vacías que se llenan con Sale-U o la bitácora (si ambas lo traen, manda la bitácora).")
-        if res["escritos"]:
-            st.success(f"Registro en Sale-U actualizado en {res['escritos']} fila(s).")
-        elif len(cambian):
-            st.warning(f"{len(cambian)} fila(s) cambiarían; la escritura estaba apagada.")
+        if aplicado:
+            st.success(f"Listo: {res['escritos']} registro(s) en Sale-U y {escritos_datos} dato(s) escritos en el Sheet.")
+        elif len(cambian) or len(datos):
+            n_cambios = len(cambian) + len(datos)
+            st.info("Revisa el detalle de abajo y aplica los cambios en el Sheet.", icon=":material/visibility:")
+            if st.button(f"Aplicar {n_cambios} cambio(s) en el Sheet", type="primary", key="btn_aplicar_su"):
+                with st.spinner("Escribiendo…"):
+                    try:
+                        res["escritos"] = saleu_sheet.aplicar(base, reg, res["periodo_saleu"])
+                        res["datos_escritos"] = saleu_sheet.aplicar_datos(base, datos.to_dict("records"))
+                        res["aplicado"] = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo aplicar: {e}")
+        else:
+            st.success("El Sheet ya está al día con este reporte.")
         if len(datos):
-            with st.expander(f"Datos {'llenados' if escritos_datos else 'por llenar'} ({len(datos)})"):
+            with st.expander(f"Datos {'llenados' if aplicado else 'por llenar'} ({len(datos)})"):
                 tabla(datos.assign(Hoja=datos["Hoja"].map(lambda h: "Finalizados" if "Finalizados" in h else "Rechazos"),
                                    Después=datos["Después"].astype(str)),
                       ["Hoja", "Fila", "Cliente", "Campo", "Después", "Motivo"])
@@ -324,7 +334,7 @@ with tab_su:
                     "confírmalos en Sale-U.", icon=":material/fact_check:")
             tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
                   ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"])
-        with st.expander(f"Detalle ({len(cambian)} cambio(s) de {len(reg)})"):
+        with st.expander(f"Detalle del registro ({len(cambian)} cambio(s) de {len(reg)})"):
             tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
                   ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",
                    "Financiera_SaleU"])
