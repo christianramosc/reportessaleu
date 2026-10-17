@@ -12,7 +12,8 @@ App de Streamlit con una página por herramienta:
      cumplieron 180 días, contacto efectivo, registrados en Sale-U, seguimientos vencidos y pendientes en
      Revision), dos gráficas y las listas de vencidos, por vencer y pendientes. Abajo, **Faltan en Sale-U**:
      Aprobados y Rechazados sin registro según el Sheet (Rechazos con «No Registrado»; Aprobados de la
-     *Bitacora* con Sale-U = NO según F&I; los que F&I no marca salen como «por confirmar») y el botón
+     *Bitacora* con «No Registrado», que marca el cuadre de Sale-U igual que a los rechazos; los que aún no tienen
+     dato salen como «por confirmar») y el botón
      *Generar PDF* con el reporte para los asesores (portada con cifras y gráficas, detalle por asesor).
      Un cliente que aparece registrado en cualquiera de las dos fuentes no se lista.
    Los cuadres leen la **bitácora** (pestaña *Bitacora* del Sheet: capturas de Cetelem + Bitácora de F&I,

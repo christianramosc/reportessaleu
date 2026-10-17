@@ -539,8 +539,8 @@ def pdf(faltan, por_confirmar=None, hoy=None):
                _tabla_clientes(por_confirmar, color_estatus=False), Spacer(1, 14)]
     el += [CondPageBreak(70), Aviso("info", "Cómo se armó.",
                                     "Rechazados: «MG Colima Rechazos» con Registro en Sale-U = No Registrado (lo marca el "
-                                    "cuadre de Sale-U). Aprobados: Bitacora con estatus final Aprobado y Sale-U = NO según "
-                                    "F&I. Si un cliente aparece registrado en cualquiera de las dos, no se lista; cada "
+                                    "cuadre de Sale-U). Aprobados: Bitacora con estatus final Aprobado y Registro en Sale-U = No "
+                                    "Registrado (lo marca el cuadre de Sale-U; si no, lo que dice F&I). Si un cliente aparece registrado en cualquiera de las dos, no se lista; cada "
                                     "cliente sale una vez con su estatus más reciente.", TINTA_3)]
     doc.build(el)
     return buf.getvalue()

@@ -166,6 +166,7 @@ except Exception as e:
 
 tab_res, tab_su, tab_bs = st.tabs(["📊 Resumen", "🟦 Sale-U", "🔧 BlueService"])
 
+HOJA_CORTA = lambda h: "Bitacora (aprobado)" if h == "Bitacora" else "Rechazos"
 AGREGAR_MES = "Para agregar un mes: **Base de seguimiento → Actualizar**."
 AYUDA_CAPTURAS = "Las pide el F&I. Un Excel por mes (ej. JULIO_2026_FINAL.xlsx); puedes subir varios."
 
@@ -269,7 +270,7 @@ with tab_res:
         st.divider()
         st.markdown("#### :material/person_add: Faltan en Sale-U")
         st.caption("Aprobados y Rechazados sin registro, según el Sheet: Rechazos con «No Registrado» y Aprobados "
-                   "de la Bitacora con Sale-U = NO (F&I).")
+                   "de la Bitacora con «No Registrado» (los marca el cuadre de Sale-U).")
         try:
             faltan, confirmar = resumen.faltantes_saleu(base)
         except Exception as e:
@@ -345,7 +346,7 @@ with tab_su:
         aplicado = res.get("aplicado", False)
         escritos_datos = res.get("datos_escritos", 0)
         k = st.columns(4)
-        k[0].metric("Rechazos revisados", len(reg))
+        k[0].metric("Revisados", len(reg), help="Rechazos de MG Colima Rechazos y Aprobados de la Bitacora del periodo.")
         k[1].metric("Registrados", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
         k[2].metric("Celdas actualizadas" if aplicado else "Celdas por actualizar",
                     res["escritos"] if aplicado else len(cambian),
@@ -377,11 +378,13 @@ with tab_su:
         if len(rev):
             st.info(f"**{len(rev)} marcado(s) como Registrado no salen en este reporte.** Se dejaron igual; "
                     "confírmalos en Sale-U.", icon=":material/fact_check:")
-            tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
-                  ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"])
+            tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""),
+                             Hoja=rev["Hoja"].map(HOJA_CORTA)),
+                  ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después"])
         with st.expander(f"Detalle del registro ({len(cambian)} cambio(s) de {len(reg)})"):
-            tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else "")),
-                  ["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",
+            tabla(reg.assign(Fecha_ingreso=reg["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""),
+                             Hoja=reg["Hoja"].map(HOJA_CORTA)),
+                  ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Como", "Cliente_SaleU", "Estatus_SaleU",
                    "Financiera_SaleU"])
         if isinstance(base, conexion.BaseExcel):
             st.info("Modo Excel: descarga el archivo en **Base de seguimiento**.")

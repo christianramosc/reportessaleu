@@ -285,19 +285,48 @@ def _registro_de_rechazos(base):
     return out
 
 
-def _registro_saleu(fila, registro):
+def _llave_bitacora(fila):
+    folio = to_folio(fila[BITACORA_COLS.index("Folio")])
+    if folio:
+        return str(folio)
+    fecha = to_date(fila[0])
+    return f"{name_key(fila[BITACORA_COLS.index('Cliente')])}|{fecha or ''}"
+
+
+def _registro_previo(base):
+    """{solicitud: Registro en Sale-U} de la Bitacora actual (lo que marcó el cuadre de Sale-U a los Aprobados),
+    para no perderlo cuando la Bitacora se rehace."""
+    if TAB_BITACORA not in base.pestanas():
+        return {}
+    df = base.leer(TAB_BITACORA)
+    if df.empty or COL_SALEU_BITACORA not in df.columns:
+        return {}
+    out = {}
+    for _, r in df.iterrows():
+        v = {"REGISTRADO": "Registrado", "NO REGISTRADO": "No Registrado"}.get(norm(r[COL_SALEU_BITACORA]))
+        if v:
+            out[_llave_bitacora([r.get(c) for c in BITACORA_COLS])] = v
+    return out
+
+
+def _registro_saleu(fila, registro, previo=None):
     """Registrado / No Registrado para Aprobados y Rechazados; «No aplica» para los demás estatus.
-    Rechazados ligados a Rechazos: lo que dice esa pestaña; si no, lo que dice F&I (SI / NO)."""
+    Rechazados ligados a Rechazos: lo que dice esa pestaña. Aprobados: lo que dejó el cuadre de Sale-U en la Bitacora
+    (un «Registrado» de F&I manda). Si no hay nada de eso, lo que dice F&I (SI / NO)."""
     est = norm(fila[COL_ESTATUS_FIN])
     if not (est.startswith("APROBAD") or est.startswith("RECHAZAD")):
         return NO_APLICA
+    fi = {"SI": "Registrado", "NO": "No Registrado"}.get(norm(fila[COL_SALEU]))
+    antes = (previo or {}).get(_llave_bitacora(fila))
+    if est.startswith("APROBAD") and antes:
+        return "Registrado" if fi == "Registrado" else antes
     for liga in str(fila[COL_LIGA] or "").split(","):
         liga = liga.strip().upper()
         if liga.endswith(".0"):
             liga = liga[:-2]
         if liga in registro:
             return registro[liga]
-    return {"SI": "Registrado", "NO": "No Registrado"}.get(norm(fila[COL_SALEU]), None)
+    return fi or antes
 
 
 def estilo_bitacora(base):
@@ -328,11 +357,11 @@ def filas_bitacora_completa(base, solicitudes, fila_de_sol, id_de_fila=None):
     id_de_fila = id_de_fila or {}
     ids_de_sol = {k: [id_de_fila.get(f, f) for f in filas] for k, filas in fila_de_sol.items()}
     filas = filas_bitacora(solicitudes, ids_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
-    registro = _registro_de_rechazos(base)
+    registro, previo = _registro_de_rechazos(base), _registro_previo(base)
     for f in filas:
         if f[COL_VENDEDOR] and catalogo:
             f[COL_VENDEDOR] = _asesor(f[COL_VENDEDOR], catalogo)
-        f[COL_SALEU] = _registro_saleu(f, registro)
+        f[COL_SALEU] = _registro_saleu(f, registro, previo)
     filas.sort(key=lambda f: (f[0] is None or f[0] == "", f[0] or dt.date.max))
     return filas
 
