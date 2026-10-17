@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Registro en Sale-U → columna "Registro en Sale-U" de MG Colima Rechazos (antes «Cliente con Registro en SalesU»).
+Registro en Sale-U → columna "Registro en Sale-U" de MG Colima Rechazos (antes «Cliente con Registro en SalesU»)
+y de los Aprobados de la pestaña Bitacora (mismo criterio).
 
 Con el reporte de Sale-U (reporteLeadsconCredito) se revisa cada rechazo de la base cuya fecha
 de ingreso cae dentro del periodo del reporte:
@@ -105,8 +106,32 @@ def periodo(su):
     return fechas.min().date(), fechas.max().date()
 
 
+def _aprobados_bitacora(base):
+    """Aprobados de la pestaña Bitacora con la forma de leer_rechazos() (hoja, fila, fecha, nombre, cel, saleu):
+    su Registro en Sale-U se cuadra con el reporte igual que el de los rechazos."""
+    from cuadres.base import TAB_BITACORA
+    from cuadres.fuentes import COL_SALEU_BITACORA, to_date, to_phone
+    if TAB_BITACORA not in base.pestanas():
+        return []
+    df = base.leer(TAB_BITACORA)
+    col = lambda n: next((c for c in df.columns if norm(c) == norm(n)), None)
+    c_est, c_nom, c_tel, c_fec, c_su = (col("Estatus final"), col("Cliente"), col("Teléfono"), col("Fecha"),
+                                        col(COL_SALEU_BITACORA))
+    if not (c_est and c_nom and c_su):
+        return []                      # Bitacora con el formato anterior (sin «Registro en Sale-U»)
+    out = []
+    for _, r in df.iterrows():
+        if not norm(r[c_est]).startswith("APROBAD") or not r[c_nom]:
+            continue
+        out.append(dict(hoja=TAB_BITACORA, fila=int(r["_fila"]), fecha=to_date(r[c_fec]) if c_fec else None,
+                        nombre=" ".join(str(r[c_nom]).split()), cel=to_phone(r[c_tel]) if c_tel else None,
+                        saleu=r[c_su]))
+    return out
+
+
 def proponer(base, su, ini=None, fin=None):
-    """su: DataFrame de cu.leer_saleu(). Devuelve DataFrame con lo que se escribiría."""
+    """su: DataFrame de cu.leer_saleu(). Devuelve DataFrame con lo que se escribiría: los rechazos de MG Colima
+    Rechazos y los Aprobados de la Bitacora (columna Hoja) cuya fecha cae en el periodo del reporte."""
     p_ini, p_fin = periodo(su)
     ini, fin = ini or p_ini, fin or p_fin
     if not ini:
@@ -116,7 +141,7 @@ def proponer(base, su, ini=None, fin=None):
         if s["Tel_norm"]:
             por_tel.setdefault(s["Tel_norm"], []).append(s)
     filas = []
-    for row in leer_rechazos(base):
+    for row in leer_rechazos(base) + _aprobados_bitacora(base):
         if not row["fecha"] or not (ini <= row["fecha"] <= fin):
             continue
         nom = cu.normalizar_nombre(row["nombre"])
@@ -146,12 +171,12 @@ def proponer(base, su, ini=None, fin=None):
         else:
             nuevo = NO_REGISTRADO
         filas.append(dict(
-            Fila=row["fila"], Cliente=row["nombre"], Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo,
+            Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"], Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo,
             Cambia=actual != nuevo, Como=como, Revisar=revisar,
             Cliente_SaleU=hallado["Nombre"] if hallado is not None else "",
             Estatus_SaleU=hallado["Estatus_SaleU"] if hallado is not None else "",
             Financiera_SaleU=hallado["Financiera"] if hallado is not None else ""))
-    df = pd.DataFrame(filas, columns=["Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como",
+    df = pd.DataFrame(filas, columns=["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como",
                                       "Revisar", "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU"])
     return df, (ini, fin)
 
@@ -192,17 +217,26 @@ def aplicar_datos(base, datos):
 
 def aplicar(base, cambios, periodo_txt):
     """Escribe solo las filas cuyo valor cambia y las anota en el Historial."""
+    from cuadres.base import TAB_BITACORA
+    from cuadres.fuentes import COL_SALEU_BITACORA
     cambios = cambios[cambios["Cambia"]]
     if cambios.empty:
         return 0
-    col = base.col(TAB_RECHAZOS, C["saleu"])
-    if not col:
-        raise ValueError(f"No encuentro la columna '{C['saleu']}' en '{TAB_RECHAZOS}'.")
-    base.respaldar(TAB_RECHAZOS)
-    base.escribir(TAB_RECHAZOS, [(int(r["Fila"]), col, r["Después"]) for _, r in cambios.iterrows()])
+    if "Hoja" not in cambios.columns:
+        cambios = cambios.assign(Hoja=TAB_RECHAZOS)
+    nombre_col = {TAB_RECHAZOS: C["saleu"], TAB_BITACORA: COL_SALEU_BITACORA}
+    cols = {}
+    for hoja, g in cambios.groupby("Hoja"):
+        col = base.col(hoja, nombre_col[hoja])
+        if not col:
+            raise ValueError(f"No encuentro la columna '{nombre_col[hoja]}' en '{hoja}'.")
+        cols[hoja] = col
+        if hoja == TAB_RECHAZOS:
+            base.respaldar(hoja)        # la Bitacora se rehace sola con las bitácoras: no necesita respaldo
+        base.escribir(hoja, [(int(r["Fila"]), col, r["Después"]) for _, r in g.iterrows()])
     base.anotar_historial([dict(
-        Origen="App · cuadre Sale-U", Hoja=TAB_RECHAZOS, Celda=f"{letra(col)}{int(r['Fila'])}", Cliente=r["Cliente"],
-        Campo=C["saleu"], Antes=r["Antes"], Después=r["Después"],
+        Origen="App · cuadre Sale-U", Hoja=r["Hoja"], Celda=f"{letra(cols[r['Hoja']])}{int(r['Fila'])}",
+        Cliente=r["Cliente"], Campo=nombre_col[r["Hoja"]], Antes=r["Antes"], Después=r["Después"],
         Motivo=(f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
                 if r["Revisar"] else
                 f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})" if r["Después"] == REGISTRADO
@@ -227,6 +261,7 @@ def bajas_por_error(base):
         return pd.DataFrame(columns=cols)
     origen = todo["Origen"].astype(str)
     h = todo[(origen == "App · cuadre Sale-U") & (todo["Después"].astype(str) == NO_REGISTRADO)
+             & (todo["Hoja"].astype(str) == TAB_RECHAZOS)
              & todo["Antes"].map(ya_registrado)]
     if h.empty:
         return pd.DataFrame(columns=cols)
