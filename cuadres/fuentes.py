@@ -382,11 +382,12 @@ def consolidar(registros):
     return out
 
 
+COL_SALEU_BITACORA = "Registro en Sale-U"          # antes «Sale-U» (SI/NO de F&I)
 COL_ID_RECHAZOS = "ID en 'MG Colima Rechazos'"      # antes «Fila en 'MG Colima Rechazos'» (el número de fila)
 COL_FILA_VIEJA = "Fila en 'MG Colima Rechazos'"
 BITACORA_COLS = ["Fecha", "Folio", "Cliente", "Teléfono", "Correo", "Vendedor", "Unidad", "Año", "Banco solicitud",
                  "Estatus solicitud", "Canal 2", "Estatus final", "Financiera final", "Plazo", "Mensualidad",
-                 "Monto a financiar", "Sale-U", "Comentarios F&I", "Comentarios asesor", "# Factura", "VIN",
+                 "Monto a financiar", COL_SALEU_BITACORA, "Comentarios F&I", "Comentarios asesor", "# Factura", "VIN",
                  COL_ID_RECHAZOS, "Fuente en la bitácora"]
 
 

@@ -182,7 +182,8 @@ def registros_de_bitacora(df, asesor=None):
             fin=banco if norm(banco) not in ("", "OTROS") else g(r, "Canal 2"), folio=g(r, "Folio"),
             correo=g(r, "Correo"), plazo=g(r, "Plazo"), mens=g(r, "Mensualidad"), unidad=g(r, "Unidad"),
             asesor=asesor(ven) if asesor and not vacio(ven) else ven,
-            saleu={"SI": "Registrado", "NO": "No Registrado"}.get(norm(g(r, "Sale-U"))),
+            saleu={"SI": "Registrado", "NO": "No Registrado", "REGISTRADO": "Registrado",
+                   "NO REGISTRADO": "No Registrado"}.get(norm(g(r, "Registro en Sale-U") or g(r, "Sale-U"))),
             origen=f"la bitácora ({str(g(r, 'Fuente en la bitácora') or '').split(',')[0]})"))
     return out
 

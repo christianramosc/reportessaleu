@@ -86,7 +86,7 @@ def bitacora_guardada(base, con_sheet=True):
 
 def clientes_saleu(base):
     """Para el cuadre de Sale-U, todos los créditos de todas las financieras y estatus: la Bitacora, las solicitudes
-    formalizadas (la Bitacora no las guarda; salen de las capturas de Cetelem y la copia de la Bitácora de F&I) y
+    formalizadas (se toman de las capturas de Cetelem y la copia de la Bitácora de F&I, sin repetir las de la Bitacora) y
     «MG Colima Rechazos» y «MG Colima Créditos Finalizados» leídos al momento. Un rechazo que la Bitacora ya trae
     ligado a su fila no se repite."""
     import re

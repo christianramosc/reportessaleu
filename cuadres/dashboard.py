@@ -13,9 +13,9 @@ El año de B2 se conserva al reconstruir.
 """
 import datetime as dt
 
-from cuadres.base import TAB_RECHAZOS, TAB_BITACORA, BaseGoogle, letra, norm
+from cuadres.base import TAB_RECHAZOS, TAB_BITACORA, TAB_CAPTURAS, BaseGoogle, letra, norm
 from cuadres.actualizar import C, FUENTE_SHEET, _catalogo_asesores, _asesor, es_valor_catalogo
-from cuadres.fuentes import BITACORA_COLS, ETIQUETA_MES
+from cuadres.fuentes import BITACORA_COLS, ETIQUETA_MES, CAP_COLS, CAP_EXTRA
 
 TAB_RESUMEN = "Resumen"
 TAB_REVISION = "Revision"
@@ -219,8 +219,8 @@ def contenido(base):
     T5 = T6 = None
     f = T4["fin"] + 4
     if hay_bit:
-        h.pon(f - 1, 1, "Bitácora por mes: capturas de Cetelem y Bitácora de F&I (todas las financieras, sin "
-                        "formalizados)", "subseccion")
+        h.pon(f - 1, 1, "Bitácora por mes: capturas de Cetelem y Bitácora de F&I (todas las financieras y "
+                        "estatus)", "subseccion")
         h.une(f - 1, 1, f - 1, NCOLS)
         filas_bit = []
         de_bitacoras = f'{B["fuente"]},"<>{FUENTE_SHEET[0]}*"'      # sin los rechazos copiados del Sheet
@@ -228,19 +228,26 @@ def contenido(base):
             fila, cond = f + m, _entre(B["fecha"], m) + "," + de_bitacoras
             est = lambda e: f'COUNTIFS({cond},{B["estatus"]},"{e}")'
             filas_bit.append([MESES[m - 1], f"=COUNTIFS({cond})", "=" + est("Rechazado"), "=" + est("Aprobado"),
-                              "=" + est("Contrapropuesta"), "=" + est("Análisis"),
+                              "=" + est("Contrapropuesta"), "=" + est("Análisis"), "=" + est("Formalizado"),
                               f'=IF(B{fila}=0,"",C{fila}/B{fila})'])
         t = f + 13
-        filas_bit.append(["Total"] + [f"=SUM({c}{f + 1}:{c}{f + 12})" for c in "BCDEF"]
+        filas_bit.append(["Total"] + [f"=SUM({c}{f + 1}:{c}{f + 12})" for c in "BCDEFG"]
                          + [f'=IF(B{t}=0,"",C{t}/B{t})'])
-        h.tabla(f, ["Mes", "Solicitudes", "Rechazadas", "Aprobadas", "Contrapropuesta", "En análisis", "% rechazo"],
-                filas_bit, {7: "pct"}, total=True)
+        h.tabla(f, ["Mes", "Solicitudes", "Rechazadas", "Aprobadas", "Contrapropuesta", "En análisis", "Formalizadas",
+                    "% rechazo"], filas_bit, {8: "pct"}, total=True)
         T5 = dict(enc=f, ini=f + 1, fin=f + 12, tot=t)
 
         f = t + 4
         h.pon(f - 1, 1, "Cuadre contra las capturas de Cetelem (rechazos con folio)", "subseccion")
         h.une(f - 1, 1, f - 1, NCOLS)
         filas_cc = []
+        if TAB_CAPTURAS in pestanas:
+            # un mes cuenta como «con capturas» si se subió la captura de Cetelem de ese mes (columna Hoja), no
+            # porque haya solicitudes con esa fecha (la captura de junio trae solicitudes de mayo)
+            hoja_cap = _rng(TAB_CAPTURAS, letra((CAP_COLS + CAP_EXTRA).index("Hoja") + 1))
+            sin_captura = lambda m: f'COUNTIF({hoja_cap},"{ETIQUETA_MES[m]} "&$B$2)=0'
+        else:
+            sin_captura = lambda m: f'COUNTIFS({_entre(B["fecha"], m)},{B["fuente"]},"*CETELEM*")=0'
         for m in range(1, 13):
             fila = f + m
             cond_b = _entre(B["fecha"], m)
@@ -250,7 +257,7 @@ def contenido(base):
                 f'=COUNTIFS({cond_b},{B["estatus"]},"Rechazado",{B["banco"]},"CETELEM",{B["folio"]},"<>",'
                 f'{B["fuente"]},"*CETELEM*")',
                 f'=COUNTIFS({cond_r},{R("fin")},"CETELEM",{folio},"<>")' if L["fin"] and L["folio"] else 0,
-                f'=IF(COUNTIFS({cond_b},{B["fuente"]},"*CETELEM*")=0,"sin capturas",C{fila}-B{fila})'])
+                f'=IF({sin_captura(m)},"sin capturas",C{fila}-B{fila})'])
             h.alertas.append((fila, 4, "num<>0"))      # «sin capturas» no es diferencia
         h.tabla(f, ["Mes", "Rechazados en Cetelem", "En 'MG Colima Rechazos'", "Diferencia"], filas_cc)
         T6 = dict(enc=f, ini=f + 1, fin=f + 12)
@@ -305,12 +312,12 @@ def contenido(base):
         f'{pend_c(5)}&" pendientes en Revision y "&{pend_c(3)}&" registros sin correo."',
     ]
     if T5:
-        bt, pc, bm = T5["tot"], f"$G${T5['ini']}:$G${T5['fin']}", f"$A${T5['ini']}:$A${T5['fin']}"
+        bt, pc, bm = T5["tot"], f"$H${T5['ini']}:$H${T5['fin']}", f"$A${T5['ini']}:$A${T5['fin']}"
         lectura.append(
             f'=IF(B{bt}=0,"La bitácora no tiene solicitudes en "&$B$2&".","En la bitácora hay "&B{bt}&'
-            f'" solicitudes (sin formalizados): "&TEXT(C{bt}/B{bt},"0%")&" rechazadas, "&TEXT((D{bt}+E{bt})/B{bt},"0%")&'
-            f'" aprobadas o en contrapropuesta. El mes con mayor tasa de rechazo fue "&INDEX({bm},MATCH(MAX({pc}),'
-            f'{pc},0))&" ("&TEXT(MAX({pc}),"0%")&").")')
+            f'" solicitudes: "&TEXT(C{bt}/B{bt},"0%")&" rechazadas, "&TEXT(G{bt}/B{bt},"0%")&" formalizadas y "&'
+            f'TEXT((D{bt}+E{bt})/B{bt},"0%")&" aprobadas o en contrapropuesta. El mes con mayor tasa de rechazo fue "&'
+            f'INDEX({bm},MATCH(MAX({pc}),{pc},0))&" ("&TEXT(MAX({pc}),"0%")&").")')
     if T6:
         dif = f"$D${T6['ini']}:$D${T6['fin']}"
         absd = f'(SUMIF({dif},">0")-SUMIF({dif},"<0"))'             # suma de diferencias (ignora "sin capturas")
@@ -347,9 +354,9 @@ def contenido(base):
         h.graficas += [
             dict(titulo="Bitácora: solicitudes por estatus y mes", tipo="columna", apilada=True, dominio=t5("A"),
                  series=[(t5("C"), ESTADO["critico"]), (t5("E"), ESTADO["aviso"]), (t5("D"), ESTADO["bien"]),
-                         (t5("F"), ESTADO["neutro"])], eje="Solicitudes"),
+                         (t5("G"), SECUENCIA[2]), (t5("F"), ESTADO["neutro"])], eje="Solicitudes"),
             dict(titulo="Bitácora: % de solicitudes rechazadas por mes", tipo="linea", dominio=t5("A"),
-                 series=[(t5("G"), SERIE[0])], eje="% rechazo", pct=True),
+                 series=[(t5("H"), SERIE[0])], eje="% rechazo", pct=True),
         ]
     for i, gr in enumerate(h.graficas):
         gr["ancla"] = (g + (i // 2) * ALTO_FILAS, 1 if i % 2 == 0 else 7)
