@@ -267,7 +267,8 @@ with tab_su:
         if not bit.empty:
             c2.success(f"Contra la bitácora completa: {conexion.describir_creditos(bit)}",
                        icon=":material/cloud_done:")
-            c2.caption("Todas las financieras y estatus del periodo del reporte, más los Finalizados. " + AGREGAR_MES)
+            c2.caption("Todas las financieras y estatus del periodo del reporte, más los Finalizados (por fecha de entrega; "
+                       "los que no la tienen entran todos). " + AGREGAR_MES)
         else:
             c2.warning("No hay créditos en la bitácora ni en Rechazos / Finalizados.",
                        icon=":material/warning:")

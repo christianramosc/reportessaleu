@@ -42,6 +42,21 @@ with tab_dash:
             except Exception as e:
                 st.error(f"No se pudo hacer el dashboard: {e}")
 
+    st.divider()
+    st.markdown("**Formato del Sheet**")
+    if st.session_state.get("msg_fmt"):
+        st.success("Listo:\n" + "\n".join(f"- {m}" for m in st.session_state.pop("msg_fmt")) + aviso_excel())
+    st.caption("Agrega **Reingreso** e **ID** en Rechazos y **FECHA DE ENTREGA** en Finalizados, y ajusta CONTESTA, "
+               "fechas y Revision. Guarda respaldo antes; si ya está aplicado, no duplica nada.")
+    if st.button("Aplicar formato", key="btn_formato", icon=":material/format_paint:"):
+        with st.spinner("Ajustando el Sheet…"):
+            try:
+                from cuadres import formato_sheet
+                st.session_state["msg_fmt"] = formato_sheet.aplicar(base)
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo aplicar el formato: {e}")
+
 with tab_act:
     if st.session_state.get("msg_act"):
         st.success(st.session_state.pop("msg_act"))
@@ -142,8 +157,8 @@ with tab_act:
 with tab_pend:
     if st.session_state.get("msg_pend"):
         st.success(st.session_state.pop("msg_pend"))
-    st.markdown("Los pendientes de **Revision** que ya tienen el dato (o que marcaste a mano) pasan a *Corregido* "
-                "y se les quita el morado y la nota.")
+    st.markdown("Los pendientes de **Revision** que ya tienen el dato (o que marcaste a mano) se dan por resueltos, "
+                "se les quita el morado y la nota, y pasan a «Revision resueltos».")
     if st.button("Revisar pendientes", type="primary", key="btn_rev_pend"):
         with st.spinner("Revisando…"):
             try:
@@ -177,7 +192,8 @@ with tab_pend:
                         hechos = pendientes.aplicar(base, pend)
                         st.session_state.pop("pend", None)
                         st.session_state["msg_pend"] = (
-                            f"Listo: {hechos} pendiente(s) limpiado(s)." + aviso_excel())
+                            f"Listo: {hechos} pendiente(s) limpiado(s); los resueltos pasaron a «Revision resueltos»."
+                            + aviso_excel())
                         st.rerun()
                     except Exception as e:
                         st.error(f"No se pudo limpiar: {e}")

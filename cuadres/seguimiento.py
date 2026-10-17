@@ -220,7 +220,7 @@ def leer_seguimiento(ruta, anio_ref):
         c_ase = buscar_col(d.columns, "ASESOR DE VENTAS", "ASESOR ASIGNADO", "ASESOR")
         c_est = buscar_col(d.columns, "STATUS", "ESTATUS")
         c_fec = buscar_col(d.columns, "FECHA INGRESO")
-        c_su = buscar_col(d.columns, "CLIENTE CON REGISTRO EN SALES")
+        c_su = buscar_col(d.columns, "REGISTRO EN SALE", "CLIENTE CON REGISTRO EN SALES")
         val = lambda col: d[col] if col else pd.Series([""] * len(d))
         sub = pd.DataFrame({
             "Hoja": h, "Fila_excel": d.index + 2,

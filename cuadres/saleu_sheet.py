@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Registro en Sale-U → columna "Cliente con Registro en SalesU" de MG Colima Rechazos.
+Registro en Sale-U → columna "Registro en Sale-U" de MG Colima Rechazos (antes «Cliente con Registro en SalesU»).
 
 Con el reporte de Sale-U (reporteLeadsconCredito) se revisa cada rechazo de la base cuya fecha
 de ingreso cae dentro del periodo del reporte:
@@ -21,7 +21,7 @@ import re
 import pandas as pd
 
 from cuadres import saleu as cu
-from cuadres.base import TAB_RECHAZOS, TAB_HISTORIAL, letra, norm
+from cuadres.base import TAB_RECHAZOS, TAB_HISTORIAL, letra, norm, canonico
 from cuadres.actualizar import leer_rechazos, C
 
 REGISTRADO, NO_REGISTRADO = "Registrado", "No Registrado"
@@ -37,20 +37,22 @@ def ya_registrado(valor):
 # El Sheet (MG Colima Rechazos + Créditos Finalizados) como base del cuadre de Sale-U
 # =============================================================================
 ESTATUS_FINALIZADO = "FINALIZADO"
+COL_FECHA_ENTREGA = "FECHA DE ENTREGA"     # en Créditos Finalizados; con fecha, entra al cuadre solo en su periodo
 
 
 def solicitudes_del_sheet(base):
     """Clientes de «MG Colima Rechazos» (todas las financieras) y «MG Colima Créditos Finalizados» con la forma de
-    fuentes.solicitudes_de_bitacora(), para cuadrarlos contra Sale-U. Los de Finalizados no traen fecha ni
-    financiera: entran siempre al cuadre (columna _siempre), sin importar el periodo del reporte."""
+    fuentes.solicitudes_de_bitacora(), para cuadrarlos contra Sale-U. Los de Finalizados entran por su FECHA DE
+    ENTREGA; los que no la tienen entran siempre al cuadre (columna _siempre), sin importar el periodo."""
     from cuadres.fuentes import (solicitudes_de_bitacora, to_folio, to_phone, to_num, to_date, txt, mail, vacio,
                                  ETIQUETA_MES)
     from cuadres.base import TAB_FINALIZADOS
-    cols = list(solicitudes_de_bitacora(None).columns) + ["Hoja", "Fila", "_siempre"]
+    from cuadres.ids import COL_ID
+    cols = list(solicitudes_de_bitacora(None).columns) + ["Hoja", "Fila", "ID", "_siempre"]
     filas = []
 
     def fila(hoja, n, nombre, tel, fecha=None, folio=None, vendedor=None, unidad=None, fin=None, estatus="",
-             plazo=None, mens=None, correo=None, siempre=False):
+             plazo=None, mens=None, correo=None, siempre=False, id_=""):
         f = to_date(fecha)
         fin = (txt(fin) or "").upper() or "SIN FINANCIERA"
         tel, folio, plazo, mens = to_phone(tel), to_folio(folio), to_num(plazo), to_num(mens)
@@ -62,28 +64,32 @@ def solicitudes_del_sheet(base):
             _anio=f.year if f else 0, _mes=f.month if f else 0, Est_sol=estatus, Fin_sol=fin, Est_fin=estatus,
             Fin_fin=fin, Fuente=f"{hoja} fila {n}", Plazo=int(plazo) if plazo else None,
             Mensualidad=round(mens, 2) if mens else None, Correo=mail(correo) or "",
-            Hoja=hoja, Fila=n, _siempre=siempre))
+            Hoja=hoja, Fila=n, ID=str(id_ or "").strip(), _siempre=siempre))
 
     pestanas = set(base.pestanas())
     if TAB_RECHAZOS in pestanas:
         df = base.leer(TAB_RECHAZOS)
         col = {k: next((c for c in df.columns if norm(c) == norm(v)), None) for k, v in C.items()}
+        c_id = next((c for c in df.columns if norm(c) == norm(COL_ID)), None)
         for _, r in df.iterrows():
             g = lambda k: r[col[k]] if col[k] else None
             if vacio(g("nombre")) or not str(g("nombre")).strip():
                 continue
             fila("Rechazos", int(r["_fila"]), g("nombre"), g("cel"), g("fecha"), g("folio"), g("asesor"),
-                 g("unidad"), g("fin"), norm(g("status")) or "RECHAZADO", g("plazo"), g("mens"), g("correo"))
+                 g("unidad"), g("fin"), norm(g("status")) or "RECHAZADO", g("plazo"), g("mens"), g("correo"),
+                 id_=r[c_id] if c_id else "")
     if TAB_FINALIZADOS in pestanas:
         df = base.leer(TAB_FINALIZADOS)
         col = lambda n: next((c for c in df.columns if norm(c) == n), None)
         c_nom, c_tel, c_cor, c_ase = col("NOMBRE"), col("TELEFONO"), col("CORREO"), col("ASESOR")
+        c_fec = col(norm(COL_FECHA_ENTREGA))
         for _, r in df.iterrows() if c_nom else []:
             if vacio(r[c_nom]) or not str(r[c_nom]).strip():
                 continue
-            fila("Finalizados", int(r["_fila"]), r[c_nom], r[c_tel] if c_tel else None,
+            entrega = to_date(r[c_fec]) if c_fec else None
+            fila("Finalizados", int(r["_fila"]), r[c_nom], r[c_tel] if c_tel else None, fecha=entrega,
                  vendedor=r[c_ase] if c_ase else None, correo=r[c_cor] if c_cor else None,
-                 estatus=ESTATUS_FINALIZADO, siempre=True)
+                 estatus=ESTATUS_FINALIZADO, siempre=entrega is None)
     return pd.DataFrame(filas, columns=cols)
 
 
@@ -299,7 +305,7 @@ def por_telefono_dudosos(base):
         if actual is None:
             continue
         nombre_col = next((c for c in actual.index if norm(c) in ("NOMBRE DE CLIENTE", "NOMBRE")), None)
-        campo_col = next((c for c in actual.index if norm(c) == norm(r["Campo"])), None)
+        campo_col = next((c for c in actual.index if norm(c) == norm(canonico(r["Campo"] or ""))), None)
         if (not campo_col or str(actual[campo_col] if actual[campo_col] is not None else "") != str(r["Después"])
                 or (nombre_col and not similar(name_key(actual[nombre_col]), name_key(r["Cliente"])))):
             continue                                    # ya cambió o la fila se movió: no se toca

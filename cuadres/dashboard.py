@@ -34,8 +34,8 @@ FUENTE = "Calibri"
 MESES = [ETIQUETA_MES[m].capitalize() for m in range(1, 13)]
 LEYENDA = [("Pendiente: falta un dato (lee la nota de la celda)", "#D9D2E9"),
            ("Agregado desde la bitácora", "#CFE2F3"), ("Folio repetido", "#F9CB9C"),
-           ("Seguimiento vencido", "#F4CCCC"), ("Vence en ≤15 días / falta correo o Sale-U", "#FCE5CD"),
-           ("Seguimiento hecho / Registrado", "#D9EAD3")]
+           ("Seguimiento vencido", "#F4CCCC"), ("Vence en ≤15 días / falta correo, Sale-U o si contestó", "#FCE5CD"),
+           ("Seguimiento hecho / Registrado", "#D9EAD3"), ("Reingreso: el celular está en otra solicitud", "#FFF2CC")]
 
 
 # =============================================================================
@@ -254,19 +254,26 @@ def contenido(base):
             h.alertas.append((fila, 4, "num<>0"))      # «sin capturas» no es diferencia
         h.tabla(f, ["Mes", "Rechazados en Cetelem", "En 'MG Colima Rechazos'", "Diferencia"], filas_cc)
         T6 = dict(enc=f, ini=f + 1, fin=f + 12)
-        h.pon(T6["fin"] + 1, 1, "Si la diferencia no es 0, filtra la pestaña Bitacora por 'Fila en MG Colima "
+        h.pon(T6["fin"] + 1, 1, "Si la diferencia no es 0, filtra la pestaña Bitacora por 'ID en MG Colima "
                                 "Rechazos' vacía.", "nota"); h.une(T6["fin"] + 1, 1, T6["fin"] + 1, NCOLS)
 
     # ------------------------------------------------------------------ KPI (filas 4-6)
     tot = T1["tot"]
     pend_c = lambda i: f"D{T4['ini'] + i}"
+    # Seguimiento al día: de los rechazos del año que ya cumplieron 180 días, cuántos tienen 1er seguimiento
+    if L["fseg"] and L["hecho"]:
+        ya_toca = f'COUNTIFS({anio_cond},{R("fseg")},"<="&TODAY())'
+        al_dia = f'COUNTIFS({anio_cond},{R("fseg")},"<="&TODAY(),{R("hecho")},"<>")'
+    else:
+        ya_toca = al_dia = "0"
     kpis = [("Rechazos en el año", f"=B{tot}", None,
              f'="CETELEM "&C{tot}&" · BBVA "&D{tot}&" · otras "&E{tot}'),
-            ("Con 1er seguimiento", f'=IF(B{tot}=0,0,F{tot}/B{tot})', "pct", f'=F{tot}&" de "&B{tot}&" rechazos"'),
+            ("Seguimiento al día", f'=IF({ya_toca}=0,1,{al_dia}/{ya_toca})', "pct",
+             f'={al_dia}&" de "&{ya_toca}&" que ya cumplieron 180 días"'),
             ("Contacto efectivo", f'=IF(F{tot}=0,0,G{tot}/F{tot})', "pct", f'=G{tot}&" contestaron el 1er contacto"'),
             ("Registrados en Sale-U", f'=IF(B{tot}=0,0,I{tot}/B{tot})', "pct", f'=J{tot}&" sin registro"'),
             ("Seguimientos vencidos", f"={pend_c(0)}", None, f'={pend_c(1)}&" vencen en 15 días"'),
-            ("Pendientes en Revision", f"={pend_c(5)}", None, f'={pend_c(3)}&" registros sin correo"')]
+            ("Pendientes en Revision", f"={pend_c(5)}", None, '="por resolver en la pestaña Revision"')]
     for i, (titulo, valor, fmt, sub) in enumerate(kpis):
         c = 1 + 2 * i
         h.pon(4, c, titulo, "kpi_titulo"); h.une(4, c, 4, c + 1)
@@ -282,14 +289,16 @@ def contenido(base):
     lectura = [
         f'=IF(B{tot}=0,{sin},"En "&$B$2&" van "&B{tot}&" rechazos. El mes con más fue "&INDEX({meses},'
         f'MATCH(MAX({b_mes}),{b_mes},0))&" con "&MAX({b_mes})&" ("&TEXT(MAX({b_mes})/B{tot},"0%")&" del año).")',
-        f'=IF(B{tot}=0,"","Por financiera, "&INDEX({fn},MATCH(MAX({fv}),{fv},0))&" concentra "&'
-        f'TEXT(MAX({fv})/B{tot},"0%")&" de los rechazos ("&MAX({fv})&"); CETELEM "&TEXT(C{tot}/B{tot},"0%")&'
-        f'", BBVA "&TEXT(D{tot}/B{tot},"0%")&" y el resto "&TEXT(E{tot}/B{tot},"0%")&".")',
+        f'=IF(B{tot}=0,"","Por financiera: CETELEM "&TEXT(C{tot}/B{tot},"0%")&" ("&C{tot}&"), BBVA "&'
+        f'TEXT(D{tot}/B{tot},"0%")&" ("&D{tot}&") y otras "&TEXT(E{tot}/B{tot},"0%")&" ("&E{tot}&").")',
         f'=IF(B{tot}=0,"","El asesor con más rechazos es "&INDEX({an},MATCH(MAX({av}),{av},0))&" ("&'
         f'MAX({av})&", "&TEXT(MAX({av})/B{tot},"0%")&" del año).")',
-        f'=IF(B{tot}=0,"","Se dio primer seguimiento a "&F{tot}&" de "&B{tot}&" rechazos ("&'
-        f'TEXT(F{tot}/B{tot},"0%")&") y contestó "&TEXT(IF(F{tot}=0,0,G{tot}/F{tot}),"0%")&" de ellos"&'
-        f'IF(F{tot}<B{tot},"; faltan "&(B{tot}-F{tot})&" por contactar.","."))',
+        f'=IF(B{tot}=0,"",IF({ya_toca}=0,"Ningún rechazo de "&$B$2&" ha cumplido 180 días todavía.",'
+        f'"De los "&{ya_toca}&" rechazos que ya cumplieron 180 días, "&{al_dia}&" tienen primer seguimiento ("&'
+        f'TEXT({al_dia}/{ya_toca},"0%")&")"&IF({ya_toca}>{al_dia},"; faltan "&({ya_toca}-{al_dia})&'
+        f'" por contactar","")&".")&IF(B{tot}>{ya_toca}," Otros "&(B{tot}-{ya_toca})&'
+        f'" todavía no cumplen 180 días.","")&IF(F{tot}=0,""," Contestó el "&TEXT(G{tot}/F{tot},"0%")&'
+        f'" de los contactados."))',
         f'=IF(B{tot}=0,"","El "&TEXT(I{tot}/B{tot},"0%")&" de los rechazos está registrado en Sale-U"&'
         f'IF(J{tot}>0,"; faltan "&J{tot}&" por registrar.","."))',
         f'={pend_c(0)}&" seguimientos vencidos sin hacer y "&{pend_c(1)}&" vencen en los próximos 15 días. Hay "&'

@@ -10,13 +10,13 @@ App de Streamlit con una página por herramienta:
 3. **Cuadres para reportes**: cuadra la **bitácora** (pestaña *Bitacora* del Sheet: capturas de Cetelem +
    Bitácora de F&I, **todas las financieras**) y el inventario. Con el Google Sheet conectado, el seguimiento
    y la bitácora se leen de la base; para Sale-U solo subes el reporte, revisas los cambios y la app escribe
-   *Cliente con Registro en SalesU* en el Sheet al pulsar *Aplicar*:
+   *Registro en Sale-U* en el Sheet al pulsar *Aplicar*:
    - **Seguimiento de rechazos vs bitácora** (solo pestañas de COLIMA). Cuadra solo las solicitudes
      **rechazadas** de cualquier financiera; cruza por folio, teléfono y nombre.
    - **Sale-U vs bitácora**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Compara
      contra **todos los créditos de todas las financieras y estatus**: la pestaña *Bitacora* más lo que esté en
      *MG Colima Rechazos* y *MG Colima Créditos Finalizados* (leídos al momento). Entran los que caen en el periodo
-     del reporte; los Finalizados (sin fecha) entran todos. Cruza por teléfono y nombre y compara estatus y
+     del reporte; los Finalizados entran por su *FECHA DE ENTREGA* (los que no la tienen entran todos). Cruza por teléfono y nombre y compara estatus y
      financiera.
    - **BlueService vs Inventario** (`PDIs_MG_Colima.xlsx` vs Excel de inventario, hoja ALMACEN o la que
      elijas). Cruza por VIN, detecta VIN mal capturados con el dígito verificador y dice en qué otra hoja
@@ -40,7 +40,9 @@ cuadres/base.py                # leer/escribir el Sheet (Google o .xlsx), respal
 cuadres/fuentes.py             # bitácoras de Cetelem y Bitácora de F&I → solicitudes
 cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
-cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision
+cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision y archivarlos
+cuadres/ids.py                 # ID fijo y marca de reingreso en MG Colima Rechazos
+cuadres/formato_sheet.py       # ajustes de estructura y formato del Sheet (botón «Aplicar formato»)
 cuadres/dashboard.py           # dashboard de la pestaña Resumen (KPI, lectura, gráficas)
 cuadres/seguimiento.py         # cuadre vs Excel de seguimiento
 cuadres/saleu.py               # cuadre vs Sale-U
@@ -87,7 +89,7 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    **bitácora completa** (todas las financieras y estatus; ver abajo). Por eso conviene hacer antes el paso 1.
    Un cliente está en Sale-U si coincide el
    teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
-   criterio que usa la columna *Cliente con Registro en SalesU*. La hoja *Faltan en Sale-U* del Excel trae
+   criterio que usa la columna *Registro en Sale-U*. La hoja *Faltan en Sale-U* del Excel trae
    nombre, vendedor, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de
    alta. Además del Excel/PDF, propone marcar *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae
    en el periodo del reporte; revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
@@ -97,18 +99,34 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 4. **Base de seguimiento → Pendientes** → *Revisar pendientes* → *Limpiar*. Los pendientes de la pestaña
    *Revision* que ya tienen el dato capturado pasan a *Corregido* y se les quita el morado y la nota en la
    hoja. Si un pendiente no aplica o lo resolviste de otra forma, cámbialo a mano a *Corregido* o *No aplica*
-   en *Revision* y el botón le quita la marca.
+   en *Revision* y el botón le quita la marca. Los resueltos pasan a la pestaña *Revision resueltos*; en
+   *Revision* quedan solo los pendientes.
+
+**Formato del Sheet (una vez):** *Base de seguimiento → Dashboard → Aplicar formato*. Guarda respaldo y, si ya está
+aplicado, no duplica nada:
+- *MG Colima Rechazos*: al final, **Reingreso** («1 de 2», «2 de 2» cuando el celular está en otra solicitud, en
+  amarillo) e **ID** (R-0001…, no cambia aunque se ordene la hoja; la *Bitacora* y *Revision* guardan el ID en lugar
+  del número de fila). La app le pone ID a las filas nuevas o capturadas a mano cada vez que aplica bitácoras.
+- *CONTESTA 1/2/3*: opción «No responde» y color naranja cuando hay fecha de contacto pero no se capturó si contestó.
+- *Tipo de Subvención*, *Accesorios* y *Status 1* (siempre traen lo mismo) quedan agrupadas y contraídas (se abren
+  con el «+» de arriba).
+- *MG Colima Créditos Finalizados*: columna **FECHA DE ENTREGA**; con ella cada crédito entra al cuadre de Sale-U
+  solo en su periodo.
+- La columna de Sale-U se llama **Registro en Sale-U** en las dos pestañas (antes *Cliente con Registro en SalesU* y
+  *CLIENTE CON REGISTRO EN SALE-U*). La app lee los dos nombres.
+- Fechas de *Historial* y *Bitacora F&I* con formato de fecha.
 
 **La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras, **sin los formalizados**. Se
 rehace cada vez que aplicas en *Actualizar* con: las capturas de Cetelem (cada mes que subes reemplaza
 al mismo mes), la Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se
 conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas
-(columna *Fuente*: «MG Colima Rechazos fila N»). El vendedor se escribe con su nombre completo de *Catalogos*
+(columna *Fuente*: «MG Colima Rechazos R-0005»; la columna *ID en 'MG Colima Rechazos'* liga cada solicitud con su rechazo). El vendedor se escribe con su nombre completo de *Catalogos*
 («CARLA» → «CARLA YOVET CARDENAS AHUMADA») cuando corresponde a un solo asesor. Toda la pestaña queda con el mismo
 estilo (Calibri 9, encabezado gris), fechas dd/mm/aaaa y montos con $. El cuadre de *Seguimiento* usa solo lo que
 viene de las bitácoras; el de *Sale-U* sí cuenta los formalizados (los toma de las capturas y la copia de F&I).
 
-**La pestaña *Resumen*** es un dashboard: indicadores del año (rechazos, % con primer seguimiento, contacto
+**La pestaña *Resumen*** es un dashboard: indicadores del año (rechazos, seguimiento al día —de los que ya cumplieron
+180 días, cuántos tienen primer seguimiento—, contacto
 efectivo, % registrado en Sale-U, seguimientos vencidos, pendientes en Revision), una *Lectura del periodo* con frases
 que interpretan la situación, 8 gráficas (rechazos por mes y financiera, seguimiento, por financiera, por asesor,
 registro en Sale-U, pendientes, bitácora por estatus y % de rechazo) y, debajo, las tablas de donde salen. Todo son
