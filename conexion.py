@@ -11,6 +11,8 @@ Secrets (Streamlit Cloud → Settings → Secrets, o .streamlit/secrets.toml):
 Sin secrets la app funciona en "modo Excel": subes el .xlsx de seguimiento, la app lo
 actualiza y lo descargas al final.
 """
+import re
+
 import pandas as pd
 import streamlit as st
 
@@ -95,7 +97,8 @@ def clientes_saleu(base):
     ligadas = {int(float(n)) for v in bit["Fila_rechazos"] for n in re.findall(r"\d+(?:\.\d+)?", str(v))}
     sheet = sheet[~((sheet["Hoja"] == "Rechazos") & sheet["Fila"].isin(ligadas))]
     bit = bit.assign(Hoja="Bitacora", Fila=None, _siempre=False)
-    return pd.concat([bit, sheet], ignore_index=True) if not sheet.empty else bit
+    todo = pd.concat([bit, sheet], ignore_index=True) if not sheet.empty else bit
+    return _unificar_vendedores(base, todo)          # también los asesores que vienen del Sheet
 
 
 def _formalizados(base):
@@ -110,6 +113,8 @@ def _unificar_vendedores(base, sol):
     """F&I escribe al asesor por su primer nombre ("CARLA"); se usa el nombre completo de Catalogos."""
     from cuadres import actualizar
     catalogo = actualizar._catalogo_asesores(base)
+    limpio = lambda v: re.sub(r"[\s/,;.\-]+$", "", str(v or "").strip())        # «MIRIAM CRISTAL /»
+    sol["Vendedor"] = sol["Vendedor"].map(lambda v: "" if v == "(sin vendedor)" else limpio(v))
     if catalogo:
         sol["Vendedor"] = sol["Vendedor"].map(lambda v: actualizar._asesor(v, catalogo) or v)
     sol["Vendedor"] = sol["Vendedor"].map(lambda v: v.upper() if v else "(sin vendedor)")
