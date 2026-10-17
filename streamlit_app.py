@@ -60,7 +60,7 @@ ui.aplicar_estilo()
 paginas = [
     st.Page("paginas/kpis_capacitacion.py", title="KPIs de capacitación",
             icon=":material/school:", url_path="kpis", default=True),
-    st.Page("paginas/cuadres_reportes.py", title="Cuadres para reportes",
+    st.Page("paginas/cuadres_reportes.py", title="Resumen y cuadres",
             icon=":material/fact_check:", url_path="cuadres"),
     st.Page("paginas/base_seguimiento.py", title="Base de seguimiento",
             icon=":material/database:", url_path="base"),

@@ -44,6 +44,10 @@ div[data-testid="stMetric"] {{ background: #F5F7FB; border-left: 4px solid {kc.A
          color: {kc.TEXTO_2}; }}
 .vacio b {{ color: {kc.TEXTO}; font-size: 1.1rem; }}
 
+.kv {{ font-family: 'Archivo', sans-serif !important; font-size: 2.1rem !important; font-weight: 800 !important;
+       line-height: 1.1 !important; margin: 0 !important; }}
+.ks {{ font-family: 'Archivo', sans-serif !important; font-size: .82rem !important; color: {kc.TEXTO_2}; margin: 2px 0 4px;
+       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
 .pasos {{ display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; font-family: 'Archivo', sans-serif;
          font-size: .86rem; color: {kc.TEXTO_2}; margin: -6px 0 14px; }}
 .pasos b {{ color: {kc.TEXTO}; }}
@@ -90,7 +94,7 @@ def archivo_persistente(etiqueta, key, tipos, donde=st, ayuda=None):
     return st.session_state.get(slot)
 
 
-PASOS_MES = [("Base de seguimiento", "Actualizar"), ("Cuadres", "Sale-U"), ("Cuadres", "Seguimiento"),
+PASOS_MES = [("Base de seguimiento", "Actualizar"), ("Resumen y cuadres", "Sale-U"), ("Resumen y cuadres", "Resumen"),
              ("Base de seguimiento", "Pendientes")]
 
 
@@ -99,3 +103,12 @@ def guia_mes():
     pasos = "".join(f'<span><span class="n">{i}</span>{html.escape(pagina)} → <b>{html.escape(pestana)}</b></span>'
                     for i, (pagina, pestana) in enumerate(PASOS_MES, 1))
     st.markdown(f'<div class="pasos"><span>Cierre del mes:</span>{pasos}</div>', unsafe_allow_html=True)
+
+
+def tarjeta(donde, icono, titulo, valor, detalle="", color=None):
+    """Indicador con icono de Material, número grande y detalle (el color se usa solo para estados)."""
+    caja = donde.container(border=True)
+    caja.markdown(f":material/{icono}: **{html.escape(titulo)}**")
+    estilo = f' style="color:{color}"' if color else f' style="color:{kc.TEXTO}"'
+    caja.markdown(f'<div class="kv"{estilo}>{html.escape(str(valor))}</div>'
+                  f'<div class="ks" title="{html.escape(detalle)}">{html.escape(detalle)}</div>', unsafe_allow_html=True)
