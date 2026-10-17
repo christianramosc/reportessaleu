@@ -105,6 +105,8 @@ def aplicar(base):
     if TAB_BITACORA in pestanas:
         from cuadres.actualizar import estilo_bitacora
         estilo_bitacora(base)
+    from cuadres.saleu_sheet import estilo_registro
+    estilo_registro(base)                      # Registrado / Falta crédito / No Registrado en Rechazos y Bitacora
 
     # 7. Revision
     if pendientes.TAB_REVISION in pestanas:

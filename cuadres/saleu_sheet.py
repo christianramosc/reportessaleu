@@ -6,9 +6,10 @@ y de los Aprobados de la pestaña Bitacora (mismo criterio).
 Con el reporte de Sale-U (reporteLeadsconCredito) se revisa cada rechazo de la base cuya fecha
 de ingreso cae dentro del periodo del reporte:
   · encontrado (mismo teléfono y nombre parecido, o nombre muy parecido) → "Registrado"
-  · no encontrado                                                        → "No Registrado"
-Lo que ya dice que SÍ está registrado (p. ej. marcado a mano) nunca se baja a "No Registrado":
-si no aparece en el reporte se deja como registrado y se lista para revisar.
+  · no encontrado, pero sí está en el reporte Fuente (opcional)          → "Falta crédito" (falta registrar el crédito)
+  · no está en ninguno                                                   → "No Registrado" (falta darlo de alta)
+Nunca se baja de nivel (Registrado > Falta crédito > No Registrado): lo que ya dice que SÍ está registrado
+(p. ej. marcado a mano) se deja así y se lista para revisar.
 Los rechazos fuera del periodo del reporte no se tocan (no hay con qué compararlos).
 
 Además (proponer_datos): si un cliente de Rechazos o de Créditos Finalizados cuadra con Sale-U o con la
@@ -25,7 +26,12 @@ from cuadres import saleu as cu
 from cuadres.base import TAB_RECHAZOS, TAB_HISTORIAL, letra, norm, canonico
 from cuadres.actualizar import leer_rechazos, C
 
-REGISTRADO, NO_REGISTRADO = "Registrado", "No Registrado"
+REGISTRADO, FALTA_CREDITO, NO_REGISTRADO = "Registrado", "Falta crédito", "No Registrado"
+VALORES = [REGISTRADO, FALTA_CREDITO, NO_REGISTRADO]
+
+
+def es_falta_credito(valor):
+    return norm(valor) in ("FALTA CREDITO", "FALTA CRÉDITO")
 
 
 def ya_registrado(valor):
@@ -129,9 +135,12 @@ def _aprobados_bitacora(base):
     return out
 
 
-def proponer(base, su, ini=None, fin=None):
-    """su: DataFrame de cu.leer_saleu(). Devuelve DataFrame con lo que se escribiría: los rechazos de MG Colima
-    Rechazos y los Aprobados de la Bitacora (columna Hoja) cuya fecha cae en el periodo del reporte."""
+def proponer(base, su, ini=None, fin=None, fuente=None):
+    """su: DataFrame de cu.leer_saleu(); fuente: DataFrame de saleu_fuente.leer_fuente() (opcional). Devuelve
+    DataFrame con lo que se escribiría: los rechazos de MG Colima Rechazos y los Aprobados de la Bitacora (columna
+    Hoja) cuya fecha cae en el periodo del reporte de Crédito."""
+    from cuadres.saleu_fuente import Buscador, alta_txt
+    buscador = Buscador(fuente) if fuente is not None and len(fuente) else None
     p_ini, p_fin = periodo(su)
     ini, fin = ini or p_ini, fin or p_fin
     if not ini:
@@ -142,10 +151,21 @@ def proponer(base, su, ini=None, fin=None):
             por_tel.setdefault(s["Tel_norm"], []).append(s)
     filas = []
     for row in leer_rechazos(base) + _aprobados_bitacora(base):
-        if not row["fecha"] or not (ini <= row["fecha"] <= fin):
-            continue
         nom = cu.normalizar_nombre(row["nombre"])
         tel = str(row["cel"]) if row["cel"] else ""
+        if not row["fecha"] or not (ini <= row["fecha"] <= fin):
+            # fuera del periodo del reporte de Crédito no se sabe si tiene crédito; solo un «No Registrado» que
+            # sí está en Fuente sube a «Falta crédito» (ya es lead)
+            if buscador is None or norm(row["saleu"]) != norm(NO_REGISTRADO):
+                continue
+            lead, como_lead = buscador.buscar(row["nombre"], tel)
+            if lead is not None:
+                filas.append(dict(Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"],
+                                  Fecha_ingreso=row["fecha"], Antes=row["saleu"], Después=FALTA_CREDITO, Cambia=True,
+                                  Como=f"Fuente, por {como_lead} (fuera del periodo de Crédito)", Revisar="",
+                                  Cliente_SaleU="", Estatus_SaleU="", Financiera_SaleU="",
+                                  Cliente_Fuente=" ".join(lead["Nombre"].split()), Alta_Fuente=alta_txt(lead)))
+            continue
         hallado, como = None, ""
         for s in por_tel.get(tel, []):
             r, _ = cu.similitud_nombre(nom, s["Nombre_norm"])
@@ -161,13 +181,20 @@ def proponer(base, su, ini=None, fin=None):
             if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= 2:
                 hallado, como = mejor[2], "nombre (teléfono distinto)"
         actual = row["saleu"] or ""
-        revisar = ""
+        revisar, lead = "", None
+        if hallado is None and buscador is not None:
+            lead, como_lead = buscador.buscar(row["nombre"], tel)
         if hallado is not None:
             nuevo = REGISTRADO
         elif ya_registrado(actual):
             nuevo = REGISTRADO          # lo marcaron como registrado: se respeta (solo se uniforma la palabra)
-            revisar = "Marcado como registrado, pero no aparece en este reporte de Sale-U"
+            revisar = ("Marcado como registrado; está en Fuente pero no en el reporte de Crédito" if lead is not None
+                       else "Marcado como registrado, pero no aparece en este reporte de Sale-U")
             como = "se respetó lo que ya decía"
+        elif lead is not None:
+            nuevo, como = FALTA_CREDITO, f"Fuente, por {como_lead}"
+        elif es_falta_credito(actual):
+            nuevo, como = FALTA_CREDITO, "se respetó lo que ya decía"   # ya se vio en Fuente antes
         else:
             nuevo = NO_REGISTRADO
         filas.append(dict(
@@ -175,10 +202,28 @@ def proponer(base, su, ini=None, fin=None):
             Cambia=actual != nuevo, Como=como, Revisar=revisar,
             Cliente_SaleU=hallado["Nombre"] if hallado is not None else "",
             Estatus_SaleU=hallado["Estatus_SaleU"] if hallado is not None else "",
-            Financiera_SaleU=hallado["Financiera"] if hallado is not None else ""))
-    df = pd.DataFrame(filas, columns=["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como",
-                                      "Revisar", "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU"])
+            Financiera_SaleU=hallado["Financiera"] if hallado is not None else "",
+            Cliente_Fuente=" ".join(lead["Nombre"].split()) if lead is not None else "",
+            Alta_Fuente=alta_txt(lead) if lead is not None else ""))
+    df = pd.DataFrame(filas, columns=COLS_PROPUESTA)
     return df, (ini, fin)
+
+
+COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como", "Revisar",
+                  "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Alta_Fuente"]
+
+
+def _motivo(r, periodo_txt):
+    if r["Revisar"]:
+        return f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
+    if r["Después"] == REGISTRADO:
+        return f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})"
+    if r["Después"] == FALTA_CREDITO:
+        if r.get("Cliente_Fuente"):
+            return (f"Está en el reporte Fuente ({r['Cliente_Fuente']}, alta {r.get('Alta_Fuente', '')}) pero no en "
+                    f"el de Crédito ({periodo_txt}): falta registrar el crédito")
+        return "Ya decía Falta crédito"
+    return f"No aparece en el reporte de Sale-U ({periodo_txt})"
 
 
 def proponer_datos(base, su):
@@ -237,12 +282,29 @@ def aplicar(base, cambios, periodo_txt):
     base.anotar_historial([dict(
         Origen="App · cuadre Sale-U", Hoja=r["Hoja"], Celda=f"{letra(cols[r['Hoja']])}{int(r['Fila'])}",
         Cliente=r["Cliente"], Campo=nombre_col[r["Hoja"]], Antes=r["Antes"], Después=r["Después"],
-        Motivo=(f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
-                if r["Revisar"] else
-                f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})" if r["Después"] == REGISTRADO
-                else f"No aparece en el reporte de Sale-U ({periodo_txt})"))
+        Motivo=_motivo(r, periodo_txt))
         for _, r in cambios.iterrows()])
+    estilo_registro(base, set(cols))
     return len(cambios)
+
+
+def estilo_registro(base, hojas=None):
+    """Lista Registrado / Falta crédito / No Registrado (más «No aplica» en la Bitacora) y el color de «Falta
+    crédito» en la columna Registro en Sale-U de Rechazos y Bitacora. No duplica reglas."""
+    from cuadres.base import TAB_BITACORA
+    from cuadres.fuentes import COL_SALEU_BITACORA
+    from cuadres.actualizar import ESTILO_SALEU, NO_APLICA
+    for hoja, nombre in ((TAB_RECHAZOS, C["saleu"]), (TAB_BITACORA, COL_SALEU_BITACORA)):
+        if (hojas is not None and hoja not in hojas) or hoja not in base.pestanas():
+            continue
+        c = base.col(hoja, nombre)
+        if not c:
+            continue
+        L = letra(c)
+        for valor, fondo, tinta in ESTILO_SALEU:
+            if hoja == TAB_BITACORA or valor != f'="{NO_APLICA}"':
+                base.regla_color(hoja, [c], f"=${L}2{valor}", fondo, 1000, tinta)
+        base.lista_valores(hoja, [c], VALORES + ([NO_APLICA] if hoja == TAB_BITACORA else []), 1000)
 
 
 # =============================================================================

@@ -35,7 +35,8 @@ MESES = [ETIQUETA_MES[m].capitalize() for m in range(1, 13)]
 LEYENDA = [("Pendiente: falta un dato (lee la nota de la celda)", "#D9D2E9"),
            ("Agregado desde la bitácora", "#CFE2F3"), ("Folio repetido", "#F9CB9C"),
            ("Seguimiento vencido", "#F4CCCC"), ("Vence en ≤15 días / falta correo, Sale-U o si contestó", "#FCE5CD"),
-           ("Seguimiento hecho / Registrado", "#D9EAD3"), ("Reingreso: el celular está en otra solicitud", "#FFF2CC")]
+           ("Seguimiento hecho / Registrado", "#D9EAD3"), ("Falta crédito en Sale-U (ya es lead)", "#FFE599"),
+           ("Reingreso: el celular está en otra solicitud", "#FFF2CC")]
 
 
 # =============================================================================
@@ -145,12 +146,14 @@ def contenido(base):
             f'=COUNTIFS({cond},{R("contesta")},"Si Responde")' if L["contesta"] else 0,
             f'=IF(F{fila}=0,"",G{fila}/F{fila})',
             f'=COUNTIFS({cond},{R("saleu")},"Registrado")' if L["saleu"] else 0,
-            f"=B{fila}-I{fila}"])
+            f'=COUNTIFS({cond},{R("saleu")},"Falta crédito")' if L["saleu"] else 0,
+            f"=B{fila}-I{fila}-J{fila}"])
     t = f + 13
     filas_mes.append(["Total"] + [f"=SUM({c}{f + 1}:{c}{f + 12})" for c in "BCDEFG"]
-                     + [f'=IF(F{t}=0,"",G{t}/F{t})', f"=SUM(I{f + 1}:I{f + 12})", f"=SUM(J{f + 1}:J{f + 12})"])
+                     + [f'=IF(F{t}=0,"",G{t}/F{t})'] + [f"=SUM({c}{f + 1}:{c}{f + 12})" for c in "IJK"])
     h.tabla(f, ["Mes", "Rechazos", "CETELEM", "BBVA", "Otras financieras", "Con 1er seguimiento",
-                "Contestaron (1er)", "% contacto efectivo", "Registrados en Sale-U", "Sin registro en Sale-U"],
+                "Contestaron (1er)", "% contacto efectivo", "Registrados en Sale-U", "Falta crédito en Sale-U",
+                "Falta alta en Sale-U"],
             filas_mes, {8: "pct"}, total=True)
     T1 = dict(enc=f, ini=f + 1, fin=f + 12, tot=t)
 
@@ -279,17 +282,21 @@ def contenido(base):
     if hay_bit:
         ap = f'{_entre(B["fecha"], 1, 13)},{B["final"]},"Aprobado",{B["id_rech"]},""'
         ap_tot, ap_reg = f"COUNTIFS({ap})", f'COUNTIFS({ap},{B["saleu"]},"Registrado")'
+        ap_cred = f'COUNTIFS({ap},{B["saleu"]},"Falta crédito")'
         ap_no = f'COUNTIFS({ap},{B["saleu"]},"No Registrado")'
     else:
-        ap_tot = ap_reg = ap_no = "0"
-    su_total, su_reg, su_no = f"(B{tot}+{ap_tot})", f"(I{tot}+{ap_reg})", f"(J{tot}+{ap_no})"
+        ap_tot = ap_reg = ap_cred = ap_no = "0"
+    # Falta alta: no está en Sale-U (ni Fuente ni Crédito) · Falta crédito: es lead (Fuente) pero sin crédito
+    su_total, su_reg = f"(B{tot}+{ap_tot})", f"(I{tot}+{ap_reg})"
+    su_alta, su_cred = f"(K{tot}+{ap_no})", f"(J{tot}+{ap_cred})"
+    su_no = f"({su_alta}+{su_cred})"
     kpis = [("Rechazos en el año", f"=B{tot}", None,
              f'="CETELEM "&C{tot}&" · BBVA "&D{tot}&" · otras "&E{tot}'),
             ("Seguimiento al día", f'=IF({ya_toca}=0,1,{al_dia}/{ya_toca})', "pct",
              f'={al_dia}&" de "&{ya_toca}&" que ya cumplieron 180 días"'),
             ("Contacto efectivo", f'=IF(F{tot}=0,0,G{tot}/F{tot})', "pct", f'=G{tot}&" contestaron el 1er contacto"'),
             ("Registrados en Sale-U", f"=IF({su_total}=0,0,{su_reg}/{su_total})", "pct",
-             f'={su_no}&" sin registro: "&J{tot}&" rechazados · "&{ap_no}&" aprobados"'),
+             f'={su_alta}&" falta alta · "&{su_cred}&" falta crédito"'),
             ("Seguimientos vencidos", f"={pend_c(0)}", None, f'={pend_c(1)}&" vencen en 15 días"'),
             ("Pendientes en Revision", f"={pend_c(5)}", None, '="por resolver en la pestaña Revision"')]
     for i, (titulo, valor, fmt, sub) in enumerate(kpis):
@@ -318,8 +325,9 @@ def contenido(base):
         f'" todavía no cumplen 180 días.","")&IF(F{tot}=0,""," Contestó el "&TEXT(G{tot}/F{tot},"0%")&'
         f'" de los contactados."))',
         f'=IF({su_total}=0,"","El "&TEXT({su_reg}/{su_total},"0%")&" de los rechazados y aprobados del año está '
-        f'registrado en Sale-U"&IF({su_no}>0,"; faltan "&{su_no}&" por registrar ("&J{tot}&" rechazados y "&'
-        f'{ap_no}&" aprobados).","."))',
+        f'registrado en Sale-U"&IF({su_no}>0,". Falta dar de alta a "&{su_alta}&" ("&K{tot}&" rechazados y "&'
+        f'{ap_no}&" aprobados) y registrar el crédito de "&{su_cred}&" que ya son lead ("&J{tot}&" rechazados y "&'
+        f'{ap_cred}&" aprobados).","."))',
         f'={pend_c(0)}&" seguimientos vencidos sin hacer y "&{pend_c(1)}&" vencen en los próximos 15 días. Hay "&'
         f'{pend_c(5)}&" pendientes en Revision y "&{pend_c(3)}&" registros sin correo."',
     ]
@@ -357,7 +365,8 @@ def contenido(base):
         dict(titulo="Rechazos por asesor (año)", tipo="barra", dominio=(T3["enc"], T3["fin"], "F"),  # nombre corto
              series=[((T3["enc"], T3["fin"], "K"), SERIE[0])], eje="Rechazos"),
         dict(titulo="Registro en Sale-U por mes", tipo="columna", apilada=True, dominio=t1("A"),
-             series=[(t1("I"), ESTADO["bien"]), (t1("J"), ESTADO["critico"])], eje="Rechazos"),
+             series=[(t1("I"), ESTADO["bien"]), (t1("J"), ESTADO["aviso"]), (t1("K"), ESTADO["critico"])],
+             eje="Rechazos"),
         dict(titulo="Pendientes", tipo="barra", dominio=(T4["enc"], T4["fin"], "A"),
              series=[((T4["enc"], T4["fin"], "D"), ESTADO["serio"])], eje="Cantidad"),
     ]

@@ -11,15 +11,18 @@ App de Streamlit con una página por herramienta:
    - **Resumen**: los indicadores del Sheet para el año elegido (rechazos, seguimiento al día de los que ya
      cumplieron 180 días, contacto efectivo, registrados en Sale-U, seguimientos vencidos y pendientes en
      Revision), dos gráficas y las listas de vencidos, por vencer y pendientes. Abajo, **Faltan en Sale-U**:
-     Aprobados y Rechazados sin registro según el Sheet (Rechazos con «No Registrado»; Aprobados de la
-     *Bitacora* con «No Registrado», que marca el cuadre de Sale-U igual que a los rechazos; los que aún no tienen
-     dato salen como «por confirmar») y el botón
-     *Generar PDF* con el reporte para los asesores (portada con cifras y gráficas, detalle por asesor).
+     Aprobados y Rechazados sin registro según el Sheet (Rechazos y Aprobados de la *Bitacora*, con lo que marca
+     el cuadre de Sale-U): **Dar de alta** («No Registrado»: no están en Sale-U) y **Registrar crédito**
+     («Falta crédito»: ya son lead en el reporte Fuente, pero sin crédito); los aprobados sin dato salen como
+     «por confirmar». El botón *Generar PDF* arma el reporte para los asesores (portada con cifras y gráficas,
+     y el detalle en dos partes —dar de alta y registrar crédito—, cada una por asesor).
      Un cliente que aparece registrado en cualquiera de las dos fuentes no se lista.
    Los cuadres leen la **bitácora** (pestaña *Bitacora* del Sheet: capturas de Cetelem + Bitácora de F&I,
    **todas las financieras**); para Sale-U solo subes el reporte, revisas los cambios y la app escribe
    *Registro en Sale-U* en el Sheet al pulsar *Aplicar*:
-   - **Sale-U vs bitácora**: reporte de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga). Compara
+   - **Sale-U vs bitácora**: reporte de Crédito de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga) y,
+     opcional, el reporte **Fuente** (`ReporteFuentes_Agencia_MG-Colima_*.csv`, todos los leads; bájalo desde
+     enero). Con Fuente, los que faltan se separan en *Dar de alta* y *Registrar crédito*. Compara
      contra **todos los créditos de todas las financieras y estatus**: la pestaña *Bitacora* más lo que esté en
      *MG Colima Rechazos* y *MG Colima Créditos Finalizados* (leídos al momento). Entran los que caen en el periodo
      del reporte; los Finalizados entran por su *FECHA DE ENTREGA* (los que no la tienen entran todos). Cruza por teléfono y nombre y compara estatus y
@@ -55,6 +58,7 @@ cuadres/resumen.py             # indicadores del Sheet y clientes que faltan en 
 cuadres/reporte_saleu.py       # PDF «Clientes por registrar en Sale-U»
 assets/fonts/                  # Archivo (SIL OFL) e iconos Font Awesome Free (licencias en la carpeta)
 cuadres/saleu.py               # cuadre vs Sale-U
+cuadres/saleu_fuente.py        # reporte Fuente de Sale-U (todos los leads): falta alta vs falta crédito
 cuadres/blueservice.py         # cuadre BlueService vs Inventario
 cuadres/salidas.py             # formato común de los Excel y PDF de los cuadres
 .streamlit/config.toml         # tema
@@ -100,10 +104,13 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
    criterio que usa la columna *Registro en Sale-U*. La hoja *Faltan en Sale-U* del Excel trae
    nombre, vendedor, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de
-   alta. Además del Excel/PDF, propone marcar *Registrado / No Registrado* en cada rechazo cuya fecha de ingreso cae
-   en el periodo del reporte; revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
-   Lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) nunca se baja a *No Registrado*: si no aparece en
-   el reporte se deja igual y se lista para que lo confirmes.
+   alta. Además del Excel/PDF, propone el *Registro en Sale-U* de cada rechazo (y de cada aprobado de la *Bitacora*)
+   cuya fecha cae en el periodo del reporte de Crédito: *Registrado* (está en Crédito), *Falta crédito* (no está en
+   Crédito pero sí en Fuente) o *No Registrado* (no está en ninguno). Sin el reporte Fuente solo hay *Registrado* /
+   *No Registrado*. Fuera del periodo de Crédito, un *No Registrado* que sí está en Fuente sube a *Falta crédito*.
+   Revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
+   Nunca se baja de nivel: lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) se deja igual aunque no
+   aparezca en los reportes, y se lista para que lo confirmes.
 3. **Resumen y cuadres → Resumen** → revisa indicadores y vencidos; *Generar PDF* para mandar a los asesores
    la lista de quién falta en Sale-U.
 4. **Base de seguimiento → Pendientes** → *Revisar pendientes* → *Limpiar*. Los pendientes de la pestaña
@@ -127,7 +134,7 @@ aplicado, no duplica nada:
 - Fechas de *Historial* y *Bitacora F&I* con formato de fecha. *Capturas Cetelem* y *Bitacora F&I* quedan ocultas
   (la app las sigue usando).
 
-**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras y **todos los estatus** (formalizados incluidos). Su columna **Registro en Sale-U** usa los mismos valores y colores que Rechazos y Finalizados: *Registrado* / *No Registrado* para Aprobados y Rechazados (en los rechazos ligados por ID, lo que dice *MG Colima Rechazos*; si no, lo que dice F&I) y *No aplica* para los demás estatus. Se
+**La pestaña *Bitacora*** es el acumulado de los créditos de todas las financieras y **todos los estatus** (formalizados incluidos). Su columna **Registro en Sale-U** usa los mismos valores y colores que Rechazos y Finalizados: *Registrado* / *Falta crédito* / *No Registrado* para Aprobados y Rechazados (en los rechazos ligados por ID, lo que dice *MG Colima Rechazos*; si no, lo que dice F&I) y *No aplica* para los demás estatus. Se
 rehace cada vez que aplicas en *Actualizar* con: las capturas de Cetelem (cada mes que subes reemplaza
 al mismo mes), la Bitácora de F&I (se **acumula**: lo que trae la carga nueva reemplaza al mismo registro y se
 conserva lo que ya no venga en el archivo) y los rechazos de *MG Colima Rechazos* que no salen de ninguna de ellas

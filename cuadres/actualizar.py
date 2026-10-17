@@ -262,8 +262,9 @@ COL_ESTATUS_FIN, COL_SALEU = BITACORA_COLS.index("Estatus final"), BITACORA_COLS
 COL_LIGA = BITACORA_COLS.index(COL_ID_RECHAZOS)
 NO_APLICA = "No aplica"
 # Mismo estilo que la columna de Sale-U de Rechazos y Finalizados
-ESTILO_SALEU = [('="Registrado"', "#D9EAD3", "#274E13"), ('="No Registrado"', "#F4CCCC", "#990000"),
-                ('="No aplica"', "#EFEFEF", "#434343")]
+ESTILO_SALEU = [('="Registrado"', "#D9EAD3", "#274E13"), ('="Falta crédito"', "#FFE599", "#7F6000"),
+                ('="No Registrado"', "#F4CCCC", "#990000"), ('="No aplica"', "#EFEFEF", "#434343")]
+REGISTRO_TXT = {"REGISTRADO": "Registrado", "NO REGISTRADO": "No Registrado", "FALTA CREDITO": "Falta crédito"}
 
 
 def _registro_de_rechazos(base):
@@ -277,7 +278,7 @@ def _registro_de_rechazos(base):
     if not c_su:
         return out
     for _, r in df.iterrows():
-        v = {"REGISTRADO": "Registrado", "NO REGISTRADO": "No Registrado"}.get(norm(r[c_su]))
+        v = REGISTRO_TXT.get(norm(r[c_su]))
         if v:
             out[str(r["_fila"])] = v
             if c_id and r[c_id]:
@@ -303,14 +304,14 @@ def _registro_previo(base):
         return {}
     out = {}
     for _, r in df.iterrows():
-        v = {"REGISTRADO": "Registrado", "NO REGISTRADO": "No Registrado"}.get(norm(r[COL_SALEU_BITACORA]))
+        v = REGISTRO_TXT.get(norm(r[COL_SALEU_BITACORA]))
         if v:
             out[_llave_bitacora([r.get(c) for c in BITACORA_COLS])] = v
     return out
 
 
 def _registro_saleu(fila, registro, previo=None):
-    """Registrado / No Registrado para Aprobados y Rechazados; «No aplica» para los demás estatus.
+    """Registrado / Falta crédito / No Registrado para Aprobados y Rechazados; «No aplica» para los demás estatus.
     Rechazados ligados a Rechazos: lo que dice esa pestaña. Aprobados: lo que dejó el cuadre de Sale-U en la Bitacora
     (un «Registrado» de F&I manda). Si no hay nada de eso, lo que dice F&I (SI / NO)."""
     est = norm(fila[COL_ESTATUS_FIN])
@@ -337,7 +338,7 @@ def estilo_bitacora(base):
     L = letra(c)
     for valor, fondo, tinta in ESTILO_SALEU:
         base.regla_color(TAB_BITACORA, [c], f"=${L}2{valor}", fondo, 1000, tinta)
-    base.lista_valores(TAB_BITACORA, [c], ["Registrado", "No Registrado", NO_APLICA], 1000)
+    base.lista_valores(TAB_BITACORA, [c], ["Registrado", "Falta crédito", "No Registrado", NO_APLICA], 1000)
 # Formato uniforme de la Bitacora: tipo de número por columna (lo demás, texto)
 FORMATO_BITACORA = {"Fecha": "fecha", "Folio": "entero", "Teléfono": "entero", "Año": "entero", "Plazo": "entero",
                     "Mensualidad": "moneda", "Monto a financiar": "moneda"}

@@ -6,10 +6,11 @@ Resumen del Google Sheet de seguimiento: los indicadores principales y quién fa
       rechazos del año, seguimiento al día (de los que ya cumplieron 180 días), contacto efectivo,
       registrados en Sale-U, seguimientos vencidos y pendientes en Revision.
   faltantes_saleu(base)   → (faltan, por_confirmar): clientes Aprobados y Rechazados sin registro en Sale-U,
-      solo con lo que dice el Sheet:
-        · Rechazados: «MG Colima Rechazos» con Registro en Sale-U = «No Registrado» (lo marca el cuadre de Sale-U).
-        · Aprobados: pestaña Bitacora con Estatus final «Aprobado» y Sale-U = «NO» (lo dice la Bitácora de F&I).
-          Si la Bitácora no trae el dato, el cliente va a «por confirmar».
+      solo con lo que dice el Sheet (columna Registro en Sale-U, la marca el cuadre de Sale-U):
+        · «No Registrado» → falta darlo de alta en Sale-U (no está ni en el reporte Fuente ni en el de Crédito).
+        · «Falta crédito» → ya es lead en Sale-U (reporte Fuente), falta registrar su crédito.
+        · Rechazados: «MG Colima Rechazos»; Aprobados: pestaña Bitacora con Estatus final «Aprobado».
+          Si un aprobado no trae el dato, va a «por confirmar».
       Un cliente que en cualquier fuente aparece registrado (Registrado / SI) no se lista. Cada cliente sale una
       vez (mismo celular o nombre), con su estatus más reciente: si fue rechazado y después aprobado, es Aprobado.
 """
@@ -24,8 +25,21 @@ from cuadres.salidas import telefono
 DIAS_SEGUIMIENTO = 180
 TAB_REVISION = "Revision"
 APROBADO, RECHAZADO = "Aprobado", "Rechazado"
-COLS_FALTAN = ["Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha", "Mensualidad",
+FALTA_ALTA, FALTA_CREDITO = "Dar de alta", "Registrar crédito"
+COLS_FALTAN = ["Falta", "Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha", "Mensualidad",
                "Correo", "Dias", "Fuente", "ID"]
+
+
+def codigo_saleu(v):
+    """Registro en Sale-U del Sheet (o SI/NO de F&I) → «SI», «CRED» (falta crédito), «NO» o ""."""
+    n = norm(v)
+    if n in ("REGISTRADO", "SI"):
+        return "SI"
+    if n == "FALTA CREDITO":
+        return "CRED"
+    if n in ("NO REGISTRADO", "NO"):
+        return "NO"
+    return ""
 
 
 def _col(df, *nombres):
@@ -135,8 +149,7 @@ def _aprobados(base, anio):
         f = to_date(x[c_fecha])
         if norm(x[c_est]) != "APROBADO" or not f or f.year != anio or _vacio(x[c_cli]):
             continue
-        su = norm(x[c_su]) if c_su else ""
-        out.append((name_key(x[c_cli]), {"REGISTRADO": "SI", "NO REGISTRADO": "NO"}.get(su, su)))
+        out.append((name_key(x[c_cli]), codigo_saleu(x[c_su]) if c_su else ""))
     return out
 
 
@@ -144,24 +157,28 @@ def _registro_saleu(base, del_anio, anio):
     """Registro en Sale-U por cliente (como la lista «Faltan en Sale-U»): Rechazados del año (MG Colima Rechazos,
     sin los que ya compraron) y Aprobados del año (Bitacora). Un cliente con varias filas cuenta una vez; está
     registrado si alguna fila lo dice. Si también está en Rechazos, cuenta como rechazo."""
-    rech = {}                                         # clave de nombre → registrado (bool)
+    nivel = {"SI": 2, "CRED": 1}
+    rech = {}                                         # clave de nombre → 2 registrado · 1 falta crédito · 0 falta alta
     for _, x in del_anio.iterrows():
         if "YA COMPRO" in x["com"]:
             continue
         k = name_key(x["nombre"])
         clave = next((c for c in rech if similar(k, c)), k)
-        rech[clave] = rech.get(clave, False) or x["saleu"] == "REGISTRADO"
+        rech[clave] = max(rech.get(clave, 0), nivel.get(codigo_saleu(x["saleu"]), 0))
     aprob = {}
     for k, su in _aprobados(base, anio):
         if any(similar(k, c) for c in rech):
             continue
         clave = next((c for c in aprob if similar(k, c)), k)
         anterior = aprob.get(clave, "")
-        aprob[clave] = "SI" if "SI" in (su, anterior) else ("NO" if "NO" in (su, anterior) else "")
-    reg_r, sin_r = sum(rech.values()), sum(1 for v in rech.values() if not v)
-    reg_a, sin_a = sum(1 for v in aprob.values() if v == "SI"), sum(1 for v in aprob.values() if v == "NO")
-    return dict(registrados=reg_r + reg_a, sin_registro=sin_r + sin_a, saleu_total=len(rech) + len(aprob),
-                sin_registro_rech=sin_r, sin_registro_aprob=sin_a, aprob_sin_dato=len(aprob) - reg_a - sin_a)
+        aprob[clave] = next((v for v in ("SI", "CRED", "NO") if v in (su, anterior)), "")
+    reg_r = sum(1 for v in rech.values() if v == 2)
+    cred_r, alta_r = sum(1 for v in rech.values() if v == 1), sum(1 for v in rech.values() if v == 0)
+    reg_a = sum(1 for v in aprob.values() if v == "SI")
+    cred_a, alta_a = sum(1 for v in aprob.values() if v == "CRED"), sum(1 for v in aprob.values() if v == "NO")
+    return dict(registrados=reg_r + reg_a, sin_registro=cred_r + alta_r + cred_a + alta_a,
+                saleu_total=len(rech) + len(aprob), sin_registro_rech=cred_r + alta_r, sin_registro_aprob=cred_a + alta_a,
+                falta_alta=alta_r + alta_a, falta_credito=cred_r + cred_a, aprob_sin_dato=len(aprob) - reg_a - cred_a - alta_a)
 
 
 # =============================================================================
@@ -209,7 +226,7 @@ def faltantes_saleu(base, hoy=None):
         if "YA COMPRO" in x["com"]:
             continue                                  # ya compró: es formalizado, no rechazado
         clientes.grupo(x["nombre"], x["tel"])["regs"].append(dict(
-            estatus=RECHAZADO, saleu={"REGISTRADO": "SI", "NO REGISTRADO": "NO"}.get(x["saleu"], ""),
+            estatus=RECHAZADO, saleu=codigo_saleu(x["saleu"]),
             cliente=x["nombre"], tel=x["tel"], vendedor=asesor(x["asesor"]), fin=x["fin"], unidad=x["unidad"],
             fecha=x["fecha"], mens=x["mens"], correo=x["correo"], fuente="MG Colima Rechazos", id=x["id"]))
 
@@ -225,11 +242,11 @@ def faltantes_saleu(base, hoy=None):
             if not nombre:
                 continue
             est = norm(g(x, "est"))
-            su = {"REGISTRADO": "SI", "NO REGISTRADO": "NO"}.get(norm(g(x, "su")), norm(g(x, "su")))
+            su = codigo_saleu(g(x, "su"))
             if est != "APROBADO" and su != "SI":
                 continue                              # solo interesan aprobados (y cualquier «sí está en Sale-U»)
             clientes.grupo(nombre, to_phone(g(x, "tel")))["regs"].append(dict(
-                estatus=APROBADO if est == "APROBADO" else "otro", saleu=su if su in ("SI", "NO") else "",
+                estatus=APROBADO if est == "APROBADO" else "otro", saleu=su,
                 cliente=" ".join(nombre.split()).upper(), tel=to_phone(g(x, "tel")), vendedor=asesor(txt(g(x, "ven"))),
                 fin=(txt(g(x, "fin")) or "").upper(), unidad=txt(g(x, "uni")) or "", fecha=to_date(g(x, "fecha")),
                 mens=to_num(g(x, "mens")), correo=txt(g(x, "correo")) or "", fuente=txt(g(x, "fuente")) or "Bitacora",
@@ -244,14 +261,15 @@ def faltantes_saleu(base, hoy=None):
         rechazados = [x for x in regs if x["estatus"] == RECHAZADO]
         if aprobados:
             x = max(aprobados, key=lambda y: y["fecha"] or dt.date.min)
-            destino = faltan if any(y["saleu"] == "NO" for y in aprobados) or any(
-                y["saleu"] == "NO" for y in rechazados) else confirmar
-        elif rechazados and any(y["saleu"] == "NO" for y in rechazados):
+            destino = faltan if any(y["saleu"] in ("NO", "CRED") for y in aprobados) or any(
+                y["saleu"] in ("NO", "CRED") for y in rechazados) else confirmar
+        elif rechazados and any(y["saleu"] in ("NO", "CRED") for y in rechazados):
             x, destino = max(rechazados, key=lambda y: y["fecha"] or dt.date.min), faltan
         else:
             continue
         ids = ", ".join(dict.fromkeys(y["id"] for y in rechazados if y["id"]))
         destino.append(dict(
+            Falta=FALTA_CREDITO if any(y["saleu"] == "CRED" for y in regs) else FALTA_ALTA,
             Estatus=x["estatus"], Cliente=x["cliente"], Telefono=telefono(x["tel"]), Vendedor=x["vendedor"] or "",
             Financiera=x["fin"], Unidad=x["unidad"], Fecha=x["fecha"], Mensualidad=x["mens"], Correo=x["correo"],
             Dias=(hoy - x["fecha"]).days if x["fecha"] else None,
@@ -262,5 +280,7 @@ def faltantes_saleu(base, hoy=None):
         if df.empty:
             return df
         df["_o"] = df["Estatus"].map({APROBADO: 0, RECHAZADO: 1})
-        return df.sort_values(["_o", "Vendedor", "Fecha"], na_position="last").drop(columns="_o").reset_index(drop=True)
+        df["_f"] = df["Falta"].map({FALTA_ALTA: 0, FALTA_CREDITO: 1})
+        return (df.sort_values(["_f", "_o", "Vendedor", "Fecha"], na_position="last").drop(columns=["_o", "_f"])
+                .reset_index(drop=True))
     return tabla(faltan), tabla(confirmar)
