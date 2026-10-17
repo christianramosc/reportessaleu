@@ -12,32 +12,32 @@ import conexion
 from cuadres import fuentes, actualizar, pendientes, saleu_sheet
 from cuadres.base import TAB_HISTORIAL, TAB_FINALIZADOS
 
-ui.hero("Base de seguimiento",
-        "Actualiza el Google Sheet de rechazos con las bitácoras de Cetelem y la Bitácora de F&I.")
+ui.hero("Base de seguimiento", "Actualiza el Sheet de rechazos con las bitácoras de Cetelem y F&I.")
+ui.guia_mes()
 
 base = conexion.panel_base()
 if base is None:
     st.stop()
 
-tab_act, tab_pend, tab_dash, tab_hist = st.tabs(["🔄 Actualizar con bitácoras", "✅ Pendientes",
-                                                 "📊 Dashboard (Resumen)", "🕘 Historial de cambios"])
+
+
+def aviso_excel():
+    return " Descarga el Excel arriba." if isinstance(base, conexion.BaseExcel) else ""
+
+
+tab_act, tab_pend, tab_dash, tab_hist = st.tabs(["🔄 Actualizar", "✅ Pendientes", "📊 Dashboard", "🕘 Historial"])
 
 with tab_dash:
     if st.session_state.get("msg_dash"):
         st.success(st.session_state.pop("msg_dash"))
-    st.markdown("La pestaña **Resumen** del Sheet es un dashboard: indicadores del año, una *lectura del periodo* que "
-                "interpreta la situación, gráficas y las tablas de donde salen. Todo son fórmulas, así que se "
-                "actualiza solo cuando cambian *MG Colima Rechazos*, *Bitacora* o *Revision*, y puedes cambiar el año "
-                "en la celda B2. Se rehace cada vez que aplicas bitácoras; usa este botón para rehacerlo ahora "
-                "(p. ej. si agregaste un asesor o una financiera al catálogo).")
-    if st.button("Rehacer el dashboard del Resumen", type="primary", key="btn_dash"):
+    st.markdown("La pestaña **Resumen** se actualiza sola (son fórmulas; el año va en B2). Rehazla si agregaste "
+                "un asesor o una financiera al catálogo.")
+    if st.button("Rehacer dashboard", type="primary", key="btn_dash"):
         with st.spinner("Escribiendo el dashboard…"):
             try:
                 from cuadres import dashboard
                 n = dashboard.construir(base)
-                st.session_state["msg_dash"] = (f"Listo: Resumen con {n} gráficas."
-                                                + (" Descarga el Excel actualizado con el botón de arriba."
-                                                   if isinstance(base, conexion.BaseExcel) else ""))
+                st.session_state["msg_dash"] = f"Listo: Resumen con {n} gráficas." + aviso_excel()
                 st.rerun()
             except Exception as e:
                 st.error(f"No se pudo hacer el dashboard: {e}")
@@ -51,34 +51,31 @@ with tab_act:
     meses_guardados = list(dict.fromkeys(guardadas["Hoja"])) if not guardadas.empty else []
     c1, c2 = st.columns(2)
     archivos_cet = c1.file_uploader(
-        "Bitácoras mensuales de Cetelem", type=["xlsx"], accept_multiple_files=True, key="up_cet_base",
-        help="Las que te pasa el F&I (JUNIO_2026_FINAL.xlsx, Bitacora_Oct26…). Cada mes que subas reemplaza "
-             "al mismo mes guardado en el Sheet.")
-    c1.caption("Guardadas en el Sheet: " + (", ".join(meses_guardados) if meses_guardados else "ninguna todavía"))
+        "Bitácoras de Cetelem", type=["xlsx"], accept_multiple_files=True, key="up_cet_base",
+        help="Las que te pasa el F&I. Cada mes reemplaza al mismo mes guardado.")
+    c1.caption("Guardadas: " + (", ".join(meses_guardados) if meses_guardados else "ninguna"))
 
     tablas_fi, titulo_fi = None, None
     try:
         tablas_fi, titulo_fi = conexion.tablas_financiamiento(base)
     except Exception as e:
-        c2.warning(f"No pude leer la Bitácora de F&I de Google: {e}")
+        c2.warning(f"No se pudo leer la Bitácora de F&I: {e}")
     if tablas_fi is not None:
-        c2.info(f"Bitácora de F&I: se lee de Google Sheets (**{titulo_fi}**).", icon=":material/link:")
+        c2.info(f"Bitácora de F&I: **{titulo_fi}**", icon=":material/link:")
     else:
         f_fi = c2.file_uploader("Bitácora de F&I (opcional)", type=["xlsx"], key="up_fi_base",
-                                help="La bitácora de todos los créditos (todas las financieras). Si configuras FINANCIAMIENTO_SHEET_URL en los secrets, "
-                                     "se lee sola desde Google Sheets.")
+                                help="Todas las financieras. Con FINANCIAMIENTO_SHEET_URL en los secrets se lee sola.")
         if f_fi is not None:
             tablas_fi, titulo_fi = fuentes.tablas_de_excel(f_fi.getvalue()), f_fi.name
     fi_guardados, fi_fecha = conexion.registros_fi_guardados(base)
     if tablas_fi is None:
-        c2.caption("Guardada en el Sheet: " + (
-            f"{len(fi_guardados)} registros" + (f" (cargada el {fi_fecha:%d/%m/%Y})" if hasattr(fi_fecha, "strftime") else "")
-            if fi_guardados else "ninguna todavía") + ". Si subes otra, se acumula: lo nuevo reemplaza lo mismo "
-            "y se conserva lo que ya no venga en el archivo.")
+        c2.caption("Guardada: " + (
+            f"{len(fi_guardados)} registros" + (f" ({fi_fecha:%d/%m/%Y})" if hasattr(fi_fecha, "strftime") else "")
+            if fi_guardados else "ninguna") + ". Lo nuevo se suma a lo guardado.")
 
     puede = bool(archivos_cet) or not guardadas.empty or tablas_fi is not None or bool(fi_guardados)
     if st.button("Revisar cambios", type="primary", disabled=not puede, key="btn_revisar"):
-        with st.spinner("Leyendo bitácoras y comparando con el Sheet…"):
+        with st.spinner("Comparando con el Sheet…"):
             try:
                 nuevas = fuentes.leer_capturas([(f.name, f.getvalue()) for f in archivos_cet or []])
                 capturas = fuentes.combinar_capturas(guardadas, nuevas) if not nuevas.empty else guardadas
@@ -108,15 +105,13 @@ with tab_act:
         m[0].metric("Rechazos nuevos", int((prop["Tipo"] == "Nuevo rechazo").sum()))
         m[1].metric("Correcciones", int((prop["Tipo"] == "Corrección").sum()))
         m[2].metric("Datos faltantes", int((prop["Tipo"] == "Dato faltante").sum()),
-                    help="Celdas vacías que se llenan porque el cliente cuadra por teléfono o por nombre con la "
-                         "bitácora, en Rechazos o en Créditos Finalizados.")
+                    help="Celdas vacías que se llenan con la bitácora (cuadre por teléfono o nombre).")
         m[3].metric("Comentarios", int((prop["Tipo"] == "Comentario").sum()))
-        m[4].metric("Solicitudes en bitácoras", len(act["sol"]))
+        m[4].metric("Solicitudes", len(act["sol"]))
         if prop.empty:
-            st.success("La base ya está al día con estas bitácoras.")
+            st.success("La base ya está al día.")
         else:
-            st.markdown("Revisa los cambios. **Desmarca** los que no quieras aplicar; los desmarcados se anotan "
-                        "como *ignorados* y no se vuelven a proponer.")
+            st.markdown("**Desmarca** lo que no quieras aplicar; no se volverá a proponer.")
             vista = st.data_editor(
                 prop[["Aplicar", "Tipo", "Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo"]].assign(
                     Hoja=prop["Hoja"].map(lambda h: "Finalizados" if h == TAB_FINALIZADOS else "Rechazos"),
@@ -128,7 +123,7 @@ with tab_act:
                                "Motivo": st.column_config.TextColumn(width="large")})
             prop = prop.assign(Aplicar=vista["Aplicar"].values)
         n = int(prop["Aplicar"].sum()) if not prop.empty else 0
-        etiqueta = f"Aplicar {n} cambio(s) en el Sheet" if n else "Guardar bitácoras en el Sheet"
+        etiqueta = f"Aplicar {n} cambio(s)" if n else "Guardar bitácoras"
         if st.button(etiqueta, type="primary", key="btn_aplicar"):
             with st.spinner("Escribiendo en el Sheet…"):
                 try:
@@ -137,11 +132,9 @@ with tab_act:
                     if r.get("aviso"):
                         st.session_state["aviso_act"] = r["aviso"]
                     st.session_state["msg_act"] = (
-                        f"Listo: {r['nuevos']} rechazo(s) nuevo(s), {r['correcciones']} corrección(es), "
-                        f"{r.get('faltantes', 0)} dato(s) faltante(s) llenado(s), "
-                        f"{r['ignorados']} ignorado(s)."
-                        + (f" Respaldo previo en la pestaña oculta «{r['respaldo']}»." if r["respaldo"] else "")
-                        + (" Descarga el Excel actualizado con el botón de arriba." if isinstance(base, conexion.BaseExcel) else ""))
+                        f"Listo: {r['nuevos']} nuevo(s) · {r['correcciones']} corrección(es) · "
+                        f"{r.get('faltantes', 0)} dato(s) llenado(s) · {r['ignorados']} ignorado(s)."
+                        + (f" Respaldo: «{r['respaldo']}»." if r["respaldo"] else "") + aviso_excel())
                     st.rerun()
                 except Exception as e:
                     st.error(f"No se pudo aplicar: {e}")
@@ -149,11 +142,10 @@ with tab_act:
 with tab_pend:
     if st.session_state.get("msg_pend"):
         st.success(st.session_state.pop("msg_pend"))
-    st.markdown("Revisa los pendientes de la pestaña **Revision**. Los que ya tienen el dato capturado se marcan "
-                "como *Corregido* y se les quita el **morado y la nota** en la hoja. También quita la marca de los "
-                "que cambiaste a mano a *Corregido* o *No aplica*.")
+    st.markdown("Los pendientes de **Revision** que ya tienen el dato (o que marcaste a mano) pasan a *Corregido* "
+                "y se les quita el morado y la nota.")
     if st.button("Revisar pendientes", type="primary", key="btn_rev_pend"):
-        with st.spinner("Revisando pendientes contra el Sheet…"):
+        with st.spinner("Revisando…"):
             try:
                 st.session_state["pend"] = pendientes.revisar(base)
             except Exception as e:
@@ -162,7 +154,7 @@ with tab_pend:
     pend = st.session_state.get("pend")
     if pend is not None:
         if pend.empty:
-            st.success("No hay pendientes en la pestaña Revision.")
+            st.success("No hay pendientes.")
         else:
             cuenta = pend["Resultado"].value_counts()
             k = st.columns(4)
@@ -179,14 +171,13 @@ with tab_pend:
                              subset=["Resultado"]),
                          hide_index=True, width="stretch", height=min(520, 60 + 35 * len(vista)))
             n = int(pend["Resultado"].isin(["Resuelto", "Quitar marca"]).sum())
-            if st.button(f"Limpiar {n} pendiente(s) resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar"):
-                with st.spinner("Quitando marcas y actualizando Revision…"):
+            if st.button(f"Limpiar {n} resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar"):
+                with st.spinner("Limpiando…"):
                     try:
                         hechos = pendientes.aplicar(base, pend)
                         st.session_state.pop("pend", None)
                         st.session_state["msg_pend"] = (
-                            f"Listo: {hechos} pendiente(s) limpiado(s); quedó en el Historial."
-                            + (" Descarga el Excel actualizado con el botón de arriba." if isinstance(base, conexion.BaseExcel) else ""))
+                            f"Listo: {hechos} pendiente(s) limpiado(s)." + aviso_excel())
                         st.rerun()
                     except Exception as e:
                         st.error(f"No se pudo limpiar: {e}")
@@ -200,16 +191,16 @@ with tab_hist:
         bajas = None
     if bajas is not None and not bajas.empty:
         with st.container(border=True):
-            st.warning(f"**{len(bajas)} rechazo(s) decían Registrado / Sí y un cuadre de Sale-U con la versión "
-                       "anterior de la app los bajó a «No Registrado».** Puedes regresarlos a *Registrado*.",
+            st.warning(f"**{len(bajas)} rechazo(s) se bajaron por error a «No Registrado»** "
+                       "(versión anterior de la app).",
                        icon=":material/undo:")
             st.dataframe(bajas[["Fila", "Cliente", "Antes", "Fecha"]].rename(columns={"Fecha": "Cuándo se bajó"}),
                          hide_index=True, width="stretch", height=min(380, 60 + 35 * len(bajas)))
-            if st.button(f"Restaurar {len(bajas)} a Registrado", type="primary", key="btn_restaurar_su"):
+            if st.button(f"Restaurar {len(bajas)}", type="primary", key="btn_restaurar_su"):
                 with st.spinner("Escribiendo en el Sheet…"):
                     try:
                         n = saleu_sheet.restaurar(base, bajas)
-                        st.session_state["msg_rest"] = f"Listo: {n} rechazo(s) regresaron a Registrado; quedó en el Historial."
+                        st.session_state["msg_rest"] = f"Listo: {n} restaurado(s) a Registrado."
                         st.rerun()
                     except Exception as e:
                         st.error(f"No se pudo restaurar: {e}")
@@ -221,30 +212,29 @@ with tab_hist:
         dudosos = None
     if dudosos is not None and not dudosos.empty:
         with st.container(border=True):
-            st.warning(f"**{len(dudosos)} celda(s) se llenaron con el cuadre de Sale-U solo porque el teléfono coincide "
-                       "con otra persona** (nombre distinto, p. ej. un familiar). Con la regla actual eso ya no cuenta; "
-                       "puedes regresarlas a como estaban.", icon=":material/undo:")
+            st.warning(f"**{len(dudosos)} celda(s) se llenaron solo porque el teléfono coincide con otra persona** "
+                       "(p. ej. un familiar). Puedes regresarlas.", icon=":material/undo:")
             st.dataframe(dudosos[["Fila", "Cliente", "Campo", "Valor", "Regresar a", "Sale-U", "Fecha"]].assign(
                              Fila=dudosos["Fila"].astype(str), Valor=dudosos["Valor"].astype(str)),
                          hide_index=True, width="stretch", height=min(380, 60 + 35 * len(dudosos)))
-            if st.button(f"Deshacer {len(dudosos)} cambio(s)", type="primary", key="btn_deshacer_su"):
+            if st.button(f"Deshacer {len(dudosos)}", type="primary", key="btn_deshacer_su"):
                 with st.spinner("Escribiendo en el Sheet…"):
                     try:
                         n = saleu_sheet.deshacer_dudosos(base, dudosos)
-                        st.session_state["msg_desh"] = f"Listo: {n} celda(s) regresaron a como estaban; quedó en el Historial."
+                        st.session_state["msg_desh"] = f"Listo: {n} celda(s) regresaron a como estaban."
                         st.rerun()
                     except Exception as e:
                         st.error(f"No se pudo deshacer: {e}")
     if TAB_HISTORIAL in base.pestanas():
         h = base.leer(TAB_HISTORIAL).drop(columns="_fila", errors="ignore")
         if h.empty:
-            st.info("Todavía no hay cambios registrados.")
+            st.info("Todavía no hay cambios.")
         else:
             h = h.iloc[::-1]
             origen = st.multiselect("Origen", sorted(h["Origen"].dropna().astype(str).unique()), key="f_hist",
-                                    placeholder="Todos los orígenes")
+                                    placeholder="Todos")
             if origen:
                 h = h[h["Origen"].isin(origen)]
             st.dataframe(h.head(500).astype(str), hide_index=True, width="stretch", height=520)
     else:
-        st.info("Todavía no hay cambios registrados.")
+        st.info("Todavía no hay cambios.")

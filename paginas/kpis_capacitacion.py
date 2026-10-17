@@ -49,9 +49,9 @@ ui.hero("Avance de capacitación", "Ventas y Posventa, MG Colima",
         archivo[0] if archivo is not None else "Sin archivo cargado")
 
 if out is None:
-    st.markdown("""<div class="vacio"><b>Sube el archivo del plan de acción en la barra lateral</b><br>
-    Se leerán las tablas de DOT, Cápsulas, LOL y Presencial de cada área y podrás descargar
-    el PDF, la imagen del resumen y el detalle en Excel.</div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="vacio"><b>Sube el plan de acción en la barra lateral</b><br>
+    Verás el avance de DOT, Cápsulas, LOL y Presencial y podrás descargar PDF, imágenes y Excel.</div>""",
+                unsafe_allow_html=True)
     st.stop()
 
 areas = out["areas"]
@@ -70,8 +70,7 @@ with st.sidebar:
     st.download_button("Todo en un ZIP", out["zip"], file_name="KPIs_Capacitacion.zip",
                        mime="application/zip", icon=":material/folder_zip:", width="stretch")
     st.divider()
-    st.caption(f"Semáforo: verde ≥ {kc.META_VERDE:.0%}, ámbar ≥ {kc.META_AMBAR:.0%}, rojo menor. "
-               "Los totales se recalculan desde las filas de cada colaborador.")
+    st.caption(f"Semáforo: verde ≥ {kc.META_VERDE:.0%}, ámbar ≥ {kc.META_AMBAR:.0%}, rojo menor.")
 
 etiqueta_rev = f"Revisión de datos ({n_alertas})" if n_alertas else "Revisión de datos"
 tabs = st.tabs([a.title() for a in areas] + ["Comparativo", etiqueta_rev])
@@ -81,10 +80,7 @@ for (area, d), tab in zip(areas.items(), tabs):
     with tab:
         if d["alertas"]:
             n = len(d["alertas"])
-            txt = "1 diferencia" if n == 1 else f"{n} diferencias"
-            verbo = "Se encontró" if n == 1 else "Se encontraron"
-            st.warning(f"{verbo} {txt} entre el Excel y los datos recalculados. "
-                       "Consulta la pestaña de revisión de datos.", icon=":material/warning:")
+            st.warning(f"{n} diferencia(s) con el Excel. Ver *Revisión de datos*.", icon=":material/warning:")
         tarjetas(d)
 
         st.image(out["imagenes"][d["png"]], width="stretch")
@@ -108,8 +104,7 @@ for (area, d), tab in zip(areas.items(), tabs):
         cfg["Letra"] = st.column_config.TextColumn("Letra", width="small")
         st.dataframe(tabla.sort_values("Promedio"), column_config=cfg, hide_index=True,
                      width="stretch", height=min(36 * (len(tabla) + 1) + 4, 620))
-        st.caption(f"{len(tabla)} de {len(df)} colaboradores, de menor a mayor avance promedio. "
-                   "El detalle de concluidas y total por módulo está en el Excel de descarga.")
+        st.caption(f"{len(tabla)} de {len(df)} colaboradores, de menor a mayor avance. El detalle está en el Excel.")
 
 # ---------------------------------------------------------------- COMPARATIVO
 with tabs[len(areas)]:
@@ -151,8 +146,7 @@ with tabs[len(areas)]:
 
 # ---------------------------------------------------------------- REVISIÓN
 with tabs[-1]:
-    st.write("Diferencias encontradas entre las fórmulas del Excel y el recálculo desde las filas, "
-             "además de datos inconsistentes por colaborador. El reporte usa siempre los valores recalculados.")
+    st.write("Diferencias entre las fórmulas del Excel y el recálculo por colaborador. El reporte usa el recálculo.")
     for area, d in areas.items():
         st.subheader(area.title())
         if not d["alertas"]:

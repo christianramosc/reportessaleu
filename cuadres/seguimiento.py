@@ -14,7 +14,7 @@ Orden de cruce (por cliente, de lo más confiable a lo menos):
   3) Mismo teléfono, nombre distinto
   4) Nombre medianamente parecido (posible)
 
-Salidas: Cuadre_Seguimiento_<fecha>.xlsx y Cuadre_Seguimiento_<fecha>.pdf
+Salidas: Cuadre_Seguimiento_<periodo>_<fecha>.xlsx y .pdf (formato común en cuadres/salidas.py)
 Uso en Colab: ejecuta y sube el Excel de seguimiento + los Excel mensuales de Cetelem.
 """
 
@@ -24,15 +24,8 @@ from difflib import SequenceMatcher
 import pandas as pd
 
 warnings.filterwarnings("ignore")
-from openpyxl import load_workbook
 from cuadres.fuentes import financiera_igual
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from cuadres import salidas as sal
 
 # =============================================================================
 # CONFIGURACIÓN
@@ -380,6 +373,8 @@ def cruzar(cli, seg):
             obs.append(f"Nombre en seguimiento distinto: {s['Nombre']}")
         if s["Folio_norm"] and s["Folio_norm"] not in c["folios"]:
             obs.append(f"Folio en seguimiento {s['Folio_norm']} no coincide con la bitácora")
+        elif not s["Folio_norm"] and c["folios"]:
+            obs.append(f"Falta el folio en el seguimiento (bitácora: {', '.join(sorted(c['folios']))})")
         if nivel == 0 and s["Tel_norm"] and s["Tel_norm"] not in c["tels"]:
             obs.append(f"Teléfono en seguimiento {s['Telefono']} ≠ bitácora {c['Tel_bitacora']}")
         if nivel in (2, 4):
@@ -451,100 +446,56 @@ COLS_SOLO = ["Clasificacion", "Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm
              "Financiera", "Asesor", "Estatus_seg", "Veces_capturado", "Observaciones"]
 
 
-def exportar_excel(ruta, resumen, cuadre, faltantes, revisar, solo):
-    with pd.ExcelWriter(ruta, engine="openpyxl") as w:
-        resumen.to_excel(w, sheet_name="Resumen", index=False)
-        cuadre[COLS_CUADRE].to_excel(w, sheet_name="Cuadre_por_cliente", index=False)
-        faltantes[COLS_CUADRE[2:9]].to_excel(w, sheet_name="Faltan_en_seguimiento", index=False)
-        revisar[COLS_CUADRE].to_excel(w, sheet_name="Revisar", index=False)
-        solo[COLS_SOLO].rename(columns={"Folio_norm": "Folio"}).to_excel(
-            w, sheet_name="Solo_en_seguimiento", index=False)
-    wb = load_workbook(ruta)
-    b = Side(style="thin", color="BFBFBF")
-    for ws in wb.worksheets:
-        for celda in ws[1]:
-            celda.font = Font(name="Arial", bold=True, color="FFFFFF")
-            celda.fill = PatternFill("solid", fgColor="1F3864")
-            celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        for fila in ws.iter_rows(min_row=2):
-            for celda in fila:
-                celda.font = Font(name="Arial", size=10)
-                celda.border = Border(top=b, bottom=b, left=b, right=b)
-                if isinstance(celda.value, str) and celda.value in COLORES:
-                    celda.fill = PatternFill("solid", fgColor=COLORES[celda.value])
-        for i, col in enumerate(ws.columns, 1):
-            largo = max(len(str(c.value)) if c.value is not None else 0 for c in col)
-            ws.column_dimensions[get_column_letter(i)].width = min(max(largo + 2, 10), 55)
-        ws.freeze_panes = "A2"
-        if ws.max_row > 1:
-            ws.auto_filter.ref = ws.dimensions
-    wb.save(ruta)
+COLS_FALTAN = ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial", "Estatus_final",
+               "Observaciones"]
+COLS_CORREGIR = ["Resultado", "Cuadre_pestana", "Cliente_bitacora", "Tel_bitacora", "Cliente_seguimiento",
+                 "Tel_seguimiento", "Folio_seguimiento", "Pestanas_encontrado", "Vendedor", "Financiera", "Folios",
+                 "Observaciones"]
+NOTA_METODO = ("Cada cliente rechazado en la bitácora (capturas de Cetelem y Bitácora de F&I) se busca en el "
+               "seguimiento primero por folio, luego por teléfono (validando el nombre) y al final por nombre aunque el "
+               "teléfono sea distinto. Un cliente que aparece en varios meses se cuenta una vez con su último estatus. "
+               "Solo se cuadran las solicitudes RECHAZADAS, porque la base de seguimiento registra únicamente rechazos.")
 
 
-def exportar_pdf(ruta, resumen, faltantes, no_cuadra, verificar, solo_periodo, meses, hojas, financieras=("CETELEM",)):
-    st = getSampleStyleSheet()
-    chico = ParagraphStyle("c", parent=st["Normal"], fontSize=7.5, leading=9)
-    h1 = ParagraphStyle("h1", parent=st["Title"], fontSize=18, textColor=colors.HexColor("#1F3864"))
-    h2 = ParagraphStyle("h2", parent=st["Heading2"], textColor=colors.HexColor("#1F3864"))
-    txt = ParagraphStyle("t", parent=st["Normal"], fontSize=9.5, leading=13)
+def subtitulo(meses, hojas, financieras):
+    return (f"Bitácora: {', '.join(meses)} · Financieras: {', '.join(financieras)} · "
+            f"Pestañas: {', '.join(hojas)} · Generado: {datetime.now():%d/%m/%Y %H:%M}")
 
-    def tabla(df, cols, anchos, color="#1F3864"):
-        if df.empty:
-            return Paragraph("<i>Sin registros.</i>", txt)
-        datos = [[Paragraph(f"<b>{c.replace('_', ' ')}</b>", chico) for c in cols]]
-        for _, r in df.iterrows():
-            datos.append([Paragraph("" if pd.isna(r[c]) else str(r[c]), chico) for c in cols])
-        t = Table(datos, colWidths=[a * cm for a in anchos], repeatRows=1)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(color)),
-            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#BFBFBF")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        for j in range(len(cols)):
-            datos[0][j].style = ParagraphStyle("hb", parent=chico, textColor=colors.white)
-        return t
 
-    doc = SimpleDocTemplate(ruta, pagesize=landscape(letter), leftMargin=1.2 * cm, rightMargin=1.2 * cm,
-                            topMargin=1.2 * cm, bottomMargin=1.2 * cm)
-    el = [Paragraph(f"Seguimiento de rechazos vs bitácora – {PDV}", h1),
-          Paragraph(f"Bitácora: {', '.join(meses)} · Financieras: {', '.join(financieras)} · "
-                    f"Pestañas revisadas: {', '.join(hojas)} · "
-                    f"Generado: {datetime.now():%d/%m/%Y %H:%M}", txt), Spacer(1, 10),
-          tabla(resumen.assign(Valor=resumen["Valor"].astype(str)), ["Concepto", "Valor"], [13, 4]),
-          Spacer(1, 10),
-          Paragraph("Cada cliente rechazado en la bitácora (capturas de Cetelem y Bitácora de F&I) se busca en el "
-                    "seguimiento primero por folio, luego por teléfono (validando el nombre) y al final por nombre "
-                    "aunque el teléfono sea distinto. Un cliente que aparece en varios meses se cuenta una vez con su "
-                    "último estatus. Solo se cuadran las solicitudes RECHAZADAS, porque la base de seguimiento "
-                    "registra únicamente rechazos.", txt)]
+def exportar_excel(ruta, resumen, cuadre, faltantes, revisar, solo, sub=""):
+    sal.excel(ruta, f"Seguimiento de rechazos vs bitácora – {sal.PDV}", sub, [
+        ("Resumen", resumen, ["Concepto", "Valor"]),
+        ("Faltan en seguimiento", faltantes, COLS_FALTAN),
+        ("A corregir", revisar, COLS_CORREGIR),
+        ("Solo en seguimiento", solo, COLS_SOLO),
+        ("Cuadre por cliente", cuadre, COLS_CUADRE),
+    ], COLORES)
 
-    el += [PageBreak(), Paragraph(f"1. Rechazos de la bitácora que NO están en el seguimiento ({len(faltantes)})", h2)]
-    if not faltantes.empty:
-        por_est = faltantes.groupby("Financiera").size()
-        por_vend = faltantes.groupby("Vendedor").size().sort_values(ascending=False)
-        el.append(Paragraph("Por financiera: " + " · ".join(f"<b>{k}</b>: {v}" for k, v in por_est.items()), txt))
-        el.append(Paragraph("Por vendedor: " + " · ".join(f"<b>{k}</b>: {v}" for k, v in por_vend.items()), txt))
-        el.append(Spacer(1, 6))
-    el.append(tabla(faltantes.sort_values(["Financiera", "Vendedor"]),
-                    ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial", "Observaciones"],
-                    [4.6, 2.3, 4.2, 2.4, 2.8, 5.4, 3.5], "#C00000"))
 
-    el += [PageBreak(), Paragraph(f"2. Capturados en la pestaña equivocada ({len(no_cuadra)})", h2),
-           tabla(no_cuadra, ["Cliente_bitacora", "Historial", "Pestanas_encontrado", "Observaciones"],
-                 [5.5, 6, 5, 8.7], "#C55A11"),
-           Spacer(1, 14), Paragraph(f"3. Datos a corregir en el seguimiento ({len(verificar)})", h2),
-           Paragraph("Coincidencias con nombre, teléfono, folio o fecha distintos, o capturas duplicadas.", txt),
-           Spacer(1, 6),
-           tabla(verificar, ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_seguimiento",
-                             "Tel_seguimiento", "Observaciones"], [4.2, 4.6, 2.3, 4.6, 2.3, 7.2], "#BF8F00")]
-
-    el += [PageBreak(),
-           Paragraph(f"4. En seguimiento pero NO en la bitácora del periodo ({len(solo_periodo)})", h2),
-           Paragraph("Registros de una financiera que trae la bitácora, con fecha de ingreso dentro de los meses "
-                     "cargados, que no aparecen como rechazo en la bitácora.", txt), Spacer(1, 6),
-           tabla(solo_periodo, ["Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre", "Telefono",
-                                "Asesor", "Observaciones"], [3.6, 1.4, 2.2, 2.2, 5, 2.4, 4.5, 4], "#7F7F7F")]
-    doc.build(el)
+def exportar_pdf(ruta, resumen, faltantes, no_cuadra, verificar, solo_periodo, sub="", cifras=None):
+    pdf = sal.PDF(ruta, f"Seguimiento de rechazos vs bitácora – {sal.PDV}", sub)
+    pdf.cifras(cifras or [])
+    pdf.seccion("Rechazos que faltan en el seguimiento", faltantes.sort_values(["Financiera", "Vendedor"]),
+                ["Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera", "Folios", "Historial", "Observaciones"],
+                [4.6, 2.3, 4.2, 2.4, 2.8, 5.4, 3.5], "#C00000",
+                "Capturarlos en la pestaña MG Colima Rechazos.",
+                [("Por financiera", faltantes.groupby("Financiera").size()),
+                 ("Por vendedor", faltantes.groupby("Vendedor").size().sort_values(ascending=False))]
+                if not faltantes.empty else None)
+    pdf.seccion("Capturados en la pestaña equivocada", no_cuadra,
+                ["Cliente_bitacora", "Historial", "Pestanas_encontrado", "Observaciones"], [5.5, 6, 5, 8.7],
+                "#C55A11", "Moverlos a la pestaña que corresponde a su último estatus.")
+    pdf.seccion("Datos a corregir en el seguimiento", verificar,
+                ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_seguimiento", "Tel_seguimiento",
+                 "Observaciones"], [4.2, 4.6, 2.3, 4.6, 2.3, 7.2], "#BF8F00",
+                "Nombre, teléfono, folio o fecha distintos a la bitácora, o capturas duplicadas. "
+                "La columna Observaciones dice qué corregir.")
+    pdf.seccion("En el seguimiento pero no en la bitácora", solo_periodo,
+                ["Hoja", "Fila_excel", "Fecha_ingreso", "Folio_norm", "Nombre", "Telefono", "Asesor", "Observaciones"],
+                [3.6, 1.2, 2.2, 2.2, 5, 2.4, 4.5, 4.2], "#7F7F7F",
+                "Capturados como rechazo, con fecha dentro de los meses de la bitácora, que ahí no salen como "
+                "rechazados. Observaciones dice con qué estatus aparecen.")
+    pdf.guardar(resumen, NOTA_METODO)
 
 
 # =============================================================================
@@ -595,8 +546,11 @@ def procesar(ruta_seg, rutas_cet=None, carpeta=".", bitacora=None):
     enc = cuadre["Resultado"] != "NO capturado en seguimiento"
     faltantes = cuadre[~enc]
     no_cuadra = cuadre[enc & (cuadre["Cuadre_pestana"] == "No cuadra")]
-    verificar = cuadre[enc & ((cuadre["Resultado"] != "Coincide por folio") |
-                              cuadre["Observaciones"].str.contains("distinto|≠|no coincide|veces|inválida|financiera"))
+    # A corregir: cruces dudosos (nombre o teléfono distinto, posibles) o con algo que corregir en Observaciones.
+    # Un cruce por teléfono y nombre sin observaciones ya está bien y no se lista.
+    verificar = cuadre[enc & (cuadre["Resultado"].isin([TIPOS[2], TIPOS[3], TIPOS[4]]) |
+                              cuadre["Observaciones"].str.contains(
+                                  "distinto|≠|no coincide|veces|inválida|financiera|Falta el folio"))
                        & ~cuadre["Observaciones"].str.fullmatch(r"En la bitácora: [\w ]+, confirmar pestaña")]
     revisar = cuadre[enc & ((cuadre["Cuadre_pestana"] != "OK") | cuadre.index.isin(verificar.index))]
     solo_periodo = solo[solo["Clasificacion"] == SOLO_PERIODO]
@@ -626,11 +580,19 @@ def procesar(ruta_seg, rutas_cet=None, carpeta=".", bitacora=None):
          int(solo["Clasificacion"].str.startswith("Financiera que no").sum())),
     ], columns=["Concepto", "Valor"])
 
-    sello = datetime.now().strftime("%Y%m%d_%H%M")
-    rx = os.path.join(carpeta, f"Cuadre_Seguimiento_{sello}.xlsx")
-    rp = os.path.join(carpeta, f"Cuadre_Seguimiento_{sello}.pdf")
-    exportar_excel(rx, resumen, cuadre, faltantes, revisar, solo)
-    exportar_pdf(rp, resumen, faltantes, no_cuadra, verificar, solo_periodo, meses, hojas, financieras)
+    base_nombre = sal.nombre_archivo("Seguimiento", sal.periodo_de_meses(meses))
+    rx = os.path.join(carpeta, base_nombre + ".xlsx")
+    rp = os.path.join(carpeta, base_nombre + ".pdf")
+    sub = subtitulo(meses, hojas, financieras)
+    cifras = [
+        ("Rechazados en la bitácora", len(cli), "clientes únicos", "neutro"),
+        ("Encontrados", int(enc.sum()), f"{enc.mean():.0%} de cuadre" if len(cuadre) else "", "bien"),
+        ("Faltan en seguimiento", len(faltantes), "por capturar", "mal" if len(faltantes) else "bien"),
+        ("Pestaña equivocada", len(no_cuadra), "por mover", "aviso" if len(no_cuadra) else "bien"),
+        ("Datos a corregir", len(verificar), "ver Observaciones", "aviso" if len(verificar) else "bien"),
+    ]
+    exportar_excel(rx, resumen, cuadre, faltantes, revisar, solo, sub)
+    exportar_pdf(rp, resumen, faltantes, no_cuadra, verificar, solo_periodo, sub, cifras)
     return dict(resumen=resumen, cuadre=cuadre, faltantes=faltantes, no_cuadra=no_cuadra,
                 verificar=verificar, revisar=revisar, solo=solo, solo_periodo=solo_periodo,
                 meses=meses, hojas=hojas, financieras=financieras, xlsx=rx, pdf=rp)

@@ -15,7 +15,7 @@ Lógica de cruce (por cliente):
   Se asigna primero lo más confiable (A), luego B, C y D, para que un teléfono
   mal capturado en Sale-U no "robe" el registro de otro cliente.
 
-Salidas: Cuadre_SaleU_<fecha>.xlsx  y  Cuadre_SaleU_<fecha>.pdf
+Salidas: Cuadre_SaleU_<periodo>_<fecha>.xlsx  y  .pdf (formato común en cuadres/salidas.py)
 
 Uso en Colab: ejecuta la celda y sube todos los archivos (el reporte de Sale-U
 y los Excel mensuales de Cetelem) cuando te lo pida.
@@ -26,16 +26,8 @@ from datetime import date, datetime
 from difflib import SequenceMatcher
 import pandas as pd
 
-from openpyxl import load_workbook
 from cuadres.fuentes import financiera_igual, folio_date, to_folio
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                TableStyle, PageBreak)
+from cuadres import salidas as sal
 
 # =============================================================================
 # CONFIGURACIÓN
@@ -504,115 +496,61 @@ def tabla_faltantes(faltantes):
         "Mensualidad": faltantes["Mensualidad"], "Correo": faltantes["Correo"]}, columns=COLS_FALTANTES)
 
 
-def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo):
-    cols_cuadre = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera",
-                   "Folios", "Historial", "Estatus_final", "Cliente_SaleU", "Tel_SaleU",
-                   "Asesor_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU", "Fecha_alta_SaleU",
-                   "Similitud_nombre", "Observaciones"]
-    with pd.ExcelWriter(ruta, engine="openpyxl") as w:
-        resumen.to_excel(w, sheet_name="Resumen", index=False)
-        cuadre[cols_cuadre].to_excel(w, sheet_name="Cuadre_por_cliente", index=False)
-        detalle.to_excel(w, sheet_name="Detalle_por_mes", index=False)
-        tabla_faltantes(faltantes).to_excel(w, sheet_name="Faltan_en_SaleU", index=False)
-        revisar[cols_cuadre].to_excel(w, sheet_name="Revisar", index=False)
+COLS_CUADRE = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera",
+               "Folios", "Historial", "Estatus_final", "Cliente_SaleU", "Tel_SaleU", "Asesor_SaleU", "Estatus_SaleU",
+               "Financiera_SaleU", "Fuente_SaleU", "Fecha_alta_SaleU", "Similitud_nombre", "Observaciones"]
+COLS_SOLO = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fecha_Alta_Credito",
+             "Fuente", "Observaciones"]
 
-    wb = load_workbook(ruta)
-    borde = Side(style="thin", color="BFBFBF")
-    for ws in wb.worksheets:
-        for celda in ws[1]:
-            celda.font = Font(name="Arial", bold=True, color="FFFFFF")
-            celda.fill = PatternFill("solid", fgColor="1F3864")
-            celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        for fila in ws.iter_rows(min_row=2):
-            for celda in fila:
-                celda.font = Font(name="Arial", size=10)
-                celda.border = Border(top=borde, bottom=borde, left=borde, right=borde)
-                if isinstance(celda.value, str) and celda.value in COLORES:
-                    celda.fill = PatternFill("solid", fgColor=COLORES[celda.value])
-        for i, col in enumerate(ws.columns, 1):
-            largo = max(len(str(c.value)) if c.value is not None else 0 for c in col)
-            ws.column_dimensions[get_column_letter(i)].width = min(max(largo + 2, 10), 55)
-        if ws.title == "Faltan_en_SaleU":
-            for (celda,) in ws.iter_rows(min_row=2, min_col=COLS_FALTANTES.index("Mensualidad") + 1,
-                                         max_col=COLS_FALTANTES.index("Mensualidad") + 1):
-                celda.number_format = '"$"#,##0.00'
-            for (celda,) in ws.iter_rows(min_row=2, min_col=1, max_col=1):
-                celda.number_format = "DD/MM/YYYY"
-            ws.column_dimensions["A"].width = 12
-        ws.freeze_panes = "A2"
-        if ws.max_row > 1:
-            ws.auto_filter.ref = ws.dimensions
-    wb.save(ruta)
+
+def _faltantes_con_vendedor(faltantes):
+    vista = tabla_faltantes(faltantes)
+    vista.insert(2, "Vendedor", faltantes["Vendedor"].values)
+    return vista
+
+
+def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo, sub="", titulo=""):
+    sal.excel(ruta, titulo or f"Cuadre Sale-U – {sal.PDV}", sub, [
+        ("Resumen", resumen, ["Concepto", "Valor"]),
+        ("Faltan en Sale-U", _faltantes_con_vendedor(faltantes.sort_values(["Vendedor", "Cliente_bitacora"])),
+         COLS_FALTANTES[:2] + ["Vendedor"] + COLS_FALTANTES[2:]),
+        ("A revisar", revisar, COLS_CUADRE),
+        ("Solo en Sale-U", solo, COLS_SOLO),
+        ("Detalle por mes", detalle, list(detalle.columns)),
+        ("Cuadre por cliente", cuadre, COLS_CUADRE),
+    ], COLORES)
 
 
 # =============================================================================
 # 6. PDF
 # =============================================================================
-def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, meses, financieras=("CETELEM",),
-                 fuente="la bitácora"):
-    st = getSampleStyleSheet()
-    chico = ParagraphStyle("chico", parent=st["Normal"], fontSize=7.5, leading=9)
-    h1 = ParagraphStyle("h1", parent=st["Title"], fontSize=18, textColor=colors.HexColor("#1F3864"))
-    h2 = ParagraphStyle("h2", parent=st["Heading2"], textColor=colors.HexColor("#1F3864"))
-    txt = ParagraphStyle("txt", parent=st["Normal"], fontSize=9.5, leading=13)
-
-    def tabla(df, cols, anchos, color="#1F3864"):
-        if df.empty:
-            return Paragraph("<i>Sin registros.</i>", txt)
-        datos = [[Paragraph(f"<b>{c.replace('_', ' ')}</b>", chico) for c in cols]]
-        for _, r in df.iterrows():
-            datos.append([Paragraph(str(r[c]) if pd.notna(r[c]) else "", chico) for c in cols])
-        t = Table(datos, colWidths=[a * cm for a in anchos], repeatRows=1)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(color)),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#BFBFBF")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        return t
-
-    for df in (faltantes, no_cuadra, revisar_cruce):
-        df["Cliente_bitacora"] = df["Cliente_bitacora"].astype(str)
-
-    doc = SimpleDocTemplate(ruta, pagesize=landscape(letter), leftMargin=1.2 * cm,
-                            rightMargin=1.2 * cm, topMargin=1.2 * cm, bottomMargin=1.2 * cm)
-    el = [Paragraph(f"Cuadre Sale-U vs {fuente.split(' ', 1)[1]} – {PDV}", h1),
-          Paragraph(f"Meses: {', '.join(meses)} · Financieras: {', '.join(financieras)} · Generado: "
-                    f"{datetime.now():%d/%m/%Y %H:%M}", txt), Spacer(1, 10)]
-    el.append(tabla(resumen.assign(Valor=resumen["Valor"].astype(str)), ["Concepto", "Valor"], [12, 4]))
-    el.append(Spacer(1, 10))
-    el.append(Paragraph(
-        f"Cada cliente {de(fuente)} se busca en Sale-U primero "
-        "por teléfono (validando que el nombre "
-        "se parezca) y, si no aparece, por nombre aunque el teléfono sea distinto. Un cliente que "
-        "aparece en varios meses se cuenta una sola vez con su último estatus.", txt))
-
-    el += [PageBreak(), Paragraph(f"1. Clientes {de(fuente)} que NO están en Sale-U ({len(faltantes)})", h2),
-           Paragraph("Estos clientes deben darse de alta en Sale-U con el asesor correspondiente.", txt),
-           Spacer(1, 6)]
-    if not faltantes.empty:
-        por_vend = faltantes.groupby("Vendedor").size().sort_values(ascending=False)
-        el.append(Paragraph("Por vendedor: " + " · ".join(f"<b>{v}</b>: {n}" for v, n in por_vend.items()), txt))
-        el.append(Spacer(1, 6))
-    vista = tabla_faltantes(faltantes.sort_values(["Vendedor", "Cliente_bitacora"])).astype(object)
-    vista["Fecha"] = vista["Fecha"].map(fecha_txt)
-    el.append(tabla(vista.where(lambda d: d.notna(), ""),
-                    COLS_FALTANTES, [1.9, 4.6, 2.2, 2.3, 2.4, 1.1, 4.0, 2.1, 4.4], "#C00000"))
-
-    el += [PageBreak(), Paragraph(f"2. Estatus que no cuadra ({len(no_cuadra)})", h2),
-           Paragraph(f"El cliente sí está en Sale-U, pero su estatus no corresponde con {fuente}.", txt),
-           Spacer(1, 6),
-           tabla(no_cuadra, ["Cliente_bitacora", "Vendedor", "Historial", "Estatus_SaleU", "Observaciones"],
-                 [5, 4.5, 6, 2.5, 7.2], "#C55A11")]
-
-    el += [Spacer(1, 14), Paragraph(f"3. Coincidencias a verificar ({len(revisar_cruce)})", h2),
-           Paragraph("Se emparejaron por nombre con teléfono distinto, o por teléfono con nombre distinto. "
-                     "Confirma que sea la misma persona y corrige el dato en Sale-U.", txt),
-           Spacer(1, 6),
-           tabla(revisar_cruce, ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_SaleU",
-                                 "Tel_SaleU", "Observaciones"], [4.5, 4.8, 2.4, 4.5, 2.4, 6.6], "#BF8F00")]
-    doc.build(el)
+def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, fuente="la bitácora", sub="",
+                 cifras=None, titulo=""):
+    pdf = sal.PDF(ruta, titulo or f"Cuadre Sale-U – {sal.PDV}", sub)
+    pdf.cifras(cifras or [])
+    vista = _faltantes_con_vendedor(faltantes.sort_values(["Vendedor", "Cliente_bitacora"]))
+    pdf.seccion("Clientes que faltan en Sale-U", vista,
+                ["Fecha", "Nombre", "Vendedor", "Celular", "Financiera", "Estatus", "Plazo", "Unidad", "Mensualidad",
+                 "Correo"], [2.0, 3.6, 3.0, 2.1, 2.0, 2.5, 1.2, 2.8, 2.1, 4.2], "#C00000",
+                "Darlos de alta en Sale-U con el asesor correspondiente.",
+                [("Por vendedor", faltantes.groupby("Vendedor").size().sort_values(ascending=False))]
+                if not faltantes.empty else None)
+    pdf.seccion("Estatus distinto en Sale-U", no_cuadra,
+                ["Cliente_bitacora", "Vendedor", "Historial", "Estatus_SaleU", "Observaciones"],
+                [5, 4.5, 6, 2.5, 7.2], "#C55A11",
+                f"El cliente sí está en Sale-U, pero su estatus no corresponde con {fuente}.")
+    pdf.seccion("Coincidencias a verificar", revisar_cruce,
+                ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_SaleU", "Tel_SaleU", "Observaciones"],
+                [4.5, 4.8, 2.4, 4.5, 2.4, 6.6], "#BF8F00",
+                "Se emparejaron por nombre con teléfono distinto, o por teléfono con nombre distinto. "
+                "Confirma que sea la misma persona y corrige el dato en Sale-U.")
+    pdf.seccion(f"En Sale-U sin solicitud en {fuente}", solo_cet,
+                ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fecha_Alta_Credito", "Observaciones"],
+                [5, 2.4, 4, 2.4, 2.6, 3, 6], "#7F7F7F",
+                f"Están en Sale-U con una financiera que sí trae {fuente}, pero no se encontró su solicitud.")
+    pdf.guardar(resumen, f"Cada cliente {de(fuente)} se busca en Sale-U primero por teléfono (validando que el nombre "
+                         "se parezca) y, si no aparece, por nombre aunque el teléfono sea distinto. Un cliente que "
+                         "aparece en varios meses se cuenta una sola vez con su último estatus.")
 
 
 # =============================================================================
@@ -677,12 +615,24 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bit
         (f"Sale-U de financieras que no están en {fuente} (no aplica)", len(solo) - len(solo_cet)),
     ], columns=["Concepto", "Valor"])
 
-    sello = datetime.now().strftime("%Y%m%d_%H%M")
-    ruta_xlsx = os.path.join(carpeta, f"Cuadre_SaleU_{sello}.xlsx")
-    ruta_pdf = os.path.join(carpeta, f"Cuadre_SaleU_{sello}.pdf")
-    exportar_excel(ruta_xlsx, resumen, cuadre, detalle, faltantes, revisar, solo)
-    exportar_pdf(ruta_pdf, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, meses,
-                 financieras, fuente)
+    periodo = sal.periodo_de_fechas(*rango) if rango else sal.periodo_de_meses(meses)
+    base_nombre = sal.nombre_archivo("SaleU", periodo)
+    ruta_xlsx = os.path.join(carpeta, base_nombre + ".xlsx")
+    ruta_pdf = os.path.join(carpeta, base_nombre + ".pdf")
+    titulo = f"Cuadre Sale-U vs {fuente.split(' ', 1)[1]} – {sal.PDV}"
+    sub = ((f"Periodo del reporte: {rango[0]:%d/%m/%Y} – {rango[1]:%d/%m/%Y} · " if rango else "")
+           + f"Meses: {', '.join(meses)} · Financieras: {', '.join(financieras)} · "
+           f"Generado: {datetime.now():%d/%m/%Y %H:%M}")
+    cifras = [
+        (f"Clientes en {fuente.split(' ', 1)[1]}", len(cli), "clientes únicos", "neutro"),
+        ("En Sale-U", int(encontrados.sum()), f"{encontrados.mean():.0%} de cuadre" if len(cuadre) else "", "bien"),
+        ("Faltan en Sale-U", len(faltantes), "por dar de alta", "mal" if len(faltantes) else "bien"),
+        ("Estatus distinto", len(no_cuadra), "corregir en Sale-U", "aviso" if len(no_cuadra) else "bien"),
+        ("A verificar", len(revisar_cruce), "nombre o teléfono distinto", "aviso" if len(revisar_cruce) else "bien"),
+    ]
+    exportar_excel(ruta_xlsx, resumen, cuadre, detalle, faltantes, revisar, solo, sub, titulo)
+    exportar_pdf(ruta_pdf, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, fuente,
+                 sub, cifras, titulo)
     return dict(resumen=resumen, cuadre=cuadre, detalle=detalle, faltantes=faltantes,
                 no_cuadra=no_cuadra, revisar_cruce=revisar_cruce, revisar=revisar, solo=solo,
                 solo_cet=solo_cet, meses=meses, financieras=financieras, rango=rango, fuente=fuente,
