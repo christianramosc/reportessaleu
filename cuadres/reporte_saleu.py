@@ -5,8 +5,7 @@ Reporte PDF «Clientes por registrar en Sale-U»: Aprobados y Rechazados que fal
 
   pdf(faltan, por_confirmar) → bytes del PDF
 
-Portada con cifras (cuántos falta dar de alta y a cuántos les falta el crédito), un pictograma (una figura por
-cliente), gráficas por asesor y de antigüedad, y después el detalle en dos partes —«Dar de alta en Sale-U» y
+Portada con cifras (cuántos falta dar de alta y a cuántos les falta el crédito), gráficas por asesor y de antigüedad, y después el detalle en dos partes —«Dar de alta en Sale-U» y
 «Registrar el crédito»—, cada una por asesor (Aprobados primero), y los aprobados por confirmar. Letra Archivo e iconos de Font Awesome
 Free (assets/fonts, licencias SIL OFL y CC BY 4.0).
 """
@@ -166,42 +165,6 @@ class Cifras(Flowable):
             c.setFont("Archivo", 7.5)
             c.setFillColor(colors.HexColor(TINTA_2))
             c.drawString(x + 12, 11, detalle)
-
-
-class Pictograma(Flowable):
-    """Una figura por cliente, del color de su estatus (azul Aprobado, naranja Rechazado)."""
-
-    def __init__(self, estatus):
-        super().__init__()
-        self.estatus = list(estatus)
-        self.por_fila = 26
-        filas = max(1, -(-len(self.estatus) // self.por_fila))
-        self.alto = 46 + filas * 26
-
-    def wrap(self, *a):
-        return UTIL, self.alto
-
-    def draw(self):
-        c = self.canv
-        _redondeado(c, 0, 0, UTIL, self.alto, 9, "#FFFFFF", LINEA)
-        c.setFillColor(colors.HexColor(TINTA))
-        c.setFont("Archivo-Bold", 10)
-        c.drawString(14, self.alto - 20, "Cada figura es un cliente por registrar")
-        # leyenda (la identidad no depende solo del color: también va escrita)
-        lx = UTIL - 14
-        for est in (RECHAZADO, APROBADO):
-            n = sum(1 for e in self.estatus if e == est)
-            texto = f"{est}s · {n}"
-            c.setFont("Archivo-Medium", 8)
-            tw = pdfmetrics.stringWidth(texto, "Archivo-Medium", 8)
-            c.setFillColor(colors.HexColor(TINTA_2))
-            c.drawRightString(lx, self.alto - 20, texto)
-            _icono(c, lx - tw - 8, self.alto - 20.5, "persona", 8.5, COLOR[est])
-            lx -= tw + 26
-        paso = (UTIL - 28) / self.por_fila
-        for i, est in enumerate(self.estatus):
-            fila, col = divmod(i, self.por_fila)
-            _icono(c, 14 + paso * col + paso / 2, self.alto - 50 - fila * 26, "persona", 18, COLOR.get(est, TINTA_3))
 
 
 class Aviso(Flowable):
@@ -527,7 +490,6 @@ def pdf(faltan, por_confirmar=None, hoy=None):
         el += [Aviso("aprobado", "Todo al día.", "No hay Aprobados ni Rechazados pendientes de registrar en Sale-U "
                                                  "según el Sheet.", COLOR[APROBADO])]
     else:
-        el += [Pictograma(faltan["Estatus"]), Spacer(1, 12)]
         w = (UTIL - 14) / 2
         h = 236
         graf = Table([[Imagen(grafica_asesores(faltan, w, h), w, h), Imagen(grafica_espera(faltan, hoy, w, h), w, h)]],
