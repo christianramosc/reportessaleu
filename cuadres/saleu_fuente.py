@@ -7,8 +7,9 @@ estatus. Es el soporte del reporte de créditos (reporteLeadsconCredito):
   · está en Fuente pero no en Crédito                    → «Falta crédito» (existe como lead; falta registrar el crédito)
   · no está en ninguno de los dos                        → «No Registrado» (falta darlo de alta en Sale-U)
 
-Búsqueda de un cliente en Fuente: mismo teléfono con nombre parecido, o nombre muy parecido con al menos 3
-palabras iguales (Fuente trae miles de leads con nombres cortos: con 2 palabras salen falsos parecidos).
+Búsqueda de un cliente en Fuente (igual que en el de Crédito): por teléfono o por nombre; basta con que coincida
+uno de los dos. Por nombre se pide un nombre muy parecido con al menos 3 palabras iguales (Fuente trae miles de
+leads con nombres cortos: con 2 palabras salen falsos parecidos).
 """
 import csv
 import io
@@ -111,15 +112,21 @@ class Buscador:
                 self.por_palabra.setdefault(p[:4], set()).add(i)
 
     def buscar(self, nombre, tel=""):
-        """(fila del reporte Fuente, cómo) o (None, "")."""
+        """Lead por teléfono o por nombre: (fila del reporte Fuente, cómo) o (None, "")."""
         nom = cu.normalizar_nombre(nombre)
         tel = cu.normalizar_tel(tel) if tel else ""
-        for i in self.por_tel.get(tel, []) if tel else []:
-            if cu.similitud_nombre(nom, self.fu.at[i, "Nombre_norm"])[0] >= cu.UMBRAL_NOMBRE_CON_TEL:
-                return self.fu.loc[i], "teléfono"
+        mismos = self.por_tel.get(tel, []) if tel else []
+        if mismos:
+            i = max(mismos, key=lambda j: cu.similitud_nombre(nom, self.fu.at[j, "Nombre_norm"]))
+            r = cu.similitud_nombre(nom, self.fu.at[i, "Nombre_norm"])[0]
+            return self.fu.loc[i], "teléfono" if r >= cu.UMBRAL_NOMBRE_CON_TEL else "teléfono (nombre distinto)"
+        i = self._por_nombre(nom)
+        return (self.fu.loc[i], "nombre (teléfono distinto)") if i is not None else (None, "")
+
+    def _por_nombre(self, nom):
         palabras = nom.split()
         if len(palabras) < MIN_PALABRAS_SOLO_NOMBRE:
-            return None, ""
+            return None
         cand = {}
         for p in palabras:
             for i in self.por_palabra.get(p[:4], ()):
@@ -132,14 +139,42 @@ class Buscador:
             if (r, k) > mejor[:2]:
                 mejor = (r, k, i)
         if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= MIN_PALABRAS_SOLO_NOMBRE:
-            return self.fu.loc[mejor[2]], "nombre (teléfono distinto)"
-        return None, ""
+            return mejor[2]
+        return None
 
 
 def alta_txt(fila):
     """Fecha de alta del lead como dd/mm/aaaa."""
     f = fila.get("_fecha")
     return f.strftime("%d/%m/%Y") if f is not None and f == f else str(fila.get("Fecha_Alta", ""))[:10]
+
+
+COL_SALEU = "Cómo está en Sale-U"
+NO_APARECE = "No aparece en Sale-U por teléfono ni por nombre"
+
+
+def _limpio(v):
+    return " ".join(str(v or "").split())
+
+
+def describir_lead(fila, como=""):
+    """Cómo está el lead en el reporte Fuente: nombre, teléfono, asesor, alta y estatus, y por qué coincidió."""
+    partes = [f"Lead «{_limpio(fila.get('Nombre'))}»", f"tel. {_limpio(fila.get('Telefono')) or 'sin teléfono'}"]
+    if _limpio(fila.get("Asesor")):
+        partes.append(_limpio(fila.get("Asesor")))
+    partes.append(f"alta {alta_txt(fila)}")
+    if _limpio(fila.get("Estatus_Lead")):
+        partes.append(_limpio(fila.get("Estatus_Lead")))
+    return " · ".join(partes) + (f" · coincidió por {como}" if como else "")
+
+
+def describir_credito(nombre, tel, asesor="", estatus="", financiera="", alta="", como=""):
+    """Cómo está el cliente en el reporte de Crédito de Sale-U."""
+    partes = [f"«{_limpio(nombre)}»", f"tel. {_limpio(tel) or 'sin teléfono'}"]
+    for v in (asesor, " ".join(x for x in (_limpio(estatus), _limpio(financiera)) if x), alta and f"alta {_limpio(alta)}"):
+        if _limpio(v):
+            partes.append(_limpio(v))
+    return " · ".join(partes) + (f" · coincidió por {como}" if como else "")
 
 
 def tel_como_texto(v):

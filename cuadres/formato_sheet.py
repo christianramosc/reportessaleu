@@ -108,6 +108,15 @@ def aplicar(base):
     from cuadres.saleu_sheet import estilo_registro
     estilo_registro(base)                      # Registrado / Falta crédito / No Registrado en Rechazos y Bitacora
 
+    # 6c. zona horaria del Sheet (HOY() y las fechas de las fórmulas en hora de México)
+    if hasattr(base, "libro") and hasattr(base.libro, "batch_update") and hasattr(base, "url"):
+        try:
+            base.libro.batch_update({"requests": [{"updateSpreadsheetProperties": {
+                "properties": {"timeZone": "America/Mexico_City"}, "fields": "timeZone"}}]})
+            hecho.append("Zona horaria del Sheet: Ciudad de México")
+        except Exception:
+            pass
+
     # 7. Revision
     if pendientes.TAB_REVISION in pestanas:
         n = pendientes.ligar_ids(base)

@@ -86,6 +86,36 @@ def letra(col):
     return s
 
 
+def tel_texto(v):
+    """Teléfono como texto de 10 dígitos, venga como venga del Sheet o de un reporte: 3121234567 (número),
+    3121234567.0 (decimal), '312-123-4567', '+52 312 123 4567', '044 312…'. Si no se puede (vacío, notación
+    científica 3.12E+09 que ya perdió dígitos, menos de 10 dígitos), regresa "" ."""
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    if isinstance(v, float):
+        if not v.is_integer():
+            return ""
+        v = int(v)
+    s = str(v).strip()
+    if re.search(r"[eE][+-]?\d", s):           # notación científica: el número ya se dañó
+        return ""
+    s = re.sub(r"\.0+$", "", s)                # «3121234567.0» leído como texto
+    d = re.sub(r"\D", "", s)
+    if len(d) > 10 and d.startswith("52"):
+        d = d[2:]
+    if len(d) > 10 and d[:1] in ("1", "0"):    # 1 (celular viejo) / 044 / 045
+        d = d.lstrip("0")
+        d = d[1:] if len(d) == 11 and d.startswith(("1", "4")) else d
+    return d[-10:] if len(d) >= 10 else ""
+
+
+TEL_COLUMNAS = {"CELULAR", "TELEFONO", "TELEFONO MOVIL", "TEL", "TELEFONO CELULAR"}
+
+
+def _es_telefono(encabezado):
+    return norm(encabezado) in TEL_COLUMNAS
+
+
 def _es_fecha(encabezado):
     h = norm(encabezado)
     return h.startswith("FECHA") or h in ("FECHA INGRESO",)
@@ -123,6 +153,8 @@ class _BaseComun:
         for c in enc:
             if _es_fecha(c):
                 df[c] = df[c].map(de_serial)
+            elif _es_telefono(c):          # siempre texto de 10 dígitos (Sheets los da como número o decimal)
+                df[c] = df[c].map(lambda v: tel_texto(v) or (None if v in (None, "") else str(v).strip()))
         df = df.astype(object)
         return df.where(df.notna(), None)
 

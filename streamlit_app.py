@@ -6,6 +6,8 @@ import sys
 
 import streamlit as st
 
+import zona  # noqa: F401  (hora de México: el servidor corre en UTC)
+
 _RAIZ = pathlib.Path(__file__).resolve().parent
 
 

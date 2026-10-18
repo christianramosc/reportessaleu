@@ -26,8 +26,9 @@ DIAS_SEGUIMIENTO = 180
 TAB_REVISION = "Revision"
 APROBADO, RECHAZADO = "Aprobado", "Rechazado"
 FALTA_ALTA, FALTA_CREDITO = "Dar de alta", "Registrar crédito"
+COL_SALEU = "Cómo está en Sale-U"
 COLS_FALTAN = ["Falta", "Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha", "Mensualidad",
-               "Correo", "Dias", "Fuente", "ID"]
+               "Correo", "Dias", "Fuente", "ID", COL_SALEU]
 
 
 def codigo_saleu(v):
@@ -215,8 +216,59 @@ def _asesor_completo(base):
     return lambda v: ((_asesor(v, catalogo) or v) if catalogo and v else (v or "")).upper()
 
 
-def faltantes_saleu(base, hoy=None):
-    """(faltan, por_confirmar): DataFrames con COLS_FALTAN, ordenados Aprobados primero y por vendedor."""
+def _como_en_saleu(base):
+    """{clave de nombre: (dónde, texto)} con lo último que anotó el cuadre de Sale-U en el Historial (sin reportes a
+    la mano)."""
+    from cuadres.base import TAB_HISTORIAL
+    if TAB_HISTORIAL not in base.pestanas():
+        return {}
+    h = base.leer(TAB_HISTORIAL)
+    if h.empty or "Origen" not in h.columns:
+        return {}
+    out = {}
+    for _, r in h.iterrows():
+        if str(r.get("Origen") or "") != "App · cuadre Sale-U" or "Sale-U" not in str(r.get("Campo") or ""):
+            continue
+        m = str(r.get("Motivo") or "")
+        if m.startswith("Está en el reporte Fuente ("):
+            out[name_key(r["Cliente"])] = ("fuente", "Lead en Fuente: "
+                                           + m[len("Está en el reporte Fuente ("):].split(") pero")[0])
+        elif m.startswith("No aparece"):
+            out[name_key(r["Cliente"])] = ("no", "No aparecía en Sale-U por teléfono ni por nombre")
+    return out
+
+
+def _buscar_en_reportes(fuente, credito):
+    """Función (nombre, tel) → (dónde: "credito" / "fuente" / "no" / None, texto de cómo está en Sale-U), con los
+    reportes del último cuadre."""
+    from cuadres import saleu as cu
+    from cuadres.saleu_fuente import Buscador, describir_lead, describir_credito
+    b = Buscador(fuente) if fuente is not None and len(fuente) else None
+    cred = credito if credito is not None and len(credito) else None
+
+    def buscar(nombre, tel):
+        if cred is not None:
+            nom, t = cu.normalizar_nombre(nombre), cu.normalizar_tel(tel or "")
+            for _, s in cred.iterrows():
+                if (t and s["Tel_norm"] == t) or (cu.similitud_nombre(nom, s["Nombre_norm"])[0] >= cu.UMBRAL_NOMBRE_FUERTE
+                                                  and cu.similitud_nombre(nom, s["Nombre_norm"])[1] >= 2):
+                    return "credito", "Crédito: " + describir_credito(
+                        s["Nombre"], s["Telefono"], s["Asesor"], s["Estatus_SaleU"], s["Financiera"],
+                        s["Fecha_Alta_Credito"])
+        if b is not None:
+            s, como = b.buscar(nombre, tel)
+            return (("fuente", describir_lead(s, como)) if s is not None
+                    else ("no", "No aparece en Sale-U por teléfono ni por nombre"))
+        return None, None
+    return buscar
+
+
+def faltantes_saleu(base, hoy=None, fuente=None, credito=None):
+    """(faltan, por_confirmar): DataFrames con COLS_FALTAN, ordenados Aprobados primero y por vendedor.
+    fuente / credito: DataFrames de los reportes del último cuadre (opcionales). Con ellos «Cómo está en Sale-U» y
+    lo que falta salen de los reportes (con la misma regla del cuadre: un lead de Fuente → Registrar crédito; en
+    Crédito → ya no se lista; nunca baja un «Falta crédito» del Sheet). Sin ellos, lo que dice el Sheet y lo que
+    anotó el cuadre en el Historial."""
     hoy = hoy or dt.date.today()
     asesor = _asesor_completo(base)
     clientes = _Clientes()
@@ -252,6 +304,8 @@ def faltantes_saleu(base, hoy=None):
                 mens=to_num(g(x, "mens")), correo=txt(g(x, "correo")) or "", fuente=txt(g(x, "fuente")) or "Bitacora",
                 id=""))
 
+    buscar = _buscar_en_reportes(fuente, credito) if fuente is not None or credito is not None else None
+    historial = _como_en_saleu(base)
     faltan, confirmar = [], []
     for grupo in clientes.grupos:
         regs = grupo["regs"]
@@ -268,12 +322,17 @@ def faltantes_saleu(base, hoy=None):
         else:
             continue
         ids = ", ".join(dict.fromkeys(y["id"] for y in rechazados if y["id"]))
+        donde, como = buscar(x["cliente"], x["tel"]) if buscar else historial.get(name_key(x["cliente"]), (None, None))
+        if donde == "credito":
+            continue                                  # ya tiene crédito en Sale-U (el Sheet aún no lo dice)
+        cred = any(y["saleu"] == "CRED" for y in regs) or donde == "fuente"   # nunca baja de «Falta crédito»
         destino.append(dict(
-            Falta=FALTA_CREDITO if any(y["saleu"] == "CRED" for y in regs) else FALTA_ALTA,
+            Falta=FALTA_CREDITO if cred else FALTA_ALTA,
             Estatus=x["estatus"], Cliente=x["cliente"], Telefono=telefono(x["tel"]), Vendedor=x["vendedor"] or "",
             Financiera=x["fin"], Unidad=x["unidad"], Fecha=x["fecha"], Mensualidad=x["mens"], Correo=x["correo"],
             Dias=(hoy - x["fecha"]).days if x["fecha"] else None,
-            Fuente=x["fuente"] + (" · antes rechazado" if x["estatus"] == APROBADO and rechazados else ""), ID=ids))
+            Fuente=x["fuente"] + (" · antes rechazado" if x["estatus"] == APROBADO and rechazados else ""), ID=ids,
+            **{COL_SALEU: como or ""}))
 
     def tabla(filas):
         df = pd.DataFrame(filas, columns=COLS_FALTAN)
