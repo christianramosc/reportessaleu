@@ -101,13 +101,15 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 2. **Resumen y cuadres → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra la
    **bitácora completa** (todas las financieras y estatus; ver abajo). Por eso conviene hacer antes el paso 1.
    Un cliente está en Sale-U si coincide el
-   teléfono con nombre parecido (al menos la mitad de las palabras) o el nombre es muy parecido; es el mismo
-   criterio que usa la columna *Registro en Sale-U*. La hoja *Faltan en Sale-U* del Excel trae
+   teléfono (aunque el nombre esté capturado distinto; se avisa para verificar) o el nombre es muy parecido; es el
+   mismo criterio que usa la columna *Registro en Sale-U*. La hoja *Faltan en Sale-U* del Excel trae
    nombre, vendedor, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de
    alta. Además del Excel/PDF, propone el *Registro en Sale-U* de cada rechazo (y de cada aprobado de la *Bitacora*)
    cuya fecha cae en el periodo del reporte de Crédito: *Registrado* (está en Crédito), *Falta crédito* (no está en
    Crédito pero sí en Fuente) o *No Registrado* (no está en ninguno). Sin el reporte Fuente solo hay *Registrado* /
    *No Registrado*. Fuera del periodo de Crédito, un *No Registrado* que sí está en Fuente sube a *Falta crédito*.
+   En los dos reportes el cliente se busca por teléfono **o** por nombre: basta con que coincida uno (si coincide
+   el teléfono con otro nombre, o el nombre con otro teléfono, se avisa para verificar).
    Revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
    Nunca se baja de nivel: lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) se deja igual aunque no
    aparezca en los reportes, y se lista para que lo confirmes.

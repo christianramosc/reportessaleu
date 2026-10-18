@@ -19,6 +19,11 @@ import unicodedata
 from io import BytesIO
 from datetime import datetime
 
+try:
+    import zona  # noqa: F401  (hora de México)
+except ImportError:
+    pass
+
 import openpyxl
 import pandas as pd
 import matplotlib

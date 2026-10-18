@@ -5,7 +5,7 @@ y de los Aprobados de la pestaña Bitacora (mismo criterio).
 
 Con el reporte de Sale-U (reporteLeadsconCredito) se revisa cada rechazo de la base cuya fecha
 de ingreso cae dentro del periodo del reporte:
-  · encontrado (mismo teléfono y nombre parecido, o nombre muy parecido) → "Registrado"
+  · encontrado por teléfono o por nombre (basta uno de los dos)          → "Registrado"
   · no encontrado, pero sí está en el reporte Fuente (opcional)          → "Falta crédito" (falta registrar el crédito)
   · no está en ninguno                                                   → "No Registrado" (falta darlo de alta)
 Nunca se baja de nivel (Registrado > Falta crédito > No Registrado): lo que ya dice que SÍ está registrado
@@ -167,11 +167,10 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
                                   Cliente_Fuente=" ".join(lead["Nombre"].split()), Alta_Fuente=alta_txt(lead)))
             continue
         hallado, como = None, ""
-        for s in por_tel.get(tel, []):
+        if por_tel.get(tel):                    # mismo teléfono: basta (si el nombre no se parece, se avisa)
+            s = max(por_tel[tel], key=lambda x: cu.similitud_nombre(nom, x["Nombre_norm"]))
             r, _ = cu.similitud_nombre(nom, s["Nombre_norm"])
-            if r >= cu.UMBRAL_NOMBRE_CON_TEL:   # mismo teléfono y nombre parecido (mismo criterio que el reporte)
-                hallado, como = s, "teléfono"
-                break
+            hallado, como = s, ("teléfono" if r >= cu.UMBRAL_NOMBRE_CON_TEL else "teléfono (nombre distinto)")
         if hallado is None:
             mejor = (0, 0, None)
             for _, s in su.iterrows():
@@ -214,7 +213,7 @@ COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después
 
 
 def _motivo(r, periodo_txt):
-    if r["Revisar"]:
+    if r["Revisar"] and r["Después"] == REGISTRADO:
         return f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
     if r["Después"] == REGISTRADO:
         return f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})"
