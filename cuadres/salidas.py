@@ -79,9 +79,8 @@ def telefono(v):
     """3123801493.0 / '3123801493.0' → '3123801493'."""
     if vacio(v):
         return ""
-    if isinstance(v, float) and v.is_integer():
-        v = int(v)
-    return re.sub(r"\.0$", "", str(v).strip())
+    from cuadres.base import tel_texto
+    return tel_texto(v) or re.sub(r"\.0$", "", str(v).strip())
 
 
 def texto(v, col=""):

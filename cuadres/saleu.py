@@ -247,17 +247,9 @@ def quitar_acentos(t):
 
 
 def normalizar_tel(t):
-    t = str(t).strip()
-    if re.fullmatch(r"\d+\.0+", t):      # número leído como decimal (3121234567.0)
-        t = t.split(".")[0]
-    if re.search(r"[eE]\+", t):          # notación científica = número dañado
-        return ""
-    dig = re.sub(r"\D", "", t)
-    if len(dig) > 10 and dig.startswith("52"):
-        dig = dig[2:]
-    if len(dig) > 10 and dig.startswith("1"):
-        dig = dig[1:]
-    return dig[-10:] if len(dig) >= 10 else ""
+    """Teléfono a 10 dígitos (texto); misma limpieza en todo el sistema (base.tel_texto)."""
+    from cuadres.base import tel_texto
+    return tel_texto(t)
 
 
 def normalizar_nombre(n):

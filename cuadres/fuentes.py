@@ -87,12 +87,10 @@ def to_folio(v):
 
 
 def to_phone(v):
-    if vacio(v):
-        return None
-    if isinstance(v, float):
-        v = int(v)
-    s = re.sub(r"\D", "", re.sub(r"\.0+$", "", str(v or "").strip()))   # "3121045404.0" (número leído como texto)
-    return int(s) if len(s) == 10 else None
+    """Teléfono a número de 10 dígitos (o None). Misma limpieza que base.tel_texto."""
+    from cuadres.base import tel_texto
+    s = tel_texto(v)
+    return int(s) if s else None
 
 
 def to_date(v):
