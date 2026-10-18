@@ -463,9 +463,6 @@ with tab_su:
                 st.caption(f"Por estatus: {por_est}{por_falta} · En el Sheet: **{n_hoja}** *No Registrado* y "
                            f"**{n_cred}** *Falta crédito*.")
             df = filtro_vendedor(res["faltantes"], "fv_su")
-            if not df.empty:
-                st.bar_chart(df.groupby("Vendedor").size().rename("Clientes"), color="#C00000",
-                             height=60 + 28 * df["Vendedor"].nunique(), horizontal=True)
             vista = cu._faltantes_con_vendedor(df).assign(Historial=df["Historial"].values,
                                                           Observaciones=df["Observaciones"].values)
             vista["Fecha"] = vista["Fecha"].map(cu.fecha_txt)
