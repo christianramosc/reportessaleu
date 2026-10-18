@@ -5,7 +5,7 @@ y de los Aprobados de la pestaña Bitacora (mismo criterio).
 
 Con el reporte de Sale-U (reporteLeadsconCredito) se revisa cada rechazo de la base cuya fecha
 de ingreso cae dentro del periodo del reporte:
-  · encontrado (mismo teléfono y nombre parecido, o nombre muy parecido) → "Registrado"
+  · encontrado por teléfono o por nombre (basta uno de los dos)          → "Registrado"
   · no encontrado, pero sí está en el reporte Fuente (opcional)          → "Falta crédito" (falta registrar el crédito)
   · no está en ninguno                                                   → "No Registrado" (falta darlo de alta)
 Nunca se baja de nivel (Registrado > Falta crédito > No Registrado): lo que ya dice que SÍ está registrado
@@ -159,12 +159,6 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             if buscador is None or norm(row["saleu"]) != norm(NO_REGISTRADO):
                 continue
             lead, como_lead = buscador.buscar(row["nombre"], tel)
-            if lead is None and buscador.posible(row["nombre"]) is not None:
-                p = buscador.posible(row["nombre"])
-                filas.append(dict(Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"],
-                                  Fecha_ingreso=row["fecha"], Antes=row["saleu"], Después=row["saleu"], Cambia=False,
-                                  Como="", Revisar=_aviso_tel(p), Cliente_SaleU="", Estatus_SaleU="",
-                                  Financiera_SaleU="", Cliente_Fuente="", Alta_Fuente=""))
             if lead is not None:
                 filas.append(dict(Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"],
                                   Fecha_ingreso=row["fecha"], Antes=row["saleu"], Después=FALTA_CREDITO, Cambia=True,
@@ -173,11 +167,10 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
                                   Cliente_Fuente=" ".join(lead["Nombre"].split()), Alta_Fuente=alta_txt(lead)))
             continue
         hallado, como = None, ""
-        for s in por_tel.get(tel, []):
+        if por_tel.get(tel):                    # mismo teléfono: basta (si el nombre no se parece, se avisa)
+            s = max(por_tel[tel], key=lambda x: cu.similitud_nombre(nom, x["Nombre_norm"]))
             r, _ = cu.similitud_nombre(nom, s["Nombre_norm"])
-            if r >= cu.UMBRAL_NOMBRE_CON_TEL:   # mismo teléfono y nombre parecido (mismo criterio que el reporte)
-                hallado, como = s, "teléfono"
-                break
+            hallado, como = s, ("teléfono" if r >= cu.UMBRAL_NOMBRE_CON_TEL else "teléfono (nombre distinto)")
         if hallado is None:
             mejor = (0, 0, None)
             for _, s in su.iterrows():
@@ -187,10 +180,9 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= 2:
                 hallado, como = mejor[2], "nombre (teléfono distinto)"
         actual = row["saleu"] or ""
-        revisar, lead, posible = "", None, None
+        revisar, lead = "", None
         if hallado is None and buscador is not None:
             lead, como_lead = buscador.buscar(row["nombre"], tel)
-            posible = buscador.posible(row["nombre"]) if lead is None else None
         if hallado is not None:
             nuevo = REGISTRADO
         elif ya_registrado(actual):
@@ -204,8 +196,6 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             nuevo, como = FALTA_CREDITO, "se respetó lo que ya decía"   # ya se vio en Fuente antes
         else:
             nuevo = NO_REGISTRADO
-        if posible is not None and nuevo != REGISTRADO:
-            revisar = _aviso_tel(posible)
         filas.append(dict(
             Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"], Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo,
             Cambia=actual != nuevo, Como=como, Revisar=revisar,
@@ -220,12 +210,6 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
 
 COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como", "Revisar",
                   "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Alta_Fuente"]
-
-
-def _aviso_tel(lead):
-    from cuadres.saleu_fuente import alta_txt
-    return (f"En Fuente hay «{' '.join(lead['Nombre'].split())}» (alta {alta_txt(lead)}) con otro teléfono "
-            f"({lead['Telefono']}): no cuenta como dado de alta; corrige el teléfono en Sale-U si es la misma persona")
 
 
 def _motivo(r, periodo_txt):

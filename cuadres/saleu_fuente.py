@@ -7,9 +7,9 @@ estatus. Es el soporte del reporte de créditos (reporteLeadsconCredito):
   · está en Fuente pero no en Crédito                    → «Falta crédito» (existe como lead; falta registrar el crédito)
   · no está en ninguno de los dos                        → «No Registrado» (falta darlo de alta en Sale-U)
 
-Búsqueda de un cliente en Fuente: mismo teléfono con nombre parecido. Un lead con nombre muy parecido (al menos 3
-palabras iguales) pero otro teléfono NO cuenta como dado de alta: se avisa para corregir el teléfono en Sale-U
-(posible()).
+Búsqueda de un cliente en Fuente (igual que en el de Crédito): por teléfono o por nombre; basta con que coincida
+uno de los dos. Por nombre se pide un nombre muy parecido con al menos 3 palabras iguales (Fuente trae miles de
+leads con nombres cortos: con 2 palabras salen falsos parecidos).
 """
 import csv
 import io
@@ -112,17 +112,18 @@ class Buscador:
                 self.por_palabra.setdefault(p[:4], set()).add(i)
 
     def buscar(self, nombre, tel=""):
-        """Lead con el mismo teléfono y nombre parecido: (fila del reporte Fuente, cómo) o (None, "")."""
+        """Lead por teléfono o por nombre: (fila del reporte Fuente, cómo) o (None, "")."""
         nom = cu.normalizar_nombre(nombre)
         tel = cu.normalizar_tel(tel) if tel else ""
-        for i in self.por_tel.get(tel, []) if tel else []:
-            if cu.similitud_nombre(nom, self.fu.at[i, "Nombre_norm"])[0] >= cu.UMBRAL_NOMBRE_CON_TEL:
-                return self.fu.loc[i], "teléfono"
-        return None, ""
+        mismos = self.por_tel.get(tel, []) if tel else []
+        if mismos:
+            i = max(mismos, key=lambda j: cu.similitud_nombre(nom, self.fu.at[j, "Nombre_norm"]))
+            r = cu.similitud_nombre(nom, self.fu.at[i, "Nombre_norm"])[0]
+            return self.fu.loc[i], "teléfono" if r >= cu.UMBRAL_NOMBRE_CON_TEL else "teléfono (nombre distinto)"
+        i = self._por_nombre(nom)
+        return (self.fu.loc[i], "nombre (teléfono distinto)") if i is not None else (None, "")
 
-    def posible(self, nombre):
-        """Lead con nombre muy parecido (3+ palabras), sin importar el teléfono, o None. Solo para avisar."""
-        nom = cu.normalizar_nombre(nombre)
+    def _por_nombre(self, nom):
         palabras = nom.split()
         if len(palabras) < MIN_PALABRAS_SOLO_NOMBRE:
             return None
@@ -138,7 +139,7 @@ class Buscador:
             if (r, k) > mejor[:2]:
                 mejor = (r, k, i)
         if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= MIN_PALABRAS_SOLO_NOMBRE:
-            return self.fu.loc[mejor[2]]
+            return mejor[2]
         return None
 
 

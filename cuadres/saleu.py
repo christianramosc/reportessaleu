@@ -385,14 +385,13 @@ def cruzar(cli, su, fuente="la bitácora"):
                 continue
             candidatos.append((nivel, -sim, c["id_c"], s["id_s"], sim, tel))
 
-    # Mismo criterio que la columna «Cliente con Registro en SalesU» del Sheet (saleu_sheet.py):
-    # está en Sale-U si coincide el teléfono con nombre parecido (nivel 1) o el nombre es muy parecido
-    # (nivel 2). Mismo teléfono con otro nombre (3) o nombre medio parecido (4) NO cuentan: se avisan
-    # como posibles para revisar.
+    # Mismo criterio que la columna «Registro en Sale-U» del Sheet (saleu_sheet.py): está en Sale-U si coincide
+    # el teléfono (nivel 1 con nombre parecido, nivel 3 con otro nombre: se avisa para verificar) o el nombre es
+    # muy parecido (nivel 2). Nombre medio parecido (4) NO cuenta: se avisa como posible para revisar.
     candidatos.sort()
     usados_s, pares, posibles = set(), {}, {}
     for nivel, _, ic, is_, sim, tel in candidatos:
-        if nivel <= 2:
+        if nivel <= 3:
             if ic not in pares:
                 pares[ic] = (is_, nivel, sim)
                 usados_s.add(is_)
@@ -503,10 +502,8 @@ def marcar_fuente(faltantes, fuente_df):
             s, _ = b.buscar(r["Cliente_bitacora"], tel)
             if s is not None:
                 break
-        p = b.posible(r["Cliente_bitacora"]) if s is None else None
         falta.append(FALTA_CREDITO if s is not None else FALTA_ALTA)
-        lead.append(f"{' '.join(s['Nombre'].split())} (alta {alta_txt(s)})" if s is not None else
-                    f"¿{' '.join(p['Nombre'].split())}? otro tel. {p['Telefono']}" if p is not None else "")
+        lead.append(f"{' '.join(s['Nombre'].split())} (alta {alta_txt(s)})" if s is not None else "")
     return faltantes.assign(Falta=falta, Lead_Fuente=lead)
 
 
@@ -660,6 +657,8 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bit
         (f"Clientes {de(fuente)} encontrados en Sale-U", int(encontrados.sum())),
         ("   · por teléfono y nombre", int((cuadre["Resultado"] == "Coincide (teléfono y nombre)").sum())),
         ("   · por nombre, teléfono distinto", int((cuadre["Resultado"] == "Coincide por nombre – teléfono distinto").sum())),
+        ("   · por teléfono, nombre distinto (verificar)",
+         int((cuadre["Resultado"] == "Coincide por teléfono – nombre distinto").sum())),
         (f"Clientes {de(fuente)} NO registrados en Sale-U", len(faltantes)),
         *([("   · no están en Sale-U (dar de alta)", n_alta),
            ("   · ya son lead en el reporte Fuente (registrar crédito)", n_cred)] if fu is not None else []),
