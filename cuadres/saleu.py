@@ -248,6 +248,8 @@ def quitar_acentos(t):
 
 def normalizar_tel(t):
     t = str(t).strip()
+    if re.fullmatch(r"\d+\.0+", t):      # número leído como decimal (3121234567.0)
+        t = t.split(".")[0]
     if re.search(r"[eE]\+", t):          # notación científica = número dañado
         return ""
     dig = re.sub(r"\D", "", t)
@@ -427,7 +429,12 @@ def cruzar(cli, su, fuente="la bitácora"):
             est_cuadre, obs_est = comparar_estatus(c["Estatus_final"], s["Estatus_SaleU"], fuente)
             if obs_est:
                 obs.append(obs_est)
+            from cuadres.saleu_fuente import describir_credito
             base.update({
+                "Cómo está en Sale-U": describir_credito(
+                    s["Nombre"], s["Telefono"], s["Asesor"], s["Estatus_SaleU"], s["Financiera"],
+                    s["Fecha_Alta_Credito"], {1: "teléfono y nombre", 2: "nombre, otro teléfono",
+                                              3: "teléfono, otro nombre"}.get(nivel, "")),
                 "Resultado": tipo[nivel],
                 "Similitud_nombre": round(sim, 2),
                 "Cliente_SaleU": s["Nombre"], "Tel_SaleU": s["Telefono"],
@@ -438,12 +445,15 @@ def cruzar(cli, su, fuente="la bitácora"):
             })
         else:
             obs_no = "Dar de alta en Sale-U"
+            como_su = "No aparece en el reporte de Crédito por teléfono ni por nombre"
             if c["id_c"] in posibles:
                 is_, nivel = posibles[c["id_c"]]
                 s = su.loc[su["id_s"] == is_].iloc[0]
                 obs_no += (f"; revisar posible registro: {s['Nombre']} "
                            + ("(mismo teléfono, otro nombre)" if nivel == 3 else f"(nombre parecido, tel. {s['Telefono']})"))
-            base.update({"Resultado": "NO registrado en Sale-U", "Similitud_nombre": None,
+                como_su = (f"Posible: «{' '.join(str(s['Nombre']).split())}» · tel. {s['Telefono'] or 'sin teléfono'}"
+                           f" · {s['Asesor']} (nombre parecido; verifica que sea la misma persona)")
+            base.update({"Resultado": "NO registrado en Sale-U", "Cómo está en Sale-U": como_su, "Similitud_nombre": None,
                          "Cliente_SaleU": "", "Tel_SaleU": "", "Asesor_SaleU": "",
                          "Estatus_SaleU": "", "Financiera_SaleU": "", "Fuente_SaleU": "", "Fecha_alta_SaleU": "",
                          "Cuadre_estatus": "—", "Observaciones": obs_no})
@@ -490,28 +500,34 @@ COLS_FALTANTES = ["Fecha", "Nombre", "Celular", "Financiera", "Estatus", "Plazo"
 FALTA_ALTA, FALTA_CREDITO = "Dar de alta", "Registrar crédito"
 
 
+COL_SALEU = "Cómo está en Sale-U"
+
+
 def marcar_fuente(faltantes, fuente_df):
-    """Agrega Falta («Dar de alta» / «Registrar crédito») y Lead_Fuente (nombre y alta del lead) a los faltantes."""
-    from cuadres.saleu_fuente import Buscador, alta_txt
+    """Agrega Falta («Dar de alta» / «Registrar crédito») y, en «Cómo está en Sale-U», cómo está el lead en el
+    reporte Fuente (nombre, teléfono, asesor, alta, estatus y por qué coincidió)."""
+    from cuadres.saleu_fuente import Buscador, describir_lead
     b = Buscador(fuente_df)
-    falta, lead = [], []
+    falta, como_su = [], []
     for _, r in faltantes.iterrows():
-        s = None
+        s, como = None, ""
         tels = r.get("tels")
         for tel in (sorted(tels) if isinstance(tels, (set, list)) and tels else [r["Tel_bitacora"]]):
-            s, _ = b.buscar(r["Cliente_bitacora"], tel)
+            s, como = b.buscar(r["Cliente_bitacora"], tel)
             if s is not None:
                 break
         falta.append(FALTA_CREDITO if s is not None else FALTA_ALTA)
-        lead.append(f"{' '.join(s['Nombre'].split())} (alta {alta_txt(s)})" if s is not None else "")
-    return faltantes.assign(Falta=falta, Lead_Fuente=lead)
+        como_su.append(describir_lead(s, como) if s is not None else
+                       (r[COL_SALEU] if str(r.get(COL_SALEU, "")).startswith("Posible") else
+                        "No aparece en Sale-U (ni Fuente ni Crédito) por teléfono ni por nombre"))
+    return faltantes.assign(Falta=falta, **{COL_SALEU: como_su})
 
 
 def tabla_faltantes(faltantes):
     """Hoja «Faltan en Sale-U»: los datos del cliente para darlo de alta."""
-    if "Falta" in faltantes:
-        return tabla_faltantes(faltantes.drop(columns=["Falta", "Lead_Fuente"])).assign(
-            Falta=faltantes["Falta"].values, Lead_Fuente=faltantes["Lead_Fuente"].values)
+    extra = {c: faltantes[c].values for c in ("Falta", COL_SALEU) if c in faltantes}
+    if extra:
+        return tabla_faltantes(faltantes.drop(columns=list(extra))).assign(**extra)
     return pd.DataFrame({
         "Fecha": faltantes["Fecha"] if "Fecha" in faltantes else None,
         "Nombre": faltantes["Cliente_bitacora"], "Celular": faltantes["Tel_bitacora"],
@@ -519,7 +535,8 @@ def tabla_faltantes(faltantes):
         "Mensualidad": faltantes["Mensualidad"], "Correo": faltantes["Correo"]}, columns=COLS_FALTANTES)
 
 
-COLS_CUADRE = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Vendedor", "Financiera",
+COLS_CUADRE = ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", "Cómo está en Sale-U", "Vendedor",
+               "Financiera",
                "Folios", "Historial", "Estatus_final", "Cliente_SaleU", "Tel_SaleU", "Asesor_SaleU", "Estatus_SaleU",
                "Financiera_SaleU", "Fuente_SaleU", "Fecha_alta_SaleU", "Similitud_nombre", "Observaciones"]
 COLS_SOLO = ["Clasificacion", "Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fecha_Alta_Credito",
@@ -543,7 +560,7 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo, sub
         ("Resumen", resumen, ["Concepto", "Valor"]),
         ("Faltan en Sale-U", _faltantes_con_vendedor(_orden_faltantes(faltantes)),
          (["Falta"] if con_fuente else []) + COLS_FALTANTES[:2] + ["Vendedor"] + COLS_FALTANTES[2:]
-         + (["Lead_Fuente"] if con_fuente else [])),
+         + [COL_SALEU]),
         ("A revisar", revisar, COLS_CUADRE),
         ("Solo en Sale-U", solo, COLS_SOLO),
         ("Detalle por mes", detalle, list(detalle.columns)),
@@ -558,40 +575,41 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, f
                  cifras=None, titulo=""):
     pdf = sal.PDF(ruta, titulo or f"Cuadre Sale-U – {sal.PDV}", sub)
     pdf.cifras(cifras or [])
-    cols = ["Fecha", "Nombre", "Vendedor", "Celular", "Financiera", "Estatus", "Plazo", "Unidad", "Mensualidad",
-            "Correo"]
-    anchos = [2.0, 3.6, 3.0, 2.1, 2.0, 2.5, 1.2, 2.8, 2.1, 4.2]
+    cols = ["Fecha", "Nombre", "Vendedor", "Celular", "Financiera", "Estatus", "Mensualidad", "Correo", COL_SALEU]
+    anchos = [1.9, 3.4, 2.8, 2.0, 1.9, 2.2, 1.9, 3.6, 5.8]
     por_vendedor = lambda df: ([("Por vendedor", df.groupby("Vendedor").size().sort_values(ascending=False))]
                                if not df.empty else None)
     if "Falta" in faltantes:
         alta, cred = faltantes[faltantes["Falta"] == FALTA_ALTA], faltantes[faltantes["Falta"] == FALTA_CREDITO]
         pdf.seccion("Dar de alta en Sale-U", _faltantes_con_vendedor(_orden_faltantes(alta)), cols, anchos, "#C00000",
-                    "No están ni en el reporte Fuente ni en el de Crédito: darlos de alta en Sale-U con el asesor "
-                    "correspondiente y registrar su crédito.", por_vendedor(alta))
-        vista = _faltantes_con_vendedor(_orden_faltantes(cred))
-        pdf.seccion("Registrar el crédito en Sale-U (ya son lead)", vista,
-                    ["Fecha", "Nombre", "Vendedor", "Celular", "Financiera", "Estatus", "Mensualidad", "Lead_Fuente"],
-                    [2.0, 3.8, 3.0, 2.1, 2.0, 2.5, 2.1, 8.0], "#BF8F00",
-                    "Salen en el reporte Fuente pero no en el de Crédito: capturar el crédito en el lead que ya "
-                    "existe (no darlos de alta otra vez).", por_vendedor(cred))
+                    "No están ni en el reporte Fuente ni en el de Crédito (ni por teléfono ni por nombre): darlos de "
+                    "alta en Sale-U con el asesor correspondiente y registrar su crédito.", por_vendedor(alta))
+        pdf.seccion("Registrar el crédito en Sale-U (ya son lead)", _faltantes_con_vendedor(_orden_faltantes(cred)),
+                    ["Fecha", "Nombre", "Vendedor", "Celular", "Financiera", "Estatus", "Mensualidad", COL_SALEU],
+                    [1.9, 3.6, 2.9, 2.0, 1.9, 2.3, 1.9, 9.0], "#BF8F00",
+                    "Salen en el reporte Fuente pero no en el de Crédito: busca el lead como aparece en «Cómo está "
+                    "en Sale-U» (nombre y teléfono con que se capturó) y registra ahí el crédito, sin darlo de alta "
+                    "otra vez.", por_vendedor(cred))
     else:
         pdf.seccion("Clientes que faltan en Sale-U", _faltantes_con_vendedor(_orden_faltantes(faltantes)), cols,
                     anchos, "#C00000", "Darlos de alta en Sale-U con el asesor correspondiente.", por_vendedor(faltantes))
     pdf.seccion("Estatus distinto en Sale-U", no_cuadra,
-                ["Cliente_bitacora", "Vendedor", "Historial", "Estatus_SaleU", "Observaciones"],
-                [5, 4.5, 6, 2.5, 7.2], "#C55A11",
-                f"El cliente sí está en Sale-U, pero su estatus no corresponde con {fuente}.")
+                ["Cliente_bitacora", "Vendedor", "Historial", COL_SALEU, "Observaciones"],
+                [4.2, 3.5, 5.0, 6.5, 6.3], "#C55A11",
+                f"El cliente sí está en Sale-U (búscalo como dice «Cómo está en Sale-U»), pero su estatus no "
+                f"corresponde con {fuente}.")
     pdf.seccion("Coincidencias a verificar", revisar_cruce,
-                ["Resultado", "Cliente_bitacora", "Tel_bitacora", "Cliente_SaleU", "Tel_SaleU", "Observaciones"],
-                [4.5, 4.8, 2.4, 4.5, 2.4, 6.6], "#BF8F00",
+                ["Resultado", "Cliente_bitacora", "Tel_bitacora", COL_SALEU, "Observaciones"],
+                [4.0, 4.4, 2.3, 7.8, 7.0], "#BF8F00",
                 "Se emparejaron por nombre con teléfono distinto, o por teléfono con nombre distinto. "
                 "Confirma que sea la misma persona y corrige el dato en Sale-U.")
     pdf.seccion(f"En Sale-U sin solicitud en {fuente}", solo_cet,
                 ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fecha_Alta_Credito", "Observaciones"],
                 [5, 2.4, 4, 2.4, 2.6, 3, 6], "#7F7F7F",
                 f"Están en Sale-U con una financiera que sí trae {fuente}, pero no se encontró su solicitud.")
-    pdf.guardar(resumen, f"Cada cliente {de(fuente)} se busca en Sale-U primero por teléfono (validando que el nombre "
-                         "se parezca) y, si no aparece, por nombre aunque el teléfono sea distinto. Un cliente que "
+    pdf.guardar(resumen, f"Cada cliente {de(fuente)} se busca en Sale-U por teléfono o por nombre: basta con que "
+                         "coincida uno de los dos (si el otro dato es distinto se avisa para verificar). «Cómo está en "
+                         "Sale-U» dice con qué nombre, teléfono, asesor y estatus está capturado. Un cliente que "
                          "aparece en varios meses se cuenta una sola vez con su último estatus.")
 
 

@@ -151,6 +151,7 @@ def ejecutar_su_base(base, archivo_su, clientes, archivo_fuente=None):
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
     res["con_fuente"] = fu is not None
+    res["fuente_df"], res["credito_df"] = fu, su       # para «Cómo está en Sale-U» en la lista del Resumen
     res["periodo_fuente"] = saleu_fuente.periodo_txt(fu)
     res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
                                 columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
@@ -293,7 +294,8 @@ with tab_res:
         st.caption("Aprobados y Rechazados sin registro, según el Sheet (lo marca el cuadre de Sale-U): «No Registrado» "
                    "= falta darlos de alta; «Falta crédito» = ya son lead (reporte Fuente), falta su crédito.")
         try:
-            faltan, confirmar = resumen.faltantes_saleu(base)
+            res_su = st.session_state.get("res_su") or {}
+            faltan, confirmar = resumen.faltantes_saleu(base, fuente=res_su.get("fuente_df"), credito=res_su.get("credito_df"))
         except Exception as e:
             faltan = confirmar = None
             st.error(f"No se pudo armar la lista: {e}")
@@ -308,23 +310,32 @@ with tab_res:
                         help="Ya son lead (reporte Fuente); falta registrar su crédito.")
             m[3].metric("Aprobados", int((faltan["Estatus"] == resumen.APROBADO).sum()))
             m[4].metric("Por confirmar", len(confirmar), help="Aprobados sin dato de Sale-U.")
-            if st.button("Generar PDF", type="primary", icon=":material/picture_as_pdf:", key="btn_pdf_su"):
+            if st.button("Generar PDF y Excel", type="primary", icon=":material/picture_as_pdf:", key="btn_pdf_su"):
                 with st.spinner("Armando el reporte…"):
                     try:
                         from cuadres import reporte_saleu
-                        st.session_state["pdf_su"] = (reporte_saleu.pdf(faltan, confirmar),
-                                                      f"PorRegistrar_SaleU_{dt.date.today():%Y%m%d}.pdf")
+                        nombre = f"PorRegistrar_SaleU_{dt.date.today():%Y%m%d}"
+                        st.session_state["pdf_su"] = (reporte_saleu.pdf(faltan, confirmar), nombre + ".pdf",
+                                                      reporte_saleu.excel(faltan, confirmar), nombre + ".xlsx")
                     except Exception as e:
-                        st.error(f"No se pudo generar el PDF: {e}")
-            if st.session_state.get("pdf_su"):
-                datos_pdf, nombre_pdf = st.session_state["pdf_su"]
-                st.download_button("Descargar PDF", datos_pdf, file_name=nombre_pdf, mime="application/pdf",
-                                   icon=":material/download:", key="dl_pdf_su")
+                        st.error(f"No se pudo generar el reporte: {e}")
+            if st.session_state.get("pdf_su") and len(st.session_state["pdf_su"]) == 4:
+                datos_pdf, nombre_pdf, datos_xl, nombre_xl = st.session_state["pdf_su"]
+                d1, d2 = st.columns(2)
+                d1.download_button("Descargar PDF", datos_pdf, file_name=nombre_pdf, mime="application/pdf",
+                                   icon=":material/download:", key="dl_pdf_su", width="stretch")
+                d2.download_button("Descargar Excel", datos_xl, file_name=nombre_xl, icon=":material/download:",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   key="dl_xl_su", width="stretch")
+            if res_su.get("fuente_df") is None:
+                st.caption("«Cómo está en Sale-U» sale de lo que anotó el último cuadre en el Historial. Haz el cuadre "
+                           "con los reportes de Crédito y Fuente en esta sesión para verlo con el teléfono, asesor y "
+                           "estatus del lead.")
             if not faltan.empty:
                 vista = faltan.assign(Fecha=faltan["Fecha"].map(cu.fecha_txt),
                                       Mensualidad=faltan["Mensualidad"].map(
                                           lambda v: f"${v:,.2f}" if v == v and v else ""))
-                st.dataframe(vista[["Falta", "Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
+                st.dataframe(vista[["Falta", "Estatus", "Cliente", resumen.COL_SALEU, "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
                                     "Mensualidad"]].rename(columns={"Telefono": "Celular", "Dias": "Días"}),
                              hide_index=True, width="stretch")
 
@@ -461,12 +472,11 @@ with tab_su:
             vista["Mensualidad"] = vista["Mensualidad"].map(lambda v: f"${v:,.2f}" if v == v and v else "")
             vista["Plazo"] = vista["Plazo"].map(lambda v: str(int(v)) if v == v and v else "")
             con_f = "Falta" in df
-            if con_f:
-                vista = vista.assign(Falta=df["Falta"].values, Lead_Fuente=df["Lead_Fuente"].values)
             tabla(vista, (["Falta"] if con_f else []) + cu.COLS_FALTANTES[:2] + ["Vendedor"] + cu.COLS_FALTANTES[2:]
-                  + (["Lead_Fuente"] if con_f else []) + ["Historial", "Observaciones"], ["Falta"] if con_f else ())
+                  + ([cu.COL_SALEU] if cu.COL_SALEU in vista else []) + ["Historial", "Observaciones"],
+                  ["Falta"] if con_f else ())
         with t2:
-            tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora",
+            tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", cu.COL_SALEU,
                                    "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Fuente_SaleU",
                                    "Observaciones"], ["Resultado", "Cuadre_estatus"])
         with t4:

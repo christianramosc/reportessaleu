@@ -463,6 +463,7 @@ def _tabla_clientes(df, color_estatus=True):
     st = _estilos()
     datos = [[Paragraph("Estatus", st["enc"]), Paragraph("Cliente", st["enc"]), Paragraph("Contacto", st["enc"]),
               Paragraph("Solicitud", st["enc"]), Paragraph("Mensualidad", st["enc_d"])]]
+    sub = []
     for _, r in df.iterrows():
         est = r["Estatus"]
         clave = est if color_estatus else "confirmar"
@@ -481,13 +482,23 @@ def _tabla_clientes(df, color_estatus=True):
                                                f'{_e(detalle)}</font>' if detalle else ""), st["nombre"]),
             Paragraph(contacto, st["celda"]), Paragraph(solicitud, st["celda"]),
             Paragraph(f"${mens:,.2f}" if mens == mens and mens else "—", st["celda_d"])])
+        como = str(r.get("Cómo está en Sale-U") or "").strip()
+        if como:                            # renglón debajo del cliente: cómo encontrarlo en Sale-U
+            datos.append(["", Paragraph(f'{_ico("info", NAVY_2, 6.8)}  <font color="{NAVY_2}"><b>En Sale-U:</b></font> '
+                                        f'{_e(como)}', st["celda"]), "", "", ""])
+            sub.append(len(datos) - 1)
     t = Table(datos, colWidths=[68, 186, 128, 82, 68], repeatRows=1)
-    t.setStyle(TableStyle([
+    estilo = [
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.HexColor(LINEA)),
         ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor(LINEA)),
         ("TOPPADDING", (0, 1), (-1, -1), 6), ("BOTTOMPADDING", (0, 1), (-1, -1), 6),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]))
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]
+    for i in sub:
+        estilo += [("SPAN", (1, i), (4, i)), ("TOPPADDING", (0, i), (-1, i), 0), ("BOTTOMPADDING", (0, i), (-1, i), 5),
+                   ("LINEBELOW", (0, i - 1), (-1, i - 1), 0, colors.white),
+                   ("BACKGROUND", (1, i), (4, i), colors.HexColor("#F3F6FB"))]
+    t.setStyle(TableStyle(estilo))
     return t
 
 
@@ -562,3 +573,24 @@ def pdf(faltan, por_confirmar=None, hoy=None):
                                     TINTA_3)]
     doc.build(el)
     return buf.getvalue()
+
+
+def excel(faltan, por_confirmar=None, hoy=None):
+    """Bytes del Excel con la misma lista del PDF (una hoja por lo que falta, más los por confirmar)."""
+    import tempfile
+    from cuadres import salidas as sal
+    hoy = hoy or dt.date.today()
+    cols = ["Falta", "Estatus", "Cliente", "Cómo está en Sale-U", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha",
+            "Dias", "Mensualidad", "Correo", "Fuente", "ID"]
+    vista = lambda df: df.assign(Fecha=df["Fecha"].map(_fecha)) if not df.empty else df
+    hojas = [("Por registrar", vista(faltan), cols)]
+    if "Falta" in faltan.columns:
+        for f in (FALTA_ALTA, FALTA_CREDITO):
+            hojas.append((f, vista(faltan[faltan["Falta"] == f]), cols[1:]))
+    if por_confirmar is not None and not por_confirmar.empty:
+        hojas.append(("Por confirmar", vista(por_confirmar), cols[1:]))
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta = os.path.join(tmp, "x.xlsx")
+        sal.excel(ruta, "Clientes por registrar en Sale-U – MG Colima", f"Corte {hoy:%d/%m/%Y} · {len(faltan)} clientes",
+                  hojas, {FALTA_ALTA: "FFC7CE", FALTA_CREDITO: "FFEB9C"})
+        return open(ruta, "rb").read()
