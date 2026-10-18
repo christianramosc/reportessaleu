@@ -7,8 +7,9 @@ estatus. Es el soporte del reporte de créditos (reporteLeadsconCredito):
   · está en Fuente pero no en Crédito                    → «Falta crédito» (existe como lead; falta registrar el crédito)
   · no está en ninguno de los dos                        → «No Registrado» (falta darlo de alta en Sale-U)
 
-Búsqueda de un cliente en Fuente: mismo teléfono con nombre parecido, o nombre muy parecido con al menos 3
-palabras iguales (Fuente trae miles de leads con nombres cortos: con 2 palabras salen falsos parecidos).
+Búsqueda de un cliente en Fuente: mismo teléfono con nombre parecido. Un lead con nombre muy parecido (al menos 3
+palabras iguales) pero otro teléfono NO cuenta como dado de alta: se avisa para corregir el teléfono en Sale-U
+(posible()).
 """
 import csv
 import io
@@ -111,15 +112,20 @@ class Buscador:
                 self.por_palabra.setdefault(p[:4], set()).add(i)
 
     def buscar(self, nombre, tel=""):
-        """(fila del reporte Fuente, cómo) o (None, "")."""
+        """Lead con el mismo teléfono y nombre parecido: (fila del reporte Fuente, cómo) o (None, "")."""
         nom = cu.normalizar_nombre(nombre)
         tel = cu.normalizar_tel(tel) if tel else ""
         for i in self.por_tel.get(tel, []) if tel else []:
             if cu.similitud_nombre(nom, self.fu.at[i, "Nombre_norm"])[0] >= cu.UMBRAL_NOMBRE_CON_TEL:
                 return self.fu.loc[i], "teléfono"
+        return None, ""
+
+    def posible(self, nombre):
+        """Lead con nombre muy parecido (3+ palabras), sin importar el teléfono, o None. Solo para avisar."""
+        nom = cu.normalizar_nombre(nombre)
         palabras = nom.split()
         if len(palabras) < MIN_PALABRAS_SOLO_NOMBRE:
-            return None, ""
+            return None
         cand = {}
         for p in palabras:
             for i in self.por_palabra.get(p[:4], ()):
@@ -132,8 +138,8 @@ class Buscador:
             if (r, k) > mejor[:2]:
                 mejor = (r, k, i)
         if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= MIN_PALABRAS_SOLO_NOMBRE:
-            return self.fu.loc[mejor[2]], "nombre (teléfono distinto)"
-        return None, ""
+            return self.fu.loc[mejor[2]]
+        return None
 
 
 def alta_txt(fila):

@@ -412,8 +412,9 @@ with tab_su:
                       ["Hoja", "Fila", "Cliente", "Campo", "Después", "Motivo"])
         rev = reg[reg["Revisar"] != ""] if "Revisar" in reg.columns else reg.iloc[0:0]
         if len(rev):
-            st.info(f"**{len(rev)} marcado(s) como Registrado no salen en este reporte.** Se dejaron igual; "
-                    "confírmalos en Sale-U.", icon=":material/fact_check:")
+            st.info(f"**{len(rev)} a revisar:** marcados como Registrado que no salen en los reportes (se dejaron igual) "
+                    "o leads de Fuente con el mismo nombre pero otro teléfono (no cuentan como dados de alta).",
+                    icon=":material/fact_check:")
             tabla(rev.assign(Fecha_ingreso=rev["Fecha_ingreso"].map(lambda d: d.strftime("%d/%m/%Y") if d else ""),
                              Hoja=rev["Hoja"].map(HOJA_CORTA)),
                   ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Revisar"])

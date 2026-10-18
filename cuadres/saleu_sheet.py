@@ -159,6 +159,12 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             if buscador is None or norm(row["saleu"]) != norm(NO_REGISTRADO):
                 continue
             lead, como_lead = buscador.buscar(row["nombre"], tel)
+            if lead is None and buscador.posible(row["nombre"]) is not None:
+                p = buscador.posible(row["nombre"])
+                filas.append(dict(Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"],
+                                  Fecha_ingreso=row["fecha"], Antes=row["saleu"], Después=row["saleu"], Cambia=False,
+                                  Como="", Revisar=_aviso_tel(p), Cliente_SaleU="", Estatus_SaleU="",
+                                  Financiera_SaleU="", Cliente_Fuente="", Alta_Fuente=""))
             if lead is not None:
                 filas.append(dict(Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"],
                                   Fecha_ingreso=row["fecha"], Antes=row["saleu"], Después=FALTA_CREDITO, Cambia=True,
@@ -181,9 +187,10 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= 2:
                 hallado, como = mejor[2], "nombre (teléfono distinto)"
         actual = row["saleu"] or ""
-        revisar, lead = "", None
+        revisar, lead, posible = "", None, None
         if hallado is None and buscador is not None:
             lead, como_lead = buscador.buscar(row["nombre"], tel)
+            posible = buscador.posible(row["nombre"]) if lead is None else None
         if hallado is not None:
             nuevo = REGISTRADO
         elif ya_registrado(actual):
@@ -197,6 +204,8 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             nuevo, como = FALTA_CREDITO, "se respetó lo que ya decía"   # ya se vio en Fuente antes
         else:
             nuevo = NO_REGISTRADO
+        if posible is not None and nuevo != REGISTRADO:
+            revisar = _aviso_tel(posible)
         filas.append(dict(
             Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"], Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo,
             Cambia=actual != nuevo, Como=como, Revisar=revisar,
@@ -213,8 +222,14 @@ COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después
                   "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Alta_Fuente"]
 
 
+def _aviso_tel(lead):
+    from cuadres.saleu_fuente import alta_txt
+    return (f"En Fuente hay «{' '.join(lead['Nombre'].split())}» (alta {alta_txt(lead)}) con otro teléfono "
+            f"({lead['Telefono']}): no cuenta como dado de alta; corrige el teléfono en Sale-U si es la misma persona")
+
+
 def _motivo(r, periodo_txt):
-    if r["Revisar"]:
+    if r["Revisar"] and r["Después"] == REGISTRADO:
         return f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
     if r["Después"] == REGISTRADO:
         return f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})"

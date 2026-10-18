@@ -503,8 +503,10 @@ def marcar_fuente(faltantes, fuente_df):
             s, _ = b.buscar(r["Cliente_bitacora"], tel)
             if s is not None:
                 break
+        p = b.posible(r["Cliente_bitacora"]) if s is None else None
         falta.append(FALTA_CREDITO if s is not None else FALTA_ALTA)
-        lead.append(f"{' '.join(s['Nombre'].split())} (alta {alta_txt(s)})" if s is not None else "")
+        lead.append(f"{' '.join(s['Nombre'].split())} (alta {alta_txt(s)})" if s is not None else
+                    f"¿{' '.join(p['Nombre'].split())}? otro tel. {p['Telefono']}" if p is not None else "")
     return faltantes.assign(Falta=falta, Lead_Fuente=lead)
 
 

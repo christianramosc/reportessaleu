@@ -108,6 +108,8 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    cuya fecha cae en el periodo del reporte de Crédito: *Registrado* (está en Crédito), *Falta crédito* (no está en
    Crédito pero sí en Fuente) o *No Registrado* (no está en ninguno). Sin el reporte Fuente solo hay *Registrado* /
    *No Registrado*. Fuera del periodo de Crédito, un *No Registrado* que sí está en Fuente sube a *Falta crédito*.
+   En Fuente cuenta el mismo teléfono con nombre parecido; un lead con el mismo nombre pero otro teléfono no
+   cuenta como dado de alta: se lista *a revisar* para que corrijas el teléfono en Sale-U.
    Revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
    Nunca se baja de nivel: lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) se deja igual aunque no
    aparezca en los reportes, y se lista para que lo confirmes.
