@@ -227,23 +227,28 @@ def por_que(como):
     return "nombre"
 
 
-def describir(nombre, como=""):
-    """Lo que va en «Cómo está en Sale-U»: Coincidió por … · Se encuentra como «…»."""
+def describir(nombre, como="", tel=""):
+    """Lo que va en «Cómo está en Sale-U»: Coincidió por … · Se encuentra como «…». Si coincidió solo por uno de
+    los dos datos, también el teléfono con que está en Sale-U (para corregir el que no cuadra)."""
+    motivo = por_que(como)
     partes = []
-    if por_que(como):
-        partes.append(f"Coincidió por: {por_que(como)}")
-    partes.append(f"Se encuentra como: «{_limpio(nombre)}»")
+    if motivo:
+        partes.append(f"Coincidió por: {motivo}")
+    texto = f"Se encuentra como: «{_limpio(nombre)}»"
+    if motivo in ("nombre", "teléfono"):
+        texto += f" con teléfono: {cu.normalizar_tel(tel) or _limpio(tel) or 'sin teléfono'}"
+    partes.append(texto)
     return " · ".join(partes)
 
 
 def describir_lead(fila, como=""):
-    """Cómo está el lead en el reporte Fuente (por qué coincidió y con qué nombre está)."""
-    return describir(fila.get("Nombre"), como)
+    """Cómo está el lead en el reporte Fuente (por qué coincidió, con qué nombre y teléfono está)."""
+    return describir(fila.get("Nombre"), como, fila.get("Telefono"))
 
 
 def describir_credito(nombre, tel="", asesor="", estatus="", financiera="", alta="", como=""):
-    """Cómo está el cliente en el reporte de Crédito de Sale-U (por qué coincidió y con qué nombre está)."""
-    return describir(nombre, como)
+    """Cómo está el cliente en el reporte de Crédito de Sale-U (por qué coincidió, con qué nombre y teléfono está)."""
+    return describir(nombre, como, tel)
 
 
 def tel_como_texto(v):
