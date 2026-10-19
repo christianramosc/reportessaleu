@@ -233,9 +233,10 @@ def _como_en_saleu(base):
         if m.startswith("Está en el reporte Fuente ("):
             dato = m[len("Está en el reporte Fuente ("):].split(") pero")[0]
             fuente = dato.split(", fuente ", 1)[1] if ", fuente " in dato else ""
-            out[name_key(r["Cliente"])] = ("fuente", "Lead en Fuente: " + dato.split(", fuente ", 1)[0], fuente)
+            nombre = dato.split(", fuente ", 1)[0].rsplit(", alta ", 1)[0]
+            out[name_key(r["Cliente"])] = ("fuente", f"Se encuentra como: «{nombre}»", fuente)
         elif m.startswith("No aparece"):
-            out[name_key(r["Cliente"])] = ("no", "No aparecía en Sale-U por teléfono ni por nombre", "")
+            out[name_key(r["Cliente"])] = ("no", "No se encontró por nombre ni por teléfono", "")
     return out
 
 
@@ -251,15 +252,17 @@ def _buscar_en_reportes(fuente, credito):
         if cred is not None:
             nom, t = cu.normalizar_nombre(nombre), cu.normalizar_tel(tel or "")
             for _, s in cred.iterrows():
-                if (t and s["Tel_norm"] == t) or (cu.similitud_nombre(nom, s["Nombre_norm"])[0] >= cu.UMBRAL_NOMBRE_FUERTE
-                                                  and cu.similitud_nombre(nom, s["Nombre_norm"])[1] >= 2):
-                    return "credito", "Crédito: " + describir_credito(
-                        s["Nombre"], s["Telefono"], s["Asesor"], s["Estatus_SaleU"], s["Financiera"],
-                        s["Fecha_Alta_Credito"]), " ".join(str(s.get("Fuente") or "").split())
+                r, k = cu.similitud_nombre(nom, s["Nombre_norm"])
+                mismo_tel, mismo_nom = bool(t) and s["Tel_norm"] == t, r >= cu.UMBRAL_NOMBRE_FUERTE and k >= 2
+                if mismo_tel or mismo_nom:
+                    como = ("teléfono" if mismo_tel and r >= cu.UMBRAL_NOMBRE_CON_TEL else
+                            "teléfono (nombre distinto)" if mismo_tel else "nombre (teléfono distinto)")
+                    return ("credito", describir_credito(s["Nombre"], como=como),
+                            " ".join(str(s.get("Fuente") or "").split()))
         if b is not None:
             s, como = b.buscar(nombre, tel)
             return (("fuente", describir_lead(s, como), " ".join(str(s.get("Fuente") or "").split())) if s is not None
-                    else ("no", "No aparece en Sale-U por teléfono ni por nombre", ""))
+                    else ("no", "No se encontró por nombre ni por teléfono", ""))
         return None, None, None
     return buscar
 
