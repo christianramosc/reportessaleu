@@ -437,14 +437,14 @@ def cruzar(cli, su, fuente="la bitácora"):
             })
         else:
             obs_no = "Dar de alta en Sale-U"
-            como_su = "No aparece en el reporte de Crédito por teléfono ni por nombre"
+            como_su = "No se encontró por nombre ni por teléfono"
             if c["id_c"] in posibles:
                 is_, nivel = posibles[c["id_c"]]
                 s = su.loc[su["id_s"] == is_].iloc[0]
                 obs_no += (f"; revisar posible registro: {s['Nombre']} "
                            + ("(mismo teléfono, otro nombre)" if nivel == 3 else f"(nombre parecido, tel. {s['Telefono']})"))
-                como_su = (f"Posible: «{' '.join(str(s['Nombre']).split())}» · tel. {s['Telefono'] or 'sin teléfono'}"
-                           f" · {s['Asesor']} (nombre parecido; verifica que sea la misma persona)")
+                como_su = (f"Posible coincidencia por nombre · Se encuentra como: «{' '.join(str(s['Nombre']).split())}» "
+                           "(verifica que sea la misma persona)")
             base.update({"Resultado": "NO registrado en Sale-U", "Cómo está en Sale-U": como_su, "Similitud_nombre": None,
                          "Cliente_SaleU": "", "Tel_SaleU": "", "Asesor_SaleU": "",
                          "Estatus_SaleU": "", "Financiera_SaleU": "", "Fuente_SaleU": "", "Fecha_alta_SaleU": "",
@@ -512,7 +512,7 @@ def marcar_fuente(faltantes, fuente_df):
         fuente_su.append(" ".join(str(s.get("Fuente") or "").split()) if s is not None else "")
         como_su.append(describir_lead(s, como) if s is not None else
                        (r[COL_SALEU] if str(r.get(COL_SALEU, "")).startswith("Posible") else
-                        "No aparece en Sale-U (ni Fuente ni Crédito) por teléfono ni por nombre"))
+                        "No se encontró por nombre ni por teléfono"))
     return faltantes.assign(Falta=falta, Fuente_SaleU=fuente_su, **{COL_SALEU: como_su})
 
 

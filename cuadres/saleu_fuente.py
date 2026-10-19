@@ -208,31 +208,42 @@ def alta_txt(fila):
 
 
 COL_SALEU = "Cómo está en Sale-U"
-NO_APARECE = "No aparece en Sale-U por teléfono ni por nombre"
+NO_APARECE = "No se encontró por nombre ni por teléfono"
 
 
 def _limpio(v):
     return " ".join(str(v or "").split())
 
 
+def por_que(como):
+    """Texto corto de la coincidencia: «nombre y teléfono», «teléfono» o «nombre»."""
+    c = cu.quitar_acentos(str(como or "")).lower()
+    if not c:
+        return ""
+    if "distinto" in c or "otro" in c:
+        return "teléfono" if c.startswith("telefono") else "nombre"
+    if "telefono" in c:
+        return "nombre y teléfono"
+    return "nombre"
+
+
+def describir(nombre, como=""):
+    """Lo que va en «Cómo está en Sale-U»: Coincidió por … · Se encuentra como «…»."""
+    partes = []
+    if por_que(como):
+        partes.append(f"Coincidió por: {por_que(como)}")
+    partes.append(f"Se encuentra como: «{_limpio(nombre)}»")
+    return " · ".join(partes)
+
+
 def describir_lead(fila, como=""):
-    """Cómo está el lead en el reporte Fuente: nombre, teléfono, asesor, alta y estatus, y por qué coincidió."""
-    partes = [f"Lead «{_limpio(fila.get('Nombre'))}»", f"tel. {_limpio(fila.get('Telefono')) or 'sin teléfono'}"]
-    if _limpio(fila.get("Asesor")):
-        partes.append(_limpio(fila.get("Asesor")))
-    partes.append(f"alta {alta_txt(fila)}")
-    if _limpio(fila.get("Estatus_Lead")):
-        partes.append(_limpio(fila.get("Estatus_Lead")))
-    return " · ".join(partes) + (f" · coincidió por {como}" if como else "")
+    """Cómo está el lead en el reporte Fuente (por qué coincidió y con qué nombre está)."""
+    return describir(fila.get("Nombre"), como)
 
 
-def describir_credito(nombre, tel, asesor="", estatus="", financiera="", alta="", como=""):
-    """Cómo está el cliente en el reporte de Crédito de Sale-U."""
-    partes = [f"«{_limpio(nombre)}»", f"tel. {_limpio(tel) or 'sin teléfono'}"]
-    for v in (asesor, " ".join(x for x in (_limpio(estatus), _limpio(financiera)) if x), alta and f"alta {_limpio(alta)}"):
-        if _limpio(v):
-            partes.append(_limpio(v))
-    return " · ".join(partes) + (f" · coincidió por {como}" if como else "")
+def describir_credito(nombre, tel="", asesor="", estatus="", financiera="", alta="", como=""):
+    """Cómo está el cliente en el reporte de Crédito de Sale-U (por qué coincidió y con qué nombre está)."""
+    return describir(nombre, como)
 
 
 def tel_como_texto(v):
