@@ -28,7 +28,7 @@ APROBADO, RECHAZADO = "Aprobado", "Rechazado"
 FALTA_ALTA, FALTA_CREDITO = "Dar de alta", "Registrar crédito"
 COL_SALEU = "Cómo está en Sale-U"
 COLS_FALTAN = ["Falta", "Estatus", "Cliente", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha", "Mensualidad",
-               "Correo", "Dias", "Fuente", "ID", COL_SALEU]
+               "Correo", "Dias", "Origen", "ID", COL_SALEU, "Fuente"]
 
 
 def codigo_saleu(v):
@@ -217,7 +217,7 @@ def _asesor_completo(base):
 
 
 def _como_en_saleu(base):
-    """{clave de nombre: (dónde, texto)} con lo último que anotó el cuadre de Sale-U en el Historial (sin reportes a
+    """{clave de nombre: (dónde, texto, Fuente del lead)} con lo último que anotó el cuadre de Sale-U en el Historial (sin reportes a
     la mano)."""
     from cuadres.base import TAB_HISTORIAL
     if TAB_HISTORIAL not in base.pestanas():
@@ -231,16 +231,17 @@ def _como_en_saleu(base):
             continue
         m = str(r.get("Motivo") or "")
         if m.startswith("Está en el reporte Fuente ("):
-            out[name_key(r["Cliente"])] = ("fuente", "Lead en Fuente: "
-                                           + m[len("Está en el reporte Fuente ("):].split(") pero")[0])
+            dato = m[len("Está en el reporte Fuente ("):].split(") pero")[0]
+            fuente = dato.split(", fuente ", 1)[1] if ", fuente " in dato else ""
+            out[name_key(r["Cliente"])] = ("fuente", "Lead en Fuente: " + dato.split(", fuente ", 1)[0], fuente)
         elif m.startswith("No aparece"):
-            out[name_key(r["Cliente"])] = ("no", "No aparecía en Sale-U por teléfono ni por nombre")
+            out[name_key(r["Cliente"])] = ("no", "No aparecía en Sale-U por teléfono ni por nombre", "")
     return out
 
 
 def _buscar_en_reportes(fuente, credito):
-    """Función (nombre, tel) → (dónde: "credito" / "fuente" / "no" / None, texto de cómo está en Sale-U), con los
-    reportes del último cuadre."""
+    """Función (nombre, tel) → (dónde: "credito" / "fuente" / "no" / None, texto de cómo está en Sale-U, Fuente del
+    lead en Sale-U), con los reportes del último cuadre."""
     from cuadres import saleu as cu
     from cuadres.saleu_fuente import Buscador, describir_lead, describir_credito
     b = Buscador(fuente) if fuente is not None and len(fuente) else None
@@ -254,12 +255,12 @@ def _buscar_en_reportes(fuente, credito):
                                                   and cu.similitud_nombre(nom, s["Nombre_norm"])[1] >= 2):
                     return "credito", "Crédito: " + describir_credito(
                         s["Nombre"], s["Telefono"], s["Asesor"], s["Estatus_SaleU"], s["Financiera"],
-                        s["Fecha_Alta_Credito"])
+                        s["Fecha_Alta_Credito"]), " ".join(str(s.get("Fuente") or "").split())
         if b is not None:
             s, como = b.buscar(nombre, tel)
-            return (("fuente", describir_lead(s, como)) if s is not None
-                    else ("no", "No aparece en Sale-U por teléfono ni por nombre"))
-        return None, None
+            return (("fuente", describir_lead(s, como), " ".join(str(s.get("Fuente") or "").split())) if s is not None
+                    else ("no", "No aparece en Sale-U por teléfono ni por nombre", ""))
+        return None, None, None
     return buscar
 
 
@@ -322,7 +323,8 @@ def faltantes_saleu(base, hoy=None, fuente=None, credito=None):
         else:
             continue
         ids = ", ".join(dict.fromkeys(y["id"] for y in rechazados if y["id"]))
-        donde, como = buscar(x["cliente"], x["tel"]) if buscar else historial.get(name_key(x["cliente"]), (None, None))
+        donde, como, fuente_su = (buscar(x["cliente"], x["tel"]) if buscar
+                                  else historial.get(name_key(x["cliente"]), (None, None, None)))
         if donde == "credito":
             continue                                  # ya tiene crédito en Sale-U (el Sheet aún no lo dice)
         cred = any(y["saleu"] == "CRED" for y in regs) or donde == "fuente"   # nunca baja de «Falta crédito»
@@ -331,7 +333,8 @@ def faltantes_saleu(base, hoy=None, fuente=None, credito=None):
             Estatus=x["estatus"], Cliente=x["cliente"], Telefono=telefono(x["tel"]), Vendedor=x["vendedor"] or "",
             Financiera=x["fin"], Unidad=x["unidad"], Fecha=x["fecha"], Mensualidad=x["mens"], Correo=x["correo"],
             Dias=(hoy - x["fecha"]).days if x["fecha"] else None,
-            Fuente=x["fuente"] + (" · antes rechazado" if x["estatus"] == APROBADO and rechazados else ""), ID=ids,
+            Origen=x["fuente"] + (" · antes rechazado" if x["estatus"] == APROBADO and rechazados else ""), ID=ids,
+            Fuente=fuente_su or "",
             **{COL_SALEU: como or ""}))
 
     def tabla(filas):

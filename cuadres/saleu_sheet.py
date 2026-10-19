@@ -164,7 +164,8 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
                                   Fecha_ingreso=row["fecha"], Antes=row["saleu"], Después=FALTA_CREDITO, Cambia=True,
                                   Como=f"Fuente, por {como_lead} (fuera del periodo de Crédito)", Revisar="",
                                   Cliente_SaleU="", Estatus_SaleU="", Financiera_SaleU="",
-                                  Cliente_Fuente=" ".join(lead["Nombre"].split()), Alta_Fuente=alta_txt(lead)))
+                                  Cliente_Fuente=" ".join(lead["Nombre"].split()), Alta_Fuente=alta_txt(lead),
+                                  Fuente_Lead=" ".join(str(lead.get("Fuente") or "").split())))
             continue
         hallado, como = None, ""
         if por_tel.get(tel):                    # mismo teléfono: basta (si el nombre no se parece, se avisa)
@@ -203,13 +204,16 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             Estatus_SaleU=hallado["Estatus_SaleU"] if hallado is not None else "",
             Financiera_SaleU=hallado["Financiera"] if hallado is not None else "",
             Cliente_Fuente=" ".join(lead["Nombre"].split()) if lead is not None else "",
-            Alta_Fuente=alta_txt(lead) if lead is not None else ""))
+            Alta_Fuente=alta_txt(lead) if lead is not None else "",
+            Fuente_Lead=" ".join(str(lead.get("Fuente") or "").split()) if lead is not None else
+            (" ".join(str(hallado.get("Fuente") or "").split()) if hallado is not None else "")))
     df = pd.DataFrame(filas, columns=COLS_PROPUESTA)
     return df, (ini, fin)
 
 
 COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como", "Revisar",
-                  "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Alta_Fuente"]
+                  "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Alta_Fuente",
+                  "Fuente_Lead"]
 
 
 def _motivo(r, periodo_txt):
@@ -219,7 +223,8 @@ def _motivo(r, periodo_txt):
         return f"Encontrado en Sale-U por {r['Como']}: {r['Cliente_SaleU']} ({r['Estatus_SaleU']})"
     if r["Después"] == FALTA_CREDITO:
         if r.get("Cliente_Fuente"):
-            return (f"Está en el reporte Fuente ({r['Cliente_Fuente']}, alta {r.get('Alta_Fuente', '')}) pero no en "
+            fuente = f", fuente {r['Fuente_Lead']}" if r.get("Fuente_Lead") else ""
+            return (f"Está en el reporte Fuente ({r['Cliente_Fuente']}, alta {r.get('Alta_Fuente', '')}{fuente}) pero no en "
                     f"el de Crédito ({periodo_txt}): falta registrar el crédito")
         return "Ya decía Falta crédito"
     return f"No aparece en el reporte de Sale-U ({periodo_txt})"
