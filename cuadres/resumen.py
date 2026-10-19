@@ -257,7 +257,7 @@ def _buscar_en_reportes(fuente, credito):
                 if mismo_tel or mismo_nom:
                     como = ("teléfono" if mismo_tel and r >= cu.UMBRAL_NOMBRE_CON_TEL else
                             "teléfono (nombre distinto)" if mismo_tel else "nombre (teléfono distinto)")
-                    return ("credito", describir_credito(s["Nombre"], como=como),
+                    return ("credito", describir_credito(s["Nombre"], s["Telefono"], como=como),
                             " ".join(str(s.get("Fuente") or "").split()))
         if b is not None:
             s, como = b.buscar(nombre, tel)

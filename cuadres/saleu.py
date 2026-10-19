@@ -444,6 +444,7 @@ def cruzar(cli, su, fuente="la bitácora"):
                 obs_no += (f"; revisar posible registro: {s['Nombre']} "
                            + ("(mismo teléfono, otro nombre)" if nivel == 3 else f"(nombre parecido, tel. {s['Telefono']})"))
                 como_su = (f"Posible coincidencia por nombre · Se encuentra como: «{' '.join(str(s['Nombre']).split())}» "
+                           f"con teléfono: {s['Tel_norm'] or s['Telefono'] or 'sin teléfono'} "
                            "(verifica que sea la misma persona)")
             base.update({"Resultado": "NO registrado en Sale-U", "Cómo está en Sale-U": como_su, "Similitud_nombre": None,
                          "Cliente_SaleU": "", "Tel_SaleU": "", "Asesor_SaleU": "",
