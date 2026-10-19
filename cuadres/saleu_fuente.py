@@ -12,6 +12,7 @@ uno de los dos. Por nombre se pide un nombre muy parecido con al menos 3 palabra
 leads con nombres cortos: con 2 palabras salen falsos parecidos).
 """
 import csv
+import datetime as dt
 import io
 import re
 
@@ -85,13 +86,70 @@ def leer_fuente(ruta):
         "Fuente": df[col("FUENTE")].str.strip() if col("FUENTE") else "",
         "Fecha_Alta": df[col("FECHA DE ALTA")].str.strip(),
     })
-    out["_fecha"] = pd.to_datetime(out["Fecha_Alta"], errors="coerce")
+    return _completar(out)
+
+
+def _completar(out):
+    """Columnas de trabajo (_fecha, Tel_norm, Nombre_norm) y el rango de fechas de alta."""
+    out = out.copy()
+    fecha = pd.to_datetime(out["Fecha_Alta"].map(lambda v: v if isinstance(v, (pd.Timestamp, dt.datetime)) else
+                                                  str(v or "").strip()), errors="coerce")
+    out["_fecha"] = fecha
+    out["Fecha_Alta"] = [f.strftime("%Y-%m-%d %H:%M:%S") if f == f and f is not pd.NaT else str(v or "")
+                         for f, v in zip(fecha, out["Fecha_Alta"])]
+    for c in ("Nombre", "Telefono", "Asesor", "Estatus_Lead", "Fuente"):
+        out[c] = out[c].map(lambda v: "" if v is None or (isinstance(v, float) and v != v) else str(v).strip())
     out["Tel_norm"] = out["Telefono"].map(cu.normalizar_tel)
     out["Nombre_norm"] = out["Nombre"].map(cu.normalizar_nombre)
     out = out[(out["Tel_norm"] != "") | (out["Nombre_norm"] != "")].reset_index(drop=True)
     f = out["_fecha"].dropna()
     out.attrs["rango"] = (f.min().to_pydatetime(), f.max().to_pydatetime()) if len(f) else None
     return out
+
+
+# =============================================================================
+# Leads guardados en el Sheet (pestaña oculta «Fuente Sale-U»)
+# =============================================================================
+TAB_FUENTE = "Fuente Sale-U"
+COLS_TAB = ["Fecha de Alta", "Nombre", "Telefono", "Asesor", "Fuente", "Estatus"]
+_DE_TAB = {"Fecha de Alta": "Fecha_Alta", "Nombre": "Nombre", "Telefono": "Telefono", "Asesor": "Asesor",
+           "Fuente": "Fuente", "Estatus": "Estatus_Lead"}
+
+
+def guardada(base):
+    """Leads del reporte Fuente que ya se guardaron en el Sheet (o None)."""
+    if base is None or TAB_FUENTE not in base.pestanas():
+        return None
+    df = base.leer(TAB_FUENTE)
+    if df.empty:
+        return None
+    col = lambda n: next((c for c in df.columns if cu.quitar_acentos(c).strip().upper() == cu.quitar_acentos(n).upper()),
+                         None)
+    out = pd.DataFrame({v: (df[col(k)] if col(k) else "") for k, v in _DE_TAB.items()})
+    return _completar(out)
+
+
+def combinar(*partes):
+    """Une reportes Fuente (lo guardado + lo que se subió): un lead por teléfono, nombre y fecha de alta; si se repite
+    se queda el más reciente del último reporte."""
+    partes = [p for p in partes if p is not None and len(p)]
+    if not partes:
+        return None
+    todo = pd.concat(partes, ignore_index=True)
+    todo["_k"] = todo["Tel_norm"] + "|" + todo["Nombre_norm"] + "|" + todo["Fecha_Alta"].str[:16]
+    todo = todo.drop_duplicates("_k", keep="last").drop(columns="_k")
+    return _completar(todo.sort_values("_fecha", ascending=False, na_position="last")
+                      [["Nombre", "Telefono", "Asesor", "Estatus_Lead", "Fuente", "Fecha_Alta"]])
+
+
+def guardar(base, fu):
+    """Guarda los leads en la pestaña oculta «Fuente Sale-U» (la reescribe con todo lo acumulado). Devuelve cuántos."""
+    if fu is None or not len(fu):
+        return 0
+    filas = [[r["Fecha_Alta"], r["Nombre"], r["Telefono"], r["Asesor"], r["Fuente"], r["Estatus_Lead"]]
+             for _, r in fu.iterrows()]
+    base.reemplazar(TAB_FUENTE, COLS_TAB, filas, oculta=True)
+    return len(filas)
 
 
 def periodo_txt(fu):

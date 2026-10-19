@@ -22,7 +22,9 @@ App de Streamlit con una página por herramienta:
    *Registro en Sale-U* en el Sheet al pulsar *Aplicar*:
    - **Sale-U vs bitácora**: reporte de Crédito de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga) y,
      opcional, el reporte **Fuente** (`ReporteFuentes_Agencia_MG-Colima_*.csv`, todos los leads; bájalo desde
-     enero). Con Fuente, los que faltan se separan en *Dar de alta* y *Registrar crédito*. Compara
+     enero). Con Fuente, los que faltan se separan en *Dar de alta* y *Registrar crédito*. Los leads de Fuente se
+     guardan en el Sheet (pestaña oculta *Fuente Sale-U*) y se suman a los ya guardados: sube una vez el de enero a
+     la fecha y después basta el del mes. El *Resumen* los usa para «Cómo está en Sale-U» y la columna *Fuente*. Compara
      contra **todos los créditos de todas las financieras y estatus**: la pestaña *Bitacora* más lo que esté en
      *MG Colima Rechazos* y *MG Colima Créditos Finalizados* (leídos al momento). Entran los que caen en el periodo
      del reporte; los Finalizados entran por su *FECHA DE ENTREGA* (los que no la tienen entran todos). Cruza por teléfono y nombre y compara estatus y
