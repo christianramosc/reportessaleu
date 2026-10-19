@@ -97,7 +97,8 @@ def aplicar(base):
 
     # 6b. pestañas de apoyo ocultas y estilo de Sale-U en la Bitacora
     from cuadres.base import TAB_CAPTURAS, TAB_BITACORA
-    for p in (TAB_CAPTURAS, TAB_FI):
+    from cuadres.saleu_fuente import TAB_FUENTE
+    for p in (TAB_CAPTURAS, TAB_FI, TAB_FUENTE):
         if p in pestanas:
             base.ocultar(p)
     if any(p in pestanas for p in (TAB_CAPTURAS, TAB_FI)):

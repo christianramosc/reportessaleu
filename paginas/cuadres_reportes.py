@@ -139,7 +139,10 @@ def ejecutar_su_base(base, archivo_su, clientes, archivo_fuente=None):
         ruta_su = guardar_temporal([archivo_su], tmp)[0]
         ruta_fu = guardar_temporal([archivo_fuente], tmp)[0] if archivo_fuente else None
         revisar_reportes(ruta_su, ruta_fu)
-        fu = saleu_fuente.leer_fuente(ruta_fu) if ruta_fu else None
+        fu_nuevo = saleu_fuente.leer_fuente(ruta_fu) if ruta_fu else None
+        # se suma a los leads ya guardados en el Sheet: así un reporte del mes no pierde los leads de meses anteriores
+        fu = saleu_fuente.combinar(saleu_fuente.guardada(base), fu_nuevo)
+        guardados = saleu_fuente.guardar(base, fu) if fu_nuevo is not None else 0
         res = {}
         if not clientes.empty:
             res = cu.procesar(ruta_su, carpeta=tmp, bitacora=clientes, fuente="la bitácora", ruta_fuente=fu)
@@ -151,6 +154,7 @@ def ejecutar_su_base(base, archivo_su, clientes, archivo_fuente=None):
     res["registro"] = cambios
     res["periodo_saleu"] = periodo
     res["con_fuente"] = fu is not None
+    res["fuente_guardados"], res["fuente_subida"] = guardados, fu_nuevo is not None
     res["fuente_df"], res["credito_df"] = fu, su       # para «Cómo está en Sale-U» en la lista del Resumen
     res["periodo_fuente"] = saleu_fuente.periodo_txt(fu)
     res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
@@ -295,7 +299,10 @@ with tab_res:
                    "= falta darlos de alta; «Falta crédito» = ya son lead (reporte Fuente), falta su crédito.")
         try:
             res_su = st.session_state.get("res_su") or {}
-            faltan, confirmar = resumen.faltantes_saleu(base, fuente=res_su.get("fuente_df"), credito=res_su.get("credito_df"))
+            fuente_su = res_su.get("fuente_df")
+            if fuente_su is None:
+                fuente_su = saleu_fuente.guardada(base)       # leads guardados en el Sheet por el último cuadre
+            faltan, confirmar = resumen.faltantes_saleu(base, fuente=fuente_su, credito=res_su.get("credito_df"))
         except Exception as e:
             faltan = confirmar = None
             st.error(f"No se pudo armar la lista: {e}")
@@ -327,10 +334,12 @@ with tab_res:
                 d2.download_button("Descargar Excel", datos_xl, file_name=nombre_xl, icon=":material/download:",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                    key="dl_xl_su", width="stretch")
-            if res_su.get("fuente_df") is None:
-                st.caption("«Cómo está en Sale-U» sale de lo que anotó el último cuadre en el Historial. Haz el cuadre "
-                           "con los reportes de Crédito y Fuente en esta sesión para verlo con el teléfono, asesor y "
-                           "estatus del lead.")
+            if fuente_su is None:
+                st.caption("Para llenar «Cómo está en Sale-U» y «Fuente», haz una vez el cuadre de Sale-U con el reporte "
+                           "Fuente: sus leads se guardan en el Sheet (pestaña oculta «Fuente Sale-U»).")
+            else:
+                st.caption(f"«Cómo está en Sale-U» y «Fuente»: {len(fuente_su)} leads del reporte Fuente "
+                           f"({saleu_fuente.periodo_txt(fuente_su)}).")
             if not faltan.empty:
                 vista = faltan.assign(Fecha=faltan["Fecha"].map(cu.fecha_txt),
                                       Mensualidad=faltan["Mensualidad"].map(
@@ -346,7 +355,8 @@ with tab_su:
                             help="reporteLeadsconCredito…, tal cual se descarga (sin abrirlo en Excel).")
     f_fu = c1.file_uploader("Reporte Fuente (opcional)", type=["csv", "xlsx"], key="up_fuente",
                             help="ReporteFuentes_Agencia_MG-Colima…: todos los leads. Con él se separa a quién falta "
-                                 "dar de alta de a quién solo le falta el crédito. Bájalo desde enero.")
+                                 "dar de alta de a quién solo le falta el crédito. Sus leads se guardan en el Sheet y "
+                                 "se suman a los anteriores, así basta subir el del mes.")
     if base is not None:
         bit = conexion.clientes_saleu(base)
         if not bit.empty:
@@ -381,6 +391,9 @@ with tab_su:
     if res and "registro" in res:
         reg = res["registro"]
         cambian = reg[reg["Cambia"]]
+        if res.get("fuente_subida"):
+            st.caption(f"Reporte Fuente guardado en el Sheet (pestaña oculta «Fuente Sale-U»): "
+                       f"{res.get('fuente_guardados', 0)} leads acumulados.")
         st.markdown(f"**Registro en Sale-U** · Crédito {res['periodo_saleu']}"
                     + (f" · Fuente {res['periodo_fuente']}" if res.get("con_fuente") else " · sin reporte Fuente"))
         datos = res.get("datos", pd.DataFrame())
