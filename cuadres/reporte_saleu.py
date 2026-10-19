@@ -446,9 +446,11 @@ def _tabla_clientes(df, color_estatus=True):
             Paragraph(contacto, st["celda"]), Paragraph(solicitud, st["celda"]),
             Paragraph(f"${mens:,.2f}" if mens == mens and mens else "—", st["celda_d"])])
         como = str(r.get("Cómo está en Sale-U") or "").strip()
-        if como:                            # renglón debajo del cliente: cómo encontrarlo en Sale-U
-            datos.append(["", Paragraph(f'{_ico("info", NAVY_2, 6.8)}  <font color="{NAVY_2}"><b>En Sale-U:</b></font> '
-                                        f'{_e(como)}', st["celda"]), "", "", ""])
+        fuente = str(r.get("Fuente") or "").strip()
+        if como or fuente:                  # renglón debajo del cliente: cómo encontrarlo en Sale-U y su fuente
+            texto = (f'{_ico("info", NAVY_2, 6.8)}  <font color="{NAVY_2}"><b>En Sale-U:</b></font> {_e(como or "—")}'
+                     + (f'  ·  <font color="{NAVY_2}"><b>Fuente:</b></font> {_e(fuente)}' if fuente else ""))
+            datos.append(["", Paragraph(texto, st["celda"]), "", "", ""])
             sub.append(len(datos) - 1)
     t = Table(datos, colWidths=[68, 186, 128, 82, 68], repeatRows=1)
     estilo = [
@@ -542,8 +544,8 @@ def excel(faltan, por_confirmar=None, hoy=None):
     import tempfile
     from cuadres import salidas as sal
     hoy = hoy or dt.date.today()
-    cols = ["Falta", "Estatus", "Cliente", "Cómo está en Sale-U", "Telefono", "Vendedor", "Financiera", "Unidad", "Fecha",
-            "Dias", "Mensualidad", "Correo", "Fuente", "ID"]
+    cols = ["Falta", "Estatus", "Cliente", "Cómo está en Sale-U", "Fuente", "Telefono", "Vendedor", "Financiera", "Unidad",
+            "Fecha", "Dias", "Mensualidad", "Correo", "Origen", "ID"]
     vista = lambda df: df.assign(Fecha=df["Fecha"].map(_fecha)) if not df.empty else df
     hojas = [("Por registrar", vista(faltan), cols)]
     if "Falta" in faltan.columns:

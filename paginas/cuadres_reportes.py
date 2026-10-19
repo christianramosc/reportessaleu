@@ -335,7 +335,7 @@ with tab_res:
                 vista = faltan.assign(Fecha=faltan["Fecha"].map(cu.fecha_txt),
                                       Mensualidad=faltan["Mensualidad"].map(
                                           lambda v: f"${v:,.2f}" if v == v and v else ""))
-                st.dataframe(vista[["Falta", "Estatus", "Cliente", resumen.COL_SALEU, "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
+                st.dataframe(vista[["Falta", "Estatus", "Cliente", resumen.COL_SALEU, "Fuente", "Telefono", "Vendedor", "Financiera", "Fecha", "Dias",
                                     "Mensualidad"]].rename(columns={"Telefono": "Celular", "Dias": "Días"}),
                              hide_index=True, width="stretch")
 
@@ -470,7 +470,7 @@ with tab_su:
             vista["Plazo"] = vista["Plazo"].map(lambda v: str(int(v)) if v == v and v else "")
             con_f = "Falta" in df
             tabla(vista, (["Falta"] if con_f else []) + cu.COLS_FALTANTES[:2] + ["Vendedor"] + cu.COLS_FALTANTES[2:]
-                  + ([cu.COL_SALEU] if cu.COL_SALEU in vista else []) + ["Historial", "Observaciones"],
+                  + [c for c in (cu.COL_SALEU, "Fuente") if c in vista] + ["Historial", "Observaciones"],
                   ["Falta"] if con_f else ())
         with t2:
             tabla(res["revisar"], ["Resultado", "Cuadre_estatus", "Cliente_bitacora", "Tel_bitacora", cu.COL_SALEU,
