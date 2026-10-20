@@ -143,11 +143,25 @@ def proteger(base):
     return hecho
 
 
+def congelar_hasta_telefono(base, hoja):
+    """Encabezado congelado y columnas hasta la de teléfono (fecha, nombre y teléfono siempre a la vista). Si el
+    teléfono está muy a la derecha (más de 5 columnas), solo hasta el nombre."""
+    if hoja not in base.pestanas():
+        return 0
+    enc = [norm(canonico(str(h))) for h in (base._valores(hoja, True) or [[]])[0]]
+    pos = lambda nombres: next((i + 1 for i, h in enumerate(enc) if h in nombres), 0)
+    tel, nom = pos({"CELULAR", "TELEFONO"}), pos({"NOMBRE DE CLIENTE", "NOMBRE", "CLIENTE"})
+    cols = tel if 0 < tel <= 5 else nom
+    base.congelar(hoja, 1, cols)
+    return cols
+
+
 def vistas_por_asesor(base):
-    """Encabezado y nombre congelados en Rechazos y Finalizados; una vista filtrada por asesor en Rechazos."""
+    """Encabezado y fecha, nombre y teléfono congelados en Rechazos, Finalizados y Bitacora; una vista filtrada por
+    asesor en Rechazos."""
     from cuadres.actualizar import _catalogo_asesores
-    base.congelar(TAB_RECHAZOS, 1, 3)
-    base.congelar(TAB_FINALIZADOS, 1, 2)
+    for hoja in (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA):
+        congelar_hasta_telefono(base, hoja)
     col = base.col(TAB_RECHAZOS, "Asesor de Ventas")
     if not col:
         return 0

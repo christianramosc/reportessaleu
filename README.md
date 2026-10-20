@@ -142,7 +142,7 @@ aplicado, no duplica nada:
   «Hoja N»); *Tipo de Plan*, *Tipo de Subvención*, *Accesorios* y *Status 1* se llenan solos donde estén vacíos (también
   en los rechazos nuevos de *Actualizar*); *Créditos Finalizados* lleva **ID en 'MG Colima Rechazos'** (su rechazo
   previo, por teléfono o nombre); columnas calculadas de Rechazos (Fecha de Seguimiento, Efectividad, Reingreso, ID,
-  Registro en Sale-U) y la *Bitacora* completa protegidas con **solo advertencia**; encabezado y nombre congelados;
+  Registro en Sale-U) y la *Bitacora* completa protegidas con **solo advertencia**; encabezado, fecha, nombre y teléfono congelados (Rechazos, Bitacora; en Finalizados, hasta el nombre);
   una **vista filtrada por asesor** (*Datos → Vistas filtradas*); *Revision resueltos* oculta; pestañas en orden
   Resumen, Rechazos, Finalizados, Bitacora, Revision.
 - El cuadre de Sale-U con el reporte **Fuente** también propone el **correo** que falte (del lead en Sale-U).
