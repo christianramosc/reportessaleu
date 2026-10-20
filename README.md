@@ -27,9 +27,17 @@ App de Streamlit con una página por herramienta:
    - **Pendientes**: revisa los pendientes de *Revision* y limpia los resueltos.
 4. **BlueService**: cuadre por VIN de `PDIs_MG_Colima.xlsx` contra el Excel de inventario (hoja ALMACEN o la que
    elijas); detecta VIN mal capturados y dice en qué otra hoja aparece cada unidad.
-5. **Mantenimiento**: *Rehacer dashboard y formato* (pestaña Resumen del Sheet + formato y mantenimiento, ver
+5. **Pólizas**: seguimiento de las pólizas de seguro de los créditos. Subes los PDF / ZIP de las pólizas (Crédito
+   Click, columna Impresión) y/o el Excel `Polizas_extraidas.xlsx`; con ambos, los PDFs nuevos se juntan con los
+   clientes del Excel. Muestra a quién llamar **hoy** (póliza externa hasta 45 días antes del aniversario, contado de
+   30 días antes al día anterior, fin de crédito y clientes con el auto ya liberado), las oportunidades **por mes**
+   (12 meses), la lista completa con filtros y una tabla de **seguimiento** (Contactado, Fecha, Resultado, Notas).
+   Descarga el **Excel con el seguimiento** (hojas *Contacto* y *Base de datos*) y el **PDF para contactar**. Los
+   datos de clientes solo viven en la sesión: guarda el Excel y súbelo la próxima vez. Leer PDFs necesita
+   `pdftotext` (`packages.txt` → `poppler-utils`).
+6. **Mantenimiento**: *Rehacer dashboard y formato* (pestaña Resumen del Sheet + formato y mantenimiento, ver
    abajo) e Historial de cambios.
-6. **KPIs de capacitación**: avance de capacitación de Ventas y Posventa.
+7. **KPIs de capacitación**: avance de capacitación de Ventas y Posventa.
 
 Las lecturas del Sheet se reusan entre clics durante 5 minutos (cuota de Google); se vuelven a leer al escribir o
 con el botón **Recargar** junto al nombre del Sheet.
@@ -58,6 +66,11 @@ paginas/actualizar.py          # Actualizar: todos los archivos del día, revisa
 paginas/seguimiento.py         # Seguimiento: resumen, vencidos (PDF por asesor), faltan en Sale-U y pendientes
 paginas/blueservice.py         # cuadre BlueService vs inventario
 paginas/mantenimiento.py       # dashboard, formato y mantenimiento del Sheet; historial
+paginas/polizas.py             # Pólizas: a quién llamar hoy, por mes, seguimiento, Excel y PDF
+cuadres/polizas.py             # lee los PDF de pólizas (GNP, Quálitas, Chubb, HDI, Inbursa) y arma el Excel
+                               #   (también corre suelto en Colab: botón para subir archivos)
+cuadres/polizas_seguimiento.py # estatus de cada crédito por fecha, proyección por mes, seguimiento y PDF
+packages.txt                   # poppler-utils (pdftotext) para Streamlit Cloud
 comunes.py                     # utilidades de las páginas (tablas, descargas, cuadre de Sale-U)
 cuadres/detectar.py            # reconoce cada archivo subido
 cuadres/cargas.py              # lo último que se subió (pestaña oculta Cargas) y avisos
