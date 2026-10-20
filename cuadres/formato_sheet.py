@@ -12,6 +12,10 @@ duplica nada).
      Bitacora F&I ocultas; en la Bitacora, «Registro en Sale-U» con los mismos colores que en Rechazos.
   7. Revision: ID de cada pendiente y los resueltos pasan a «Revision resueltos».
   8. Se rehace el Resumen.
+  9. Mantenimiento (cuadres/optimizar.py): un solo respaldo por pestaña (se borran los viejos y las copias «Hoja N»),
+     columnas fijas llenas, ID del rechazo previo en Finalizados, columnas calculadas y Bitacora protegidas (solo
+     advertencia), encabezado congelado, vistas filtradas por asesor, «Revision resueltos» oculta y pestañas en
+     orden: Resumen, Rechazos, Finalizados, Bitacora, Revision.
 Antes de tocar una pestaña se guarda su respaldo oculto.
 """
 from cuadres.base import TAB_RECHAZOS, TAB_FINALIZADOS, TAB_HISTORIAL, TAB_FI, letra
@@ -131,4 +135,26 @@ def aplicar(base):
     from cuadres import dashboard
     dashboard.construir(base)
     hecho.append("Resumen rehecho")
+
+    # 9. Mantenimiento
+    from cuadres import optimizar
+    from cuadres.dashboard import TAB_RESUMEN
+    borradas = optimizar.limpiar_respaldos(base)
+    if borradas:
+        hecho.append(f"{len(borradas)} respaldo(s) viejo(s) borrado(s): {', '.join(borradas)}")
+    n = optimizar.llenar_fijos(base)
+    if n:
+        hecho.append(f"{n} celda(s) de Tipo de Plan / Subvención / Accesorios / Status 1 llenadas")
+    n = optimizar.ligar_finalizados(base)
+    if n:
+        hecho.append(f"ID del rechazo previo en {n} crédito(s) de Finalizados")
+    hecho += optimizar.proteger(base)
+    n = optimizar.vistas_por_asesor(base)
+    hecho.append("Encabezado y nombre congelados en Rechazos y Finalizados"
+                 + (f"; {n} vista(s) filtrada(s) por asesor" if n else ""))
+    if pendientes.TAB_ARCHIVO in base.pestanas():
+        base.ocultar(pendientes.TAB_ARCHIVO)
+        hecho.append(f"«{pendientes.TAB_ARCHIVO}» oculta")
+    base.ordenar([TAB_RESUMEN, TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, pendientes.TAB_REVISION])
+    hecho.append("Pestañas en orden: Resumen, Rechazos, Finalizados, Bitacora, Revision")
     return hecho

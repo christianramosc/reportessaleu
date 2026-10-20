@@ -195,6 +195,17 @@ def asesor_saleu(v):
     return re.sub(r"\s+", " ", s).strip()
 
 
+def registros_de_fuente(fu):
+    """Reporte Fuente de Sale-U (saleu_fuente.leer_fuente): solo sirve para el correo."""
+    out = []
+    for _, s in fu.iterrows():
+        if not str(s.get("Correo") or "").strip():
+            continue
+        out.append(dict(nombre=s["Nombre"], tel=s["Tel_norm"] or s["Telefono"], fecha=None, fin=None,
+                        correo=s["Correo"], prioridad=2, origen=f"Sale-U Fuente ({' '.join(str(s['Nombre']).split())})"))
+    return out
+
+
 def registros_de_saleu(su, asesor=None):
     """Reporte de Sale-U (saleu.leer_saleu)."""
     out = []

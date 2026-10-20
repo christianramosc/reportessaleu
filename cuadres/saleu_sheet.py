@@ -269,10 +269,10 @@ def _motivo(r, periodo_txt):
     return f"No aparece en el reporte de Sale-U ({periodo_txt})"
 
 
-def proponer_datos(base, su):
+def proponer_datos(base, su, fuente=None):
     """Celdas vacías de Rechazos y Finalizados que se llenan porque el cliente cuadra con Sale-U o con la
     bitácora (pestaña Bitacora) por teléfono o nombre. Si las dos traen el dato, manda la bitácora
-    (la mensualidad de Sale-U es aproximada)."""
+    (la mensualidad de Sale-U es aproximada). Con el reporte Fuente, además, el correo que falte."""
     from cuadres import completar
     from cuadres.base import TAB_BITACORA
     from cuadres.actualizar import _catalogo_asesores, _asesor
@@ -281,7 +281,12 @@ def proponer_datos(base, su):
     regs = completar.registros_de_saleu(su, nombre)
     if TAB_BITACORA in base.pestanas():
         regs += completar.registros_de_bitacora(base.leer(TAB_BITACORA), nombre)
-    return completar.proponer(base, regs)
+    out = completar.proponer(base, regs)
+    if fuente is not None and len(fuente):
+        ya = {(d["Hoja"], d["Fila"], d["Campo"]) for d in out}
+        out += [d for d in completar.proponer(base, completar.registros_de_fuente(fuente), campos=["correo"])
+                if (d["Hoja"], d["Fila"], d["Campo"]) not in ya]
+    return out
 
 
 def aplicar_datos(base, datos):

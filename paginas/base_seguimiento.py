@@ -46,8 +46,9 @@ with tab_dash:
     st.markdown("**Formato del Sheet**")
     if st.session_state.get("msg_fmt"):
         st.success("Listo:\n" + "\n".join(f"- {m}" for m in st.session_state.pop("msg_fmt")) + aviso_excel())
-    st.caption("Agrega **Reingreso** e **ID** en Rechazos y **FECHA DE ENTREGA** en Finalizados, y ajusta CONTESTA, "
-               "fechas y Revision. Guarda respaldo antes; si ya está aplicado, no duplica nada.")
+    st.caption("Ajusta columnas, colores y fechas, y da mantenimiento: borra respaldos viejos, protege las columnas "
+               "calculadas y la Bitacora (solo advertencia), congela encabezados, crea vistas por asesor, liga "
+               "Finalizados con su rechazo y ordena las pestañas. Si ya está aplicado, no duplica nada.")
     if st.button("Aplicar formato", key="btn_formato", icon=":material/format_paint:"):
         with st.spinner("Ajustando el Sheet…"):
             try:

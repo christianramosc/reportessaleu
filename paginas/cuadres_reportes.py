@@ -157,7 +157,7 @@ def ejecutar_su_base(base, archivo_su, clientes, archivo_fuente=None):
     res["fuente_guardados"], res["fuente_subida"] = guardados, fu_nuevo is not None
     res["fuente_df"], res["credito_df"] = fu, su       # para «Cómo está en Sale-U» en la lista del Resumen
     res["periodo_fuente"] = saleu_fuente.periodo_txt(fu)
-    res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su),
+    res["datos"] = pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
                                 columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
     res["escritos"], res["datos_escritos"], res["aplicado"] = 0, 0, False
     return res
