@@ -64,7 +64,6 @@ paginas = [
     st.Page("paginas/actualizar.py", title="Actualizar", icon=":material/upload_file:", url_path="actualizar"),
     st.Page("paginas/seguimiento.py", title="Seguimiento", icon=":material/fact_check:", url_path="seguimiento"),
     st.Page("paginas/blueservice.py", title="BlueService", icon=":material/directions_car:", url_path="blueservice"),
-    st.Page("paginas/polizas.py", title="Pólizas", icon=":material/verified_user:", url_path="polizas"),
     st.Page("paginas/mantenimiento.py", title="Mantenimiento", icon=":material/build:", url_path="mantenimiento"),
     st.Page("paginas/kpis_capacitacion.py", title="KPIs de capacitación",
             icon=":material/school:", url_path="kpis"),
