@@ -94,15 +94,14 @@ def archivo_persistente(etiqueta, key, tipos, donde=st, ayuda=None):
     return st.session_state.get(slot)
 
 
-PASOS_MES = [("Base de seguimiento", "Actualizar"), ("Resumen y cuadres", "Sale-U"), ("Resumen y cuadres", "Resumen"),
-             ("Base de seguimiento", "Pendientes")]
+PASOS_MES = [("Actualizar", "subir archivos y aplicar"), ("Seguimiento", "Resumen"), ("Seguimiento", "Pendientes")]
 
 
 def guia_mes():
     """Orden del cierre mensual, para no saltarse pasos."""
     pasos = "".join(f'<span><span class="n">{i}</span>{html.escape(pagina)} → <b>{html.escape(pestana)}</b></span>'
                     for i, (pagina, pestana) in enumerate(PASOS_MES, 1))
-    st.markdown(f'<div class="pasos"><span>Cierre del mes:</span>{pasos}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="pasos"><span>Cada semana:</span>{pasos}</div>', unsafe_allow_html=True)
 
 
 def tarjeta(donde, icono, titulo, valor, detalle="", color=None):

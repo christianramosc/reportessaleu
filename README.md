@@ -2,36 +2,41 @@
 
 App de Streamlit con una página por herramienta:
 
-1. **KPIs de capacitación**: avance de capacitación de Ventas y Posventa.
-2. **Base de seguimiento**: mantiene al día el Google Sheet *Seguimiento Rechazos MG Colima*. Subes las
-   bitácoras mensuales de Cetelem, la app lee la *Bitácora de F&I*, te muestra los cambios propuestos
-   (rechazos nuevos, mensualidades, folios, GAP, plazo, teléfono, Sale-U, "ya compró") y aplica los que
-   marques. Antes de escribir guarda un respaldo oculto y todo queda en la pestaña **Historial**.
-3. **Resumen y cuadres**:
-   - **Resumen**: los indicadores del Sheet para el año elegido (rechazos, seguimiento al día de los que ya
-     cumplieron 180 días, contacto efectivo, registrados en Sale-U, seguimientos vencidos y pendientes en
-     Revision), dos gráficas y las listas de vencidos, por vencer y pendientes. Abajo, **Faltan en Sale-U**:
-     Aprobados y Rechazados sin registro según el Sheet (Rechazos y Aprobados de la *Bitacora*, con lo que marca
-     el cuadre de Sale-U): **Dar de alta** («No Registrado»: no están en Sale-U) y **Registrar crédito**
-     («Falta crédito»: ya son lead en el reporte Fuente, pero sin crédito); los aprobados sin dato salen como
-     «por confirmar». El botón *Generar PDF* arma el reporte para los asesores (portada con cifras y gráficas,
-     y el detalle en dos partes —dar de alta y registrar crédito—, cada una por asesor).
-     Un cliente que aparece registrado en cualquiera de las dos fuentes no se lista.
-   Los cuadres leen la **bitácora** (pestaña *Bitacora* del Sheet: capturas de Cetelem + Bitácora de F&I,
-   **todas las financieras**); para Sale-U solo subes el reporte, revisas los cambios y la app escribe
-   *Registro en Sale-U* en el Sheet al pulsar *Aplicar*:
-   - **Sale-U vs bitácora**: reporte de Crédito de Sale-U (`reporteLeadsconCredito_*.csv`, tal cual se descarga) y,
-     opcional, el reporte **Fuente** (`ReporteFuentes_Agencia_MG-Colima_*.csv`, todos los leads; bájalo desde
-     enero). Con Fuente, los que faltan se separan en *Dar de alta* y *Registrar crédito*. Los leads de Fuente se
-     guardan en el Sheet (pestaña oculta *Fuente Sale-U*) y se suman a los ya guardados: sube una vez el de enero a
-     la fecha y después basta el del mes. El *Resumen* los usa para «Cómo está en Sale-U» y la columna *Fuente*. Compara
-     contra **todos los créditos de todas las financieras y estatus**: la pestaña *Bitacora* más lo que esté en
-     *MG Colima Rechazos* y *MG Colima Créditos Finalizados* (leídos al momento). Entran los que caen en el periodo
-     del reporte; los Finalizados entran por su *FECHA DE ENTREGA* (los que no la tienen entran todos). Cruza por teléfono y nombre y compara estatus y
-     financiera.
-   - **BlueService vs Inventario** (`PDIs_MG_Colima.xlsx` vs Excel de inventario, hoja ALMACEN o la que
-     elijas). Cruza por VIN, detecta VIN mal capturados con el dígito verificador y dice en qué otra hoja
-     aparece cada unidad.
+1. **Inicio**: los 6 indicadores del año (rechazos, seguimiento al día, contacto efectivo, registrados en Sale-U,
+   seguimientos vencidos y pendientes en Revision), las **prioridades** de la semana, qué archivos faltan por subir
+   y el **resumen ejecutivo de una página** en PDF.
+2. **Actualizar**: un solo paso para todo lo del día. Subes juntos los archivos que tengas —capturas de Cetelem,
+   Bitácora de F&I, `reporteLeadsconCredito` y `ReporteFuentes` de Sale-U, tal cual se descargan— y la app
+   **reconoce cada uno** (`cuadres/detectar.py`). *Revisar* muestra:
+   1. **Bitácoras**: rechazos nuevos, correcciones, datos faltantes y comentarios para *MG Colima Rechazos* y
+      *Finalizados* (desmarcas lo que no quieras; no se vuelve a proponer).
+   2. **Sale-U**: el *Registro en Sale-U* (Registrado / Falta crédito / No Registrado) de Rechazos y de la
+      *Bitacora*, los datos que se llenan y el reporte del cuadre Sale-U vs bitácora (Excel y PDF).
+
+   *Aplicar todo* escribe primero las bitácoras (y rehace la *Bitacora*) y después el Registro en Sale-U sobre el
+   Sheet ya actualizado. Arriba se ve **lo último que se subió** de cada archivo y avisa lo que falta («Falta la
+   captura de octubre», «el reporte de Crédito tiene 9 días»); se guarda en la pestaña oculta *Cargas*. Antes de
+   escribir guarda un respaldo oculto y todo queda en la pestaña **Historial**.
+3. **Seguimiento**:
+   - **Resumen**: indicadores del año elegido, gráficas, seguimientos vencidos (con **PDF de vencidos por
+     asesor**: uno o todos, una página cada uno), por vencer y pendientes en Revision. Abajo, **Faltan en Sale-U**:
+     **Dar de alta** («No Registrado») y **Registrar crédito** («Falta crédito»), con «Cómo está en Sale-U» y la
+     *Fuente* del lead; *Generar PDF y Excel* arma el reporte para los asesores.
+   - **Pendientes**: revisa los pendientes de *Revision* y limpia los resueltos.
+4. **BlueService**: cuadre por VIN de `PDIs_MG_Colima.xlsx` contra el Excel de inventario (hoja ALMACEN o la que
+   elijas); detecta VIN mal capturados y dice en qué otra hoja aparece cada unidad.
+5. **Mantenimiento**: *Rehacer dashboard y formato* (pestaña Resumen del Sheet + formato y mantenimiento, ver
+   abajo) e Historial de cambios.
+6. **KPIs de capacitación**: avance de capacitación de Ventas y Posventa.
+
+Las lecturas del Sheet se reusan entre clics durante 5 minutos (cuota de Google); se vuelven a leer al escribir o
+con el botón **Recargar** junto al nombre del Sheet.
+
+El cuadre de Sale-U compara contra **todos los créditos de todas las financieras y estatus**: la pestaña *Bitacora*
+más *MG Colima Rechazos* y *Créditos Finalizados* (los Finalizados entran por su *FECHA DE ENTREGA*). Con el reporte
+**Fuente** los que faltan se separan en *Dar de alta* y *Registrar crédito*; sus leads se guardan en el Sheet
+(pestaña oculta *Fuente Sale-U*) y se suman a los ya guardados: sube una vez el de enero a la fecha y después basta
+el del mes.
 
    Cada cuadre genera un **Excel** y un **PDF** descargables (`Cuadre_<tipo>_<periodo>_<fecha>`). El PDF abre con
    las cifras clave y solo trae las secciones con pendientes; el Excel usa el estilo del Sheet (Calibri 9),
@@ -44,8 +49,16 @@ streamlit_app.py               # entrada: contraseña opcional y navegación
 ui.py                          # estilos y componentes compartidos
 kpis_core.py                   # lógica de KPIs de capacitación
 paginas/kpis_capacitacion.py   # página de KPIs
-paginas/cuadres_reportes.py    # página de cuadres
-paginas/base_seguimiento.py    # página para actualizar la base con las bitácoras
+paginas/inicio.py              # Inicio: indicadores, prioridades, archivos que faltan y resumen ejecutivo
+paginas/actualizar.py          # Actualizar: todos los archivos del día, revisar y aplicar
+paginas/seguimiento.py         # Seguimiento: resumen, vencidos (PDF por asesor), faltan en Sale-U y pendientes
+paginas/blueservice.py         # cuadre BlueService vs inventario
+paginas/mantenimiento.py       # dashboard, formato y mantenimiento del Sheet; historial
+comunes.py                     # utilidades de las páginas (tablas, descargas, cuadre de Sale-U)
+cuadres/detectar.py            # reconoce cada archivo subido
+cuadres/cargas.py              # lo último que se subió (pestaña oculta Cargas) y avisos
+cuadres/reporte_ejecutivo.py   # PDF resumen ejecutivo de una página
+cuadres/reporte_vencidos.py    # PDF de seguimientos vencidos por asesor
 conexion.py                    # conexión con el Google Sheet (o modo Excel)
 cuadres/base.py                # leer/escribir el Sheet (Google o .xlsx), respaldo e Historial
 cuadres/fuentes.py             # bitácoras de Cetelem y Bitácora de F&I → solicitudes
@@ -53,7 +66,7 @@ cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
 cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision y archivarlos
 cuadres/ids.py                 # ID fijo y marca de reingreso en MG Colima Rechazos
-cuadres/formato_sheet.py       # ajustes de estructura y formato del Sheet (botón «Aplicar formato»)
+cuadres/formato_sheet.py       # ajustes de estructura y formato del Sheet (botón «Rehacer dashboard y formato»)
 cuadres/dashboard.py           # dashboard de la pestaña Resumen (KPI, lectura, gráficas)
 cuadres/seguimiento.py         # cuadre vs Excel de seguimiento (ya no está en la app; sigue para Colab)
 cuadres/resumen.py             # indicadores del Sheet y clientes que faltan en Sale-U
@@ -92,16 +105,16 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    **Editor**. En la *Bitácora de F&I* (la original): compartir como **Lector**.
 6. En Streamlit Cloud: **Settings → Secrets**, pega el contenido de `.streamlit/secrets.toml.example`
    con tus enlaces y los datos del JSON (cada campo del JSON va en la sección `[gcp_service_account]`).
-7. Abre la página **Base de seguimiento**: debe decir *Conectado a …*.
+7. Abre la página **Inicio**: debe decir *Conectado a …*.
 
-### Cómo se usa cada mes
+### Cómo se usa
 
-1. **Base de seguimiento** → sube las bitácoras de Cetelem del mes (el .xlsx tal cual) y, si no está conectada
-   por Google, la Bitácora de F&I → *Revisar cambios* → desmarca lo que no quieras → *Aplicar*. Esto también
-   actualiza la pestaña *Bitacora*, que es la que usan los cuadres. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
+1. **Actualizar** → sube juntos los archivos que tengas (capturas de Cetelem, Bitácora de F&I si no está conectada
+   por Google, reportes de Crédito y Fuente de Sale-U) → *Revisar* → desmarca lo que no quieras → *Aplicar todo*.
+   Las bitácoras también actualizan la pestaña *Bitacora*, que es la que usan los cuadres. Lo desmarcado queda como "Ignorado" en el Historial y no se vuelve a
    proponer.
-2. **Resumen y cuadres → Sale-U** → sube el reporte de Sale-U → *Hacer cuadre*. Compara contra la
-   **bitácora completa** (todas las financieras y estatus; ver abajo). Por eso conviene hacer antes el paso 1.
+   El cuadre de Sale-U (en el mismo *Revisar*) compara contra la **bitácora completa** (todas las financieras y
+   estatus; ver abajo) y se aplica después de las bitácoras.
    Un cliente está en Sale-U si coincide el
    teléfono (aunque el nombre esté capturado distinto; se avisa para verificar) o el nombre es muy parecido; es el
    mismo criterio que usa la columna *Registro en Sale-U*. La hoja *Faltan en Sale-U* del Excel trae
@@ -113,18 +126,18 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    *No Registrado*. Fuera del periodo de Crédito, un *No Registrado* que sí está en Fuente sube a *Falta crédito*.
    En los dos reportes el cliente se busca por teléfono **o** por nombre: basta con que coincida uno (si coincide
    el teléfono con otro nombre, o el nombre con otro teléfono, se avisa para verificar).
-   Revisas el detalle y pulsas *Aplicar* para escribirlo en el Sheet.
+   Se escribe con *Aplicar todo*.
    Nunca se baja de nivel: lo que ya dice *Registrado* o *Sí* (p. ej. marcado a mano) se deja igual aunque no
    aparezca en los reportes, y se lista para que lo confirmes.
-3. **Resumen y cuadres → Resumen** → revisa indicadores y vencidos; *Generar PDF* para mandar a los asesores
-   la lista de quién falta en Sale-U.
-4. **Base de seguimiento → Pendientes** → *Revisar pendientes* → *Limpiar*. Los pendientes de la pestaña
+2. **Seguimiento → Resumen** → revisa indicadores y vencidos; *PDF de vencidos* por asesor y *Generar PDF y Excel*
+   para mandar a los asesores la lista de quién falta en Sale-U.
+3. **Seguimiento → Pendientes** → *Revisar pendientes* → *Limpiar*. Los pendientes de la pestaña
    *Revision* que ya tienen el dato capturado pasan a *Corregido* y se les quita el morado y la nota en la
    hoja. Si un pendiente no aplica o lo resolviste de otra forma, cámbialo a mano a *Corregido* o *No aplica*
    en *Revision* y el botón le quita la marca. Los resueltos pasan a la pestaña *Revision resueltos*; en
    *Revision* quedan solo los pendientes.
 
-**Formato del Sheet (una vez):** *Base de seguimiento → Dashboard → Aplicar formato*. Guarda respaldo y, si ya está
+**Formato del Sheet (una vez):** *Mantenimiento → Rehacer dashboard y formato*. Guarda respaldo y, si ya está
 aplicado, no duplica nada:
 - *MG Colima Rechazos*: al final, **Reingreso** («1 de 2», «2 de 2» cuando el celular está en otra solicitud, en
   amarillo) e **ID** (R-0001…, no cambia aunque se ordene la hoja; la *Bitacora* y *Revision* guardan el ID en lugar
@@ -162,7 +175,7 @@ efectivo, % registrado en Sale-U, seguimientos vencidos, pendientes en Revision)
 que interpretan la situación, 8 gráficas (rechazos por mes y financiera, seguimiento, por financiera, por asesor,
 registro en Sale-U, pendientes, bitácora por estatus y % de rechazo) y, debajo, las tablas de donde salen. Todo son
 fórmulas: se actualiza solo y el año se cambia en la celda B2. La app lo rehace cada vez que aplicas bitácoras (para
-tomar financieras y asesores nuevos) o con *Base de seguimiento → Dashboard*.
+tomar financieras y asesores nuevos) o con *Mantenimiento → Rehacer dashboard y formato*.
 
 Reglas que sigue la app al escribir en el Sheet:
 - **Datos faltantes:** si un cliente de *MG Colima Rechazos* o *MG Colima Créditos Finalizados* cuadra por

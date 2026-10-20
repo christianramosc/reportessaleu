@@ -50,6 +50,9 @@ def datos(base, anio=None, hoy=None):
             bit = b[b["_f"].map(lambda d: bool(d) and d.year == anio)].copy()
             bit["_m"] = bit["_f"].map(lambda d: d.month)
             bit["_e"] = bit["Estatus final"].map(lambda v: str(v or "").strip() or "Sin estatus")
+            # solo meses con capturas (los meses sin captura de Cetelem solo traen rechazos y sesgan el %)
+            con_captura = set(bit[bit["_e"].map(norm) != "RECHAZADO"]["_m"])
+            bit = bit[bit["_m"].isin(con_captura)]
     return dict(k=k, faltan=faltan, bit=bit, anio=anio, hoy=hoy)
 
 
@@ -108,7 +111,9 @@ def grafica_bitacora(bit, w, h):
     ax.spines["left"].set_color(LINEA)
     ax.xaxis.set_visible(False)
     ax.tick_params(axis="y", length=0, labelsize=7.8)
-    return _titulo(fig, "Bitácora por estatus final", f"{n} solicitudes del año (todas las financieras)", ax)
+    meses = sorted(set(bit["_m"])) if not bit.empty else []
+    rango = f"{MESES[meses[0] - 1]}–{MESES[meses[-1] - 1]}" if meses else "sin datos"
+    return _titulo(fig, "Bitácora por estatus final", f"{n} solicitudes, meses con capturas ({rango})", ax)
 
 
 # =============================================================================
@@ -175,6 +180,11 @@ class _Doc(BaseDocTemplate):
         c.restoreState()
 
 
+def prioridades(d):
+    """Frases de «Prioridades» (con <b> para negritas)."""
+    return _prioridades(d)
+
+
 def _prioridades(d):
     k, faltan = d["k"], d["faltan"]
     out = []
@@ -195,11 +205,11 @@ def _prioridades(d):
     return out
 
 
-def pdf(base, anio=None, hoy=None):
-    """Bytes del PDF de una página."""
+def pdf(base, anio=None, hoy=None, d=None):
+    """Bytes del PDF de una página (d: lo que devuelve datos(), si ya se calculó)."""
     _fuentes()
     st = _estilos()
-    d = datos(base, anio, hoy)
+    d = d or datos(base, anio, hoy)
     k, faltan, bit = d["k"], d["faltan"], d["bit"]
     buf = io.BytesIO()
     doc = _Doc(buf, d["anio"], d["hoy"])
