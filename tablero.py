@@ -6,10 +6,9 @@ clientes ni de asesores: los seguimientos se identifican por su ID de «MG Colim
   · Atraso de los vencidos por rango (clic en un rango filtra la gráfica de al lado) y días de atraso por ID.
   · Agenda: vencidos y lo que toca cada semana.
   · Embudo de contacto, resultado del contacto y canal.
-  · Seguimiento al día, registro en Sale-U y rechazos por financiera (donas).
+  · Seguimiento al día, registro en Sale-U y rechazos por financiera (barras; sin gráficas circulares).
 """
 import altair as alt
-import pandas as pd
 import streamlit as st
 
 from cuadres.reporte_ejecutivo import ESTADO, NAVY, NAVY_2, SERIE, RANGOS, COLOR_RANGO
@@ -40,23 +39,25 @@ def _vacio(caja, texto):
                   unsafe_allow_html=True)
 
 
-def _dona(df, campo, alto=230):
-    df = df[df["Clientes"] > 0].copy()
+def _barras(df, campo, alto=None):
+    """Barras horizontales con cantidad y porcentaje (en lugar de gráficas circulares)."""
+    df = df.copy()
     total = int(df["Clientes"].sum())
     df["Porcentaje"] = df["Clientes"] / total if total else 0
+    df["Etiqueta"] = [f"{n}  ({p:.0%})" for n, p in zip(df["Clientes"], df["Porcentaje"])]
+    orden = list(df[campo])
     hover = alt.selection_point(fields=[campo], on="pointerover", clear="pointerout")
-    escala = alt.Scale(domain=list(df[campo]), range=list(df["Color"]))
-    base = alt.Chart(df)
-    arco = base.mark_arc(innerRadius=62, outerRadius=95, stroke="white", strokeWidth=2, cursor="pointer").encode(
-        theta=alt.Theta("Clientes:Q", stack=True),
-        color=alt.Color(f"{campo}:N", scale=escala, legend=alt.Legend(title=None, columns=2)),
-        opacity=alt.condition(hover, alt.value(1), alt.value(0.45)),
+    barras = alt.Chart(df).mark_bar(cornerRadiusEnd=4, height=26).encode(
+        y=alt.Y(f"{campo}:N", sort=orden, title=None, axis=alt.Axis(labelLimit=180)),
+        x=alt.X("Clientes:Q", title=None, axis=alt.Axis(tickMinStep=1),
+                scale=alt.Scale(domain=[0, max(int(df["Clientes"].max()), 1) * 1.3])),
+        color=alt.Color(f"{campo}:N", scale=alt.Scale(domain=orden, range=list(df["Color"])), legend=None),
+        opacity=alt.condition(hover, alt.value(1), alt.value(0.75)),
         tooltip=[alt.Tooltip(f"{campo}:N"), alt.Tooltip("Clientes:Q"), alt.Tooltip("Porcentaje:Q", format=".0%")],
     ).add_params(hover)
-    centro = alt.Chart(pd.DataFrame({"t": [str(total)]})).mark_text(fontSize=26, fontWeight="bold", color=TINTA,
-                                                                     dy=-6).encode(text="t:N")
-    pie = alt.Chart(pd.DataFrame({"t": ["clientes"]})).mark_text(fontSize=11, color=TINTA_2, dy=16).encode(text="t:N")
-    return _estilo(alt.layer(arco, centro, pie), alto)
+    txt = alt.Chart(df).mark_text(align="left", dx=5, color=TINTA, fontWeight="bold").encode(
+        y=alt.Y(f"{campo}:N", sort=orden), x="Clientes:Q", text="Etiqueta:N")
+    return _estilo(alt.layer(barras, txt), alto or max(150, 52 * len(df)))
 
 
 def mostrar(t, anio):
@@ -115,7 +116,7 @@ def mostrar(t, anio):
     with c2:
         caja = _caja("Seguimiento al día", "De los rechazos que ya cumplieron 180 días")
         if t["al_dia"]["Clientes"].sum():
-            caja.altair_chart(_dona(t["al_dia"], "Estado"), width="stretch")
+            caja.altair_chart(_barras(t["al_dia"], "Estado"), width="stretch")
         else:
             _vacio(caja, "Todavía no le toca a ninguno")
 
@@ -142,7 +143,7 @@ def mostrar(t, anio):
     with c2:
         caja = _caja("Resultado del contacto", "Primer contacto: ¿contestó?")
         if t["contacto"]["Clientes"].sum():
-            caja.altair_chart(_dona(t["contacto"], "Resultado"), width="stretch")
+            caja.altair_chart(_barras(t["contacto"], "Resultado"), width="stretch")
         else:
             _vacio(caja, "Sin contactos capturados")
     with c3:
@@ -151,18 +152,15 @@ def mostrar(t, anio):
         if ca.empty:
             _vacio(caja, "Sin contactos capturados")
         else:
-            graf = alt.Chart(ca).mark_bar(cornerRadiusEnd=4, color=NAVY_2).encode(
-                y=alt.Y("Canal:N", sort="-x", title=None), x=alt.X("Clientes:Q", title=None),
-                tooltip=["Canal:N", "Clientes:Q"])
-            txt = graf.mark_text(align="left", dx=4, color=TINTA).encode(text="Clientes:Q")
-            caja.altair_chart(_estilo(alt.layer(graf, txt), 230), width="stretch")
+            ca = ca.assign(Color=[ESTADO["neutro"] if c == "Sin dato" else NAVY_2 for c in ca["Canal"]])
+            caja.altair_chart(_barras(ca, "Canal"), width="stretch")
 
     # ------------------------------------------------------------ Sale-U y financieras
     c1, c2 = st.columns(2)
     with c1:
         caja = _caja("Registro en Sale-U", "Rechazados y aprobados del año")
         if t["saleu"]["Clientes"].sum():
-            caja.altair_chart(_dona(t["saleu"], "Estado"), width="stretch")
+            caja.altair_chart(_barras(t["saleu"], "Estado"), width="stretch")
         else:
             _vacio(caja, "Sin datos de Sale-U")
     with c2:
@@ -172,4 +170,4 @@ def mostrar(t, anio):
             _vacio(caja, "Sin rechazos en el año")
         else:
             fi["Color"] = fi["Financiera"].map(dict(zip(["CETELEM", "BBVA", "Otras"], SERIE))).fillna("#8a8984")
-            caja.altair_chart(_dona(fi, "Financiera"), width="stretch")
+            caja.altair_chart(_barras(fi, "Financiera"), width="stretch")

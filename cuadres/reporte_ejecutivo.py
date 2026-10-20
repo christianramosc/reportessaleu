@@ -175,28 +175,25 @@ def grafica_embudo(t, w, h):
     return _titulo(fig, "Embudo de contacto", f"Rechazos de {t.get('anio', '')}".strip() or "Del año", ax)
 
 
-def grafica_dona(df, campo, w, h, titulo, subtitulo):
+def grafica_barras(df, campo, w, h, titulo, subtitulo):
+    """Barras horizontales con cantidad y porcentaje (sin gráficas circulares)."""
     plt = _mpl()
     fig, ax = plt.subplots(figsize=(w / 72, h / 72))
-    df = df[df["Clientes"] > 0]
     total = int(df["Clientes"].sum())
-    if total:
-        ax.pie(df["Clientes"], colors=df["Color"], startangle=90, counterclock=False,
-               wedgeprops=dict(width=0.34, edgecolor="white", linewidth=1.5))
-        ax.text(0, 0.05, str(total), ha="center", va="center", fontsize=13, fontweight="bold", color=TINTA)
-        ax.text(0, -0.22, "clientes", ha="center", va="center", fontsize=6.5, color=TINTA_2)
-        for (_, r) in df.iterrows():
-            ax.bar(0, 0, color=r["Color"], label=f"{r[campo]}  {r['Clientes']} ({r['Clientes'] / total:.0%})")
-    ax.set_aspect("equal")
-    ax.axis("off")
-    fig.tight_layout(pad=0.4, rect=(0.38, 0, 1, 0.82))
-    fig.text(0.01, 0.975, titulo, fontsize=10.5, fontweight="bold", color=TINTA, va="top")
-    fig.text(0.01, 0.905, subtitulo, fontsize=7.5, color=TINTA_2, va="top")
-    hh, ll = ax.get_legend_handles_labels()
-    fig.legend(hh, ll, loc="center left", bbox_to_anchor=(0.0, 0.42), frameon=False, fontsize=7.2,
-               handlelength=1, handleheight=0.8, labelcolor=TINTA_2, labelspacing=0.9)
-    from cuadres.reporte_saleu import _png
-    return _png(fig)
+    tope = max(int(df["Clientes"].max()), 1)
+    y = list(range(len(df)))[::-1]
+    ax.barh(y, df["Clientes"], color=list(df["Color"]), height=0.58)
+    for yi, n in zip(y, df["Clientes"]):
+        ax.text(n + tope * 0.02, yi, f"{n}  ({n / total:.0%})" if total else "0", va="center", fontsize=7.5,
+                color=TINTA, fontweight="bold")
+    ax.set_yticks(y, df[campo])
+    ax.set_xlim(0, tope * 1.35)
+    for s in ("top", "right", "bottom"):
+        ax.spines[s].set_visible(False)
+    ax.spines["left"].set_color(LINEA)
+    ax.xaxis.set_visible(False)
+    ax.tick_params(axis="y", length=0, labelsize=7.8)
+    return _titulo(fig, titulo, subtitulo, ax)
 
 
 # =============================================================================
@@ -296,7 +293,7 @@ def pdf(base, anio=None, hoy=None, d=None):
         return g
     el += [fila(grafica_vencidos(t, w, h, top=8), grafica_agenda(t, w, h)), Spacer(1, 8),
            fila(grafica_embudo(t, w, h),
-                grafica_dona(t["saleu"], "Estado", w, h, "Registro en Sale-U",
+                grafica_barras(t["saleu"], "Estado", w, h, "Registro en Sale-U",
                              "Rechazados y aprobados del año")), Spacer(1, 10)]
     prio = _prioridades(d)
     if prio:
