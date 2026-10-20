@@ -106,7 +106,8 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
    teléfono (aunque el nombre esté capturado distinto; se avisa para verificar) o el nombre es muy parecido; es el
    mismo criterio que usa la columna *Registro en Sale-U*. La hoja *Faltan en Sale-U* del Excel trae
    nombre, vendedor, celular, financiera, estatus, plazo, unidad, mensualidad y correo de cada cliente para darlo de
-   alta. Además del Excel/PDF, propone el *Registro en Sale-U* de cada rechazo (y de cada aprobado de la *Bitacora*)
+   alta. Además del Excel/PDF, propone el *Registro en Sale-U* de cada rechazo (y de cada aprobado y rechazado de la *Bitacora*; los
+   rechazados ligados a *MG Colima Rechazos* toman el mismo valor que su fila allá)
    cuya fecha cae en el periodo del reporte de Crédito: *Registrado* (está en Crédito), *Falta crédito* (no está en
    Crédito pero sí en Fuente) o *No Registrado* (no está en ninguno). Sin el reporte Fuente solo hay *Registrado* /
    *No Registrado*. Fuera del periodo de Crédito, un *No Registrado* que sí está en Fuente sube a *Falta crédito*.

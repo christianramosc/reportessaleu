@@ -191,7 +191,7 @@ except Exception as e:
 
 tab_res, tab_su, tab_bs = st.tabs(["📊 Resumen", "🟦 Sale-U", "🔧 BlueService"])
 
-HOJA_CORTA = lambda h: "Bitacora (aprobado)" if h == "Bitacora" else "Rechazos"
+HOJA_CORTA = lambda h: "Bitacora" if h == "Bitacora" else "Rechazos"
 AGREGAR_MES = "Para agregar un mes: **Base de seguimiento → Actualizar**."
 AYUDA_CAPTURAS = "Las pide el F&I. Un Excel por mes (ej. JULIO_2026_FINAL.xlsx); puedes subir varios."
 
@@ -400,7 +400,7 @@ with tab_su:
         aplicado = res.get("aplicado", False)
         escritos_datos = res.get("datos_escritos", 0)
         k = st.columns(6)
-        k[0].metric("Revisados", len(reg), help="Rechazos de MG Colima Rechazos y Aprobados de la Bitacora del periodo del reporte de Crédito "
+        k[0].metric("Revisados", len(reg), help="Rechazos de MG Colima Rechazos y Aprobados y Rechazados de la Bitacora del periodo del reporte de Crédito "
                                            "(más los «No Registrado» de otras fechas que salen en Fuente).")
         k[1].metric("Registrados", int((reg["Después"] == saleu_sheet.REGISTRADO).sum()))
         k[2].metric("Falta crédito", int((reg["Después"] == saleu_sheet.FALTA_CREDITO).sum()),
