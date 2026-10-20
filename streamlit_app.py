@@ -60,11 +60,12 @@ if not acceso_permitido():
 ui.aplicar_estilo()
 
 paginas = [
+    st.Page("paginas/inicio.py", title="Inicio", icon=":material/home:", url_path="inicio", default=True),
+    st.Page("paginas/actualizar.py", title="Actualizar", icon=":material/upload_file:", url_path="actualizar"),
+    st.Page("paginas/seguimiento.py", title="Seguimiento", icon=":material/fact_check:", url_path="seguimiento"),
+    st.Page("paginas/blueservice.py", title="BlueService", icon=":material/directions_car:", url_path="blueservice"),
+    st.Page("paginas/mantenimiento.py", title="Mantenimiento", icon=":material/build:", url_path="mantenimiento"),
     st.Page("paginas/kpis_capacitacion.py", title="KPIs de capacitación",
-            icon=":material/school:", url_path="kpis", default=True),
-    st.Page("paginas/cuadres_reportes.py", title="Resumen y cuadres",
-            icon=":material/fact_check:", url_path="cuadres"),
-    st.Page("paginas/base_seguimiento.py", title="Base de seguimiento",
-            icon=":material/database:", url_path="base"),
+            icon=":material/school:", url_path="kpis"),
 ]
 st.navigation(paginas, position="top").run()

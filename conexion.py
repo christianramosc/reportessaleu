@@ -36,16 +36,28 @@ def _base_google(url):
     return BaseGoogle(dict(_secret("gcp_service_account")), url)
 
 
+RECARGAR_CADA = 300          # segundos: las lecturas del Sheet se reusan entre clics durante 5 minutos
+
+
+def recargar():
+    """Pide leer el Sheet de nuevo en la próxima consulta (después de escribir, o con el botón «Recargar»)."""
+    st.session_state["_base_leida"] = 0
+
+
 def obtener_base():
-    """La base activa (Google Sheet o Excel subido) o None. Siempre con datos frescos."""
+    """La base activa (Google Sheet o Excel subido) o None. Las pestañas leídas se reusan entre clics (cada lectura
+    cuenta en la cuota de Google); se vuelven a leer cada 5 minutos, al escribir o con «Recargar datos»."""
     if google_configurado():
+        import time
         url = _secret("SEGUIMIENTO_SHEET_URL")
         base = _base_google(url)
         if not isinstance(base, BaseGoogle):
             # la conexión guardada es de una versión anterior del código (la app se actualizó): rehacerla
             _base_google.clear()
             base = _base_google(url)
-        base.refrescar()
+        if time.time() - st.session_state.get("_base_leida", 0) > RECARGAR_CADA:
+            base.refrescar()
+            st.session_state["_base_leida"] = time.time()
         return base
     return st.session_state.get("base_excel")
 
@@ -175,7 +187,12 @@ def panel_base(donde=st):
         except Exception as e:
             donde.error(f"No se pudo abrir el Google Sheet: {e}. Compártelo como Editor con la cuenta de servicio.")
             return None
-        donde.success(f"Conectado a **{base.titulo}** · [abrir]({base.url})", icon=":material/cloud_done:")
+        c1, c2 = donde.columns([5, 1])
+        c1.success(f"Conectado a **{base.titulo}** · [abrir]({base.url})", icon=":material/cloud_done:")
+        if c2.button("Recargar", icon=":material/refresh:", key=f"recargar_{id(donde)}",
+                     help="Vuelve a leer el Sheet (si lo editaste a mano en los últimos 5 minutos)."):
+            recargar()
+            st.rerun()
         return base
     caja = donde.container(border=True)
     caja.markdown("**Modo Excel** · Sube el Excel de seguimiento y al final descarga la versión actualizada.")

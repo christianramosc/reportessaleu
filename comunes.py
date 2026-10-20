@@ -1,0 +1,143 @@
+# -*- coding: utf-8 -*-
+"""Utilidades compartidas por las páginas (tablas con color, descargas, archivos temporales y el cuadre de Sale-U)."""
+import os
+import tempfile
+
+import pandas as pd
+import streamlit as st
+
+import conexion
+from cuadres import saleu as cu
+from cuadres import saleu_sheet, saleu_fuente
+from cuadres.salidas import etiqueta
+
+ESTADO = dict(bien="#0ca30c", aviso="#c98500", critico="#d03b3b")
+HOJA_CORTA = lambda h: "Bitacora" if h == "Bitacora" else ("Finalizados" if "Finalizados" in str(h) else "Rechazos")
+
+
+# =============================================================================
+# Archivos
+# =============================================================================
+def guardar_temporal(archivos, carpeta):
+    """archivos: [(nombre, bytes)] o UploadedFile. Los guarda con su nombre original y devuelve las rutas."""
+    rutas = []
+    for a in archivos:
+        nombre, datos = (a if isinstance(a, tuple) else (a.name, a.getbuffer()))
+        ruta = os.path.join(carpeta, nombre)
+        with open(ruta, "wb") as f:
+            f.write(datos)
+        rutas.append(ruta)
+    return rutas
+
+
+def leer_bytes(ruta):
+    with open(ruta, "rb") as f:
+        return f.read()
+
+
+def aviso_excel(base):
+    return " Descarga el Excel arriba." if isinstance(base, conexion.BaseExcel) else ""
+
+
+# =============================================================================
+# Tablas
+# =============================================================================
+def colorear(valor):
+    verde, amarillo, rojo = "#C6EFCE", "#FFEB9C", "#FFC7CE"
+    v = str(valor)
+    if v in ("Falta crédito", "Registrar crédito"):
+        return f"background-color: {amarillo}"
+    if v == "Dar de alta":
+        return f"background-color: {rojo}"
+    if v in ("OK", "Coincide por folio", "Coincide (teléfono y nombre)", "Cuadra"):
+        return f"background-color: {verde}"
+    if (v.startswith("NO ") or v == "No cuadra" or "pero NO" in v or v.startswith("Falta")
+            or v.startswith("En BlueService, no")):
+        return f"background-color: {rojo}"
+    if (v == "Revisar" or v.startswith("Coincide por") or v.startswith("Posible")
+            or v.startswith("Cuadra –")):
+        return f"background-color: {amarillo}"
+    return ""
+
+
+def tabla(df, columnas, columnas_color=(), alto=None):
+    cols = [c for c in columnas if c in df.columns]
+    if df.empty:
+        st.info("Sin registros.")
+        return
+    vista = df[cols].copy()
+    vista.columns = [etiqueta(c) for c in cols]
+    estilo = vista.style
+    color_cols = [etiqueta(c) for c in columnas_color if c in cols]
+    if color_cols:
+        estilo = estilo.map(colorear, subset=color_cols)
+    extra = {"height": alto} if alto else {}
+    st.dataframe(estilo, width="stretch", hide_index=True, **extra)
+
+
+def filtro_vendedor(df, clave, columna="Vendedor"):
+    if df.empty or columna not in df.columns:
+        return df
+    opciones = sorted(v for v in df[columna].dropna().unique() if str(v).strip())
+    elegidos = st.multiselect("Vendedor", opciones, key=clave, placeholder="Todos")
+    return df[df[columna].isin(elegidos)] if elegidos else df
+
+
+def valor_resumen(resumen, texto):
+    fila = resumen[resumen["Concepto"].str.strip().str.startswith(texto)]
+    return fila["Valor"].iloc[0] if not fila.empty else "—"
+
+
+def descargas(res, prefijo):
+    c1, c2, _ = st.columns([1, 1, 3])
+    c1.download_button("Excel", res["xlsx_bytes"], file_name=res["xlsx_nombre"],
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       width="stretch", key=f"{prefijo}_x", icon=":material/table_view:")
+    c2.download_button("PDF", res["pdf_bytes"], file_name=res["pdf_nombre"],
+                       mime="application/pdf", width="stretch", key=f"{prefijo}_p",
+                       icon=":material/picture_as_pdf:")
+
+
+# =============================================================================
+# Cuadre de Sale-U (revisar sin escribir; aplicar después)
+# =============================================================================
+def preparar_saleu(base, credito, fuentes_nuevas, clientes):
+    """credito: (nombre, bytes) del reporte de Crédito; fuentes_nuevas: [(nombre, bytes)] reportes Fuente (opcional).
+    Cuadra Sale-U contra el Sheet y propone el Registro en Sale-U y los datos faltantes. No escribe nada."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta_su = guardar_temporal([credito], tmp)[0]
+        nuevas = [saleu_fuente.leer_fuente(r) for r in guardar_temporal(fuentes_nuevas, tmp)]
+        fu_nuevo = saleu_fuente.combinar(*nuevas) if nuevas else None
+        # se suma a los leads ya guardados en el Sheet: un reporte del mes no pierde los leads de meses anteriores
+        fu = saleu_fuente.combinar(saleu_fuente.guardada(base), fu_nuevo)
+        res = {}
+        if not clientes.empty:
+            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=clientes, fuente="la bitácora", ruta_fuente=fu)
+            res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
+            res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
+        su = cu.leer_saleu(ruta_su)
+    cambios, (ini, fin) = saleu_sheet.proponer(base, su, fuente=fu)
+    res.update(registro=cambios, periodo_saleu=f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}", con_fuente=fu is not None,
+               fuente_df=fu, fuente_subida=fu_nuevo is not None, credito_df=su,
+               periodo_fuente=saleu_fuente.periodo_txt(fu), archivo_credito=credito[0],
+               datos=pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
+                                  columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"]))
+    return res
+
+
+def aplicar_saleu(base, res, volver_a_proponer=False):
+    """Guarda los leads de Fuente y escribe el Registro en Sale-U y los datos faltantes. Con volver_a_proponer
+    (porque antes se rehízo la Bitacora y cambiaron sus filas) recalcula los cambios sobre el Sheet ya actualizado.
+    Devuelve (registros escritos, datos escritos)."""
+    fu, su = res.get("fuente_df"), res["credito_df"]
+    if res.get("fuente_subida") and fu is not None:
+        saleu_fuente.guardar(base, fu)
+    reg, datos = res["registro"], res["datos"]
+    if volver_a_proponer:
+        base.refrescar()
+        reg, _ = saleu_sheet.proponer(base, su, fuente=fu)
+        datos = pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
+                             columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
+    escritos = saleu_sheet.aplicar(base, reg, res["periodo_saleu"])
+    datos_escritos = saleu_sheet.aplicar_datos(base, datos.to_dict("records"))
+    return escritos, datos_escritos
