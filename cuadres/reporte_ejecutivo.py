@@ -3,8 +3,8 @@
 Resumen ejecutivo de una página (PDF) con lo más importante del Sheet de seguimiento:
 
   · indicadores del año: rechazos, seguimiento al día, contacto efectivo, registro en Sale-U, vencidos, Revision
-  · gráficas: rechazos por mes y financiera · bitácora por estatus
-  · tablas: seguimientos vencidos más atrasados · asesores (rechazos, por registrar en Sale-U, vencidos)
+  · gráficas (sin nombres): seguimientos más atrasados (días por ID), agenda de seguimientos, embudo de contacto y
+    registro en Sale-U. tablero(d) da los datos de esas y de las demás gráficas del Inicio.
   · «Prioridades de la semana»: frases armadas con los números
 
   pdf(base, anio=None, hoy=None) → bytes del PDF
@@ -19,10 +19,8 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (BaseDocTemplate, Frame, PageTemplate, Paragraph, Spacer, Table, TableStyle)
 
 from cuadres import resumen
-from cuadres.base import TAB_BITACORA, norm
-from cuadres.fuentes import to_date
 from cuadres.reporte_saleu import (Cifras, Imagen, NAVY, NAVY_2, TINTA, TINTA_2, TINTA_3, LINEA, MARGEN, UTIL,
-                                   _corto, _e, _estilos, _fuentes, _icono, _ico, _mpl, _titulo)
+                                   _estilos, _fuentes, _icono, _ico, _mpl, _titulo)
 
 ANCHO, ALTO = letter
 SERIE = ["#2a78d6", "#eb6834", "#1baf7a"]                        # CETELEM, BBVA, otras
@@ -42,106 +40,163 @@ def datos(base, anio=None, hoy=None):
     anio = anio or hoy.year
     k = resumen.indicadores(base, anio)
     faltan, _ = resumen.faltantes_saleu(base, hoy=hoy)
-    bit = pd.DataFrame()
-    if TAB_BITACORA in base.pestanas():
-        b = base.leer(TAB_BITACORA)
-        if not b.empty and "Estatus final" in b.columns:
-            b["_f"] = b["Fecha"].map(to_date)
-            bit = b[b["_f"].map(lambda d: bool(d) and d.year == anio)].copy()
-            bit["_m"] = bit["_f"].map(lambda d: d.month)
-            bit["_e"] = bit["Estatus final"].map(lambda v: str(v or "").strip() or "Sin estatus")
-            # solo meses con capturas (los meses sin captura de Cetelem solo traen rechazos y sesgan el %)
-            con_captura = set(bit[bit["_e"].map(norm) != "RECHAZADO"]["_m"])
-            bit = bit[bit["_m"].isin(con_captura)]
-    return dict(k=k, faltan=faltan, bit=bit, anio=anio, hoy=hoy)
+    return dict(k=k, faltan=faltan, anio=anio, hoy=hoy)
 
 
 # =============================================================================
-# Gráficas
+# Tablero (datos de las gráficas, sin nombres de clientes ni de asesores)
 # =============================================================================
-def _ejes(ax):
-    for s in ("top", "right", "left"):
+RANGOS = [(0, 7, "0–7 días"), (8, 15, "8–15 días"), (16, 30, "16–30 días"), (31, 60, "31–60 días"),
+          (61, 10 ** 6, "Más de 60")]
+COLOR_RANGO = ["#fab219", "#ec835a", "#e0603f", "#d03b3b", "#8f1d1d"]
+SEMANAS = 8
+
+
+def _rango(dias):
+    return next(r for a, b, r in RANGOS if a <= dias <= b)
+
+
+def tablero(d):
+    """DataFrames de las gráficas del Inicio y del PDF."""
+    k, hoy = d["k"], d["hoy"]
+    v = k["vencidos"]
+    venc = pd.DataFrame({
+        "Seguimiento": [str(r.get("id") or "").strip() or f"Fila {r.get('fila', '')}" for _, r in v.iterrows()],
+        "Días": [int(x) for x in v["dias"]] if len(v) else [],
+        "Financiera": [str(r.get("fin") or "").title() or "—" for _, r in v.iterrows()],
+        "Tocaba el": [r["fseg"].strftime("%d/%m/%Y") if r.get("fseg") else "" for _, r in v.iterrows()]})
+    venc["Atraso"] = venc["Días"].map(_rango) if len(venc) else []
+    venc = venc.drop_duplicates("Seguimiento").sort_values("Días", ascending=False).reset_index(drop=True)
+    antig = pd.DataFrame({"Atraso": [r for _, _, r in RANGOS],
+                          "Seguimientos": [int((venc["Atraso"] == r).sum()) for _, _, r in RANGOS],
+                          "Color": COLOR_RANGO})
+
+    # agenda: vencidos + lo que toca en las próximas semanas (lunes a domingo)
+    lunes = hoy - dt.timedelta(days=hoy.weekday())
+    sh = k.get("sin_hacer")
+    filas = [dict(Semana="Vencidos", Orden=-1, Seguimientos=len(venc), Tipo="Vencido")]
+    for i in range(SEMANAS):
+        ini = lunes + dt.timedelta(weeks=i)
+        n = 0 if sh is None or sh.empty else int(sh["fseg"].map(
+            lambda f: bool(f) and max(ini, hoy) <= f < ini + dt.timedelta(days=7)).sum())
+        filas.append(dict(Semana="Esta semana" if i == 0 else f"{ini:%d/%m}", Orden=i, Seguimientos=n,
+                          Tipo="Esta semana" if i == 0 else "Próximo"))
+    agenda = pd.DataFrame(filas)
+
+    embudo = pd.DataFrame({"Paso": ["Rechazos del año", "Ya les toca (180 días)", "Con primer contacto",
+                                    "Contestaron"],
+                           "Clientes": [k["rechazos"], k["ya_toca"], k["contactados"], k["contestaron"]]})
+    contacto = pd.DataFrame({"Resultado": ["Contestó", "No contestó", "Sin dato"],
+                             "Clientes": [k["contestaron"], k.get("no_contestaron", 0), k["sin_contesta"]],
+                             "Color": [ESTADO["bien"], ESTADO["serio"], ESTADO["neutro"]]})
+    canal = pd.DataFrame(sorted(k.get("por_canal", {}).items(), key=lambda x: -x[1]), columns=["Canal", "Clientes"])
+    saleu = pd.DataFrame({"Estado": ["Registrado", "Falta crédito", "Dar de alta"],
+                          "Clientes": [k.get("registrados", 0), k.get("falta_credito", 0), k.get("falta_alta", 0)],
+                          "Color": [ESTADO["bien"], ESTADO["aviso"], ESTADO["critico"]]})
+    fin = pd.DataFrame(sorted(k["por_fin"].items(), key=lambda x: -x[1]), columns=["Financiera", "Rechazos"])
+    al_dia = pd.DataFrame({"Estado": ["Con seguimiento", "Sin seguimiento"],
+                           "Clientes": [k["al_dia"], k["ya_toca"] - k["al_dia"]],
+                           "Color": [ESTADO["bien"], ESTADO["critico"]]})
+    return dict(vencidos=venc, antiguedad=antig, agenda=agenda, embudo=embudo, contacto=contacto, canal=canal,
+                saleu=saleu, financiera=fin, al_dia=al_dia)
+
+
+# =============================================================================
+# Gráficas del PDF (matplotlib)
+# =============================================================================
+def _ejes(ax, eje="y"):
+    for s in ("top", "right", "left" if eje == "y" else "bottom"):
         ax.spines[s].set_visible(False)
-    ax.spines["bottom"].set_color(LINEA)
-    ax.tick_params(axis="y", length=0, labelsize=7, colors=TINTA_3)
-    ax.tick_params(axis="x", length=0, labelsize=7.5)
-    ax.grid(axis="y", color=LINEA, linewidth=0.6)
+    ax.spines["bottom" if eje == "y" else "left"].set_color(LINEA)
+    ax.tick_params(length=0, labelsize=7, colors=TINTA_2)
+    ax.grid(axis=eje, color=LINEA, linewidth=0.6)
     ax.set_axisbelow(True)
 
 
-def grafica_rechazos(k, w, h):
+def grafica_vencidos(t, w, h, top=12):
     plt = _mpl()
-    pm = k["por_mes"]
-    ult = max([m for m in pm["mes"]] + [1]) if not pm.empty else 1
-    meses = list(range(1, ult + 1))
+    v = t["vencidos"].head(top)
     fig, ax = plt.subplots(figsize=(w / 72, h / 72))
-    abajo = [0] * len(meses)
-    for fin, color in zip(["CETELEM", "BBVA", "Otras"], SERIE):
-        v = [int(pm[(pm["mes"] == m) & (pm["fin"] == fin)]["rechazos"].sum()) for m in meses]
-        ax.bar(range(len(meses)), v, bottom=abajo, color=color, width=0.62, edgecolor="white", linewidth=1,
-               label=fin)
-        abajo = [a + b for a, b in zip(abajo, v)]
-    for i, t in enumerate(abajo):
-        if t:
-            ax.text(i, t + 0.4, str(t), ha="center", va="bottom", fontsize=7, color=TINTA, fontweight="bold")
-    ax.set_xticks(range(len(meses)), [MESES[m - 1] for m in meses])
-    ax.set_ylim(0, max(abajo + [1]) * 1.18)
+    if v.empty:
+        ax.text(0.5, 0.5, "Sin seguimientos vencidos", ha="center", va="center", color=ESTADO["bien"], fontsize=9)
+        ax.axis("off")
+    else:
+        y = list(range(len(v)))[::-1]
+        col = [COLOR_RANGO[[r for _, _, r in RANGOS].index(x)] for x in v["Atraso"]]
+        ax.barh(y, v["Días"], color=col, height=0.62)
+        for yi, d in zip(y, v["Días"]):
+            ax.text(d + v["Días"].max() * 0.02, yi, f"{d} d", va="center", fontsize=6.8, color=TINTA)
+        ax.set_yticks(y, v["Seguimiento"])
+        ax.set_xlim(0, v["Días"].max() * 1.18)
+        _ejes(ax, "x")
+        ax.xaxis.set_visible(False)
+    n = len(t["vencidos"])
+    return _titulo(fig, "Seguimientos más atrasados", f"Días de atraso por ID · {n} vencido(s)"
+                   + (f", se muestran {top}" if n > top else ""), ax)
+
+
+def grafica_agenda(t, w, h):
+    plt = _mpl()
+    a = t["agenda"]
+    fig, ax = plt.subplots(figsize=(w / 72, h / 72))
+    col = [ESTADO["critico"] if x == "Vencido" else (NAVY_2 if x == "Esta semana" else SERIE[0])
+           for x in a["Tipo"]]
+    ax.bar(range(len(a)), a["Seguimientos"], color=col, width=0.62)
+    for i, n in enumerate(a["Seguimientos"]):
+        if n:
+            ax.text(i, n + max(a["Seguimientos"].max(), 1) * 0.03, str(n), ha="center", va="bottom", fontsize=7,
+                    color=TINTA, fontweight="bold")
+    ax.set_xticks(range(len(a)), [x.replace("Esta semana", "Esta\nsemana") for x in a["Semana"]], fontsize=6.3)
+    ax.set_ylim(0, max(a["Seguimientos"].max(), 1) * 1.22)
     _ejes(ax)
-    return _titulo(fig, "Rechazos por mes", f"{k['rechazos']} en {k['anio']}, por financiera", ax)
+    return _titulo(fig, "Agenda de seguimientos", f"Vencidos y lo que toca en las próximas {SEMANAS} semanas", ax)
 
 
-def grafica_bitacora(bit, w, h):
+def grafica_embudo(t, w, h):
+    plt = _mpl()
+    e = t["embudo"]
+    fig, ax = plt.subplots(figsize=(w / 72, h / 72))
+    tope = max(e["Clientes"].max(), 1)
+    y = list(range(len(e)))[::-1]
+    col = [NAVY, NAVY_2, SERIE[0], ESTADO["bien"]]
+    for yi, (_, r), c in zip(y, e.iterrows(), col):
+        ax.barh(yi, r["Clientes"], left=(tope - r["Clientes"]) / 2, color=c, height=0.7)
+        pct = f"  ({r['Clientes'] / e['Clientes'].iloc[0]:.0%})" if e["Clientes"].iloc[0] else ""
+        angosta = r["Clientes"] < tope * 0.3
+        ax.text((tope + r["Clientes"]) / 2 + tope * 0.02 if angosta else tope / 2, yi, f"{r['Clientes']}{pct}",
+                ha="left" if angosta else "center", va="center", fontsize=7.5,
+                color=TINTA if angosta else "white", fontweight="bold")
+    ax.set_yticks(y, e["Paso"])
+    ax.set_xlim(0, tope)
+    for s in ("top", "right", "bottom", "left"):
+        ax.spines[s].set_visible(False)
+    ax.xaxis.set_visible(False)
+    ax.tick_params(length=0, labelsize=7.2)
+    return _titulo(fig, "Embudo de contacto", f"Rechazos de {t.get('anio', '')}".strip() or "Del año", ax)
+
+
+def grafica_dona(df, campo, w, h, titulo, subtitulo):
     plt = _mpl()
     fig, ax = plt.subplots(figsize=(w / 72, h / 72))
-    orden = [("Formalizado", SERIE[2]), ("Aprobado", SERIE[0]), ("Contrapropuesta", ESTADO["aviso"]),
-             ("Análisis", ESTADO["neutro"]), ("Rechazado", ESTADO["critico"])]
-    tot = bit["_e"].value_counts() if not bit.empty else pd.Series(dtype=int)
-    n = int(tot.sum())
-    nombres = [e for e, _ in orden if tot.get(e, 0)]
-    valores = [int(tot.get(e, 0)) for e in nombres]
-    col = [c for e, c in orden if tot.get(e, 0)]
-    y = range(len(nombres))[::-1]
-    ax.barh(list(y), valores, color=col, height=0.6)
-    for yi, v in zip(y, valores):
-        ax.text(v + max(valores + [1]) * 0.02, yi, f"{v}  ({v / n:.0%})", va="center", fontsize=7.5, color=TINTA)
-    ax.set_yticks(list(y), nombres)
-    ax.set_xlim(0, max(valores + [1]) * 1.32)
-    for s in ("top", "right", "bottom"):
-        ax.spines[s].set_visible(False)
-    ax.spines["left"].set_color(LINEA)
-    ax.xaxis.set_visible(False)
-    ax.tick_params(axis="y", length=0, labelsize=7.8)
-    meses = sorted(set(bit["_m"])) if not bit.empty else []
-    rango = f"{MESES[meses[0] - 1]}–{MESES[meses[-1] - 1]}" if meses else "sin datos"
-    return _titulo(fig, "Bitácora por estatus final", f"{n} solicitudes, meses con capturas ({rango})", ax)
-
-
-# =============================================================================
-# Tablas
-# =============================================================================
-def _tabla(enc, filas, anchos, der=()):
-    st = _estilos()
-    datos = [[Paragraph(_e(h), st["enc_d"] if i in der else st["enc"]) for i, h in enumerate(enc)]]
-    for f in filas:
-        datos.append([Paragraph(_e(v), st["celda_d"] if i in der else (st["nombre"] if i == 0 else st["celda"]))
-                      for i, v in enumerate(f)])
-    t = Table(datos, colWidths=anchos)
-    t.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.HexColor(LINEA)),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor(LINEA)),
-        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3)]))
-    return t
-
-
-def _bloque(titulo, icono, color, contenido, ancho):
-    st = _estilos()
-    t = Table([[Paragraph(f'{_ico(icono, color, 9.5)}  <b>{_e(titulo)}</b>', st["txt"])], [contenido]],
-              colWidths=[ancho])
-    t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                           ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, 0), 4)]))
-    return t
+    df = df[df["Clientes"] > 0]
+    total = int(df["Clientes"].sum())
+    if total:
+        ax.pie(df["Clientes"], colors=df["Color"], startangle=90, counterclock=False,
+               wedgeprops=dict(width=0.34, edgecolor="white", linewidth=1.5))
+        ax.text(0, 0.05, str(total), ha="center", va="center", fontsize=13, fontweight="bold", color=TINTA)
+        ax.text(0, -0.22, "clientes", ha="center", va="center", fontsize=6.5, color=TINTA_2)
+        for (_, r) in df.iterrows():
+            ax.bar(0, 0, color=r["Color"], label=f"{r[campo]}  {r['Clientes']} ({r['Clientes'] / total:.0%})")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.tight_layout(pad=0.4, rect=(0.38, 0, 1, 0.82))
+    fig.text(0.01, 0.975, titulo, fontsize=10.5, fontweight="bold", color=TINTA, va="top")
+    fig.text(0.01, 0.905, subtitulo, fontsize=7.5, color=TINTA_2, va="top")
+    hh, ll = ax.get_legend_handles_labels()
+    fig.legend(hh, ll, loc="center left", bbox_to_anchor=(0.0, 0.42), frameon=False, fontsize=7.2,
+               handlelength=1, handleheight=0.8, labelcolor=TINTA_2, labelspacing=0.9)
+    from cuadres.reporte_saleu import _png
+    return _png(fig)
 
 
 # =============================================================================
@@ -173,10 +228,10 @@ class _Doc(BaseDocTemplate):
         c.drawString(MARGEN + 48, ALTO - 36, f"Resumen ejecutivo {self.anio} — MG Colima")
         c.setFont("Archivo", 9)
         c.setFillColor(colors.HexColor("#C9D6EA"))
-        c.drawString(MARGEN + 48, ALTO - 52, f"Rechazos, seguimiento, Sale-U y bitácora · corte {self.hoy:%d/%m/%Y}")
+        c.drawString(MARGEN + 48, ALTO - 52, f"Rechazos, seguimiento y Sale-U · corte {self.hoy:%d/%m/%Y}")
         c.setFont("Archivo", 7)
         c.setFillColor(colors.HexColor(TINTA_3))
-        c.drawString(MARGEN, 18, "Fuente: Google Sheet de seguimiento (MG Colima Rechazos, Bitacora y Revision)")
+        c.drawString(MARGEN, 18, "Fuente: Google Sheet de seguimiento (MG Colima Rechazos, Bitacora y Revision) · sin nombres de clientes")
         c.restoreState()
 
 
@@ -190,8 +245,8 @@ def _prioridades(d):
     out = []
     if len(k["vencidos"]):
         peor = k["vencidos"].iloc[0]
-        out.append(f"<b>{len(k['vencidos'])} seguimientos vencidos</b> (el más atrasado: {_e(str(peor['nombre']).title())}, "
-                   f"{int(peor['dias'])} días). Otros {len(k['por_vencer'])} vencen en los próximos 15 días.")
+        out.append(f"<b>{len(k['vencidos'])} seguimientos vencidos</b> (el más atrasado lleva {int(peor['dias'])} días). "
+                   f"Otros {len(k['por_vencer'])} vencen en los próximos 15 días.")
     if not faltan.empty:
         ap = int((faltan["Estatus"] == resumen.APROBADO).sum())
         cred = int((faltan["Falta"] == resumen.FALTA_CREDITO).sum())
@@ -210,7 +265,7 @@ def pdf(base, anio=None, hoy=None, d=None):
     _fuentes()
     st = _estilos()
     d = d or datos(base, anio, hoy)
-    k, faltan, bit = d["k"], d["faltan"], d["bit"]
+    k = d["k"]
     buf = io.BytesIO()
     doc = _Doc(buf, d["anio"], d["hoy"])
     al_dia = k["al_dia"] / k["ya_toca"] if k["ya_toca"] else 1
@@ -230,29 +285,19 @@ def pdf(base, anio=None, hoy=None, d=None):
                 ("Pendientes en Revision", k["pendientes"], "por resolver", "info",
                  ESTADO["aviso"] if k["pendientes"] else ESTADO["bien"])], alto=70),
         Spacer(1, 12)]
-    w, h = (UTIL - 14) / 2, 168
-    g = Table([[Imagen(grafica_rechazos(k, w, h), w, h), Imagen(grafica_bitacora(bit, w, h), w, h)]],
-              colWidths=[w + 7, w + 7])
-    g.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                           ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    el += [g, Spacer(1, 10)]
+    t = tablero(d)
+    t["anio"] = d["anio"]
+    w, h = (UTIL - 14) / 2, 150
 
-    venc = k["vencidos"].drop_duplicates("nombre").head(6)
-    t_venc = _tabla(["Cliente", "Asesor", "Días"],
-                    [[str(r["nombre"]).title(), _corto(r["asesor"]), str(int(r["dias"]))] for _, r in venc.iterrows()]
-                    or [["Sin seguimientos vencidos", "", ""]], [w * 0.52, w * 0.36, w * 0.12], der=(2,))
-    ases = k["por_asesor"].head(6)
-    venc_as = k["vencidos"]["asesor"].replace("", "(sin asesor)").value_counts() if len(k["vencidos"]) else {}
-    falt_as = faltan["Vendedor"].replace("", "(sin asesor)").value_counts() if not faltan.empty else {}
-    t_as = _tabla(["Asesor", "Rechazos", "Por registrar", "Vencidos"],
-                  [[_corto(a), str(int(n)), str(int(falt_as.get(a, 0))), str(int(venc_as.get(a, 0)))]
-                   for a, n in ases.items()], [w * 0.43, w * 0.19, w * 0.22, w * 0.16], der=(1, 2, 3))
-    t = Table([[_bloque(f"Seguimientos más atrasados ({len(k['vencidos'])} vencidos)", "reloj", ESTADO["critico"],
-                        t_venc, w),
-                _bloque("Asesores con más rechazos", "asesores", NAVY_2, t_as, w)]], colWidths=[w + 14, w])
-    t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                           ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    el += [t, Spacer(1, 12)]
+    def fila(a, b):
+        g = Table([[Imagen(a, w, h), Imagen(b, w, h)]], colWidths=[w + 14, w])
+        g.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                               ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return g
+    el += [fila(grafica_vencidos(t, w, h, top=8), grafica_agenda(t, w, h)), Spacer(1, 8),
+           fila(grafica_embudo(t, w, h),
+                grafica_dona(t["saleu"], "Estado", w, h, "Registro en Sale-U",
+                             "Rechazados y aprobados del año")), Spacer(1, 10)]
     prio = _prioridades(d)
     if prio:
         filas = [[Paragraph(f'{_ico("idea", NAVY_2, 10)}  <b>Prioridades</b>', st["txt"])]]

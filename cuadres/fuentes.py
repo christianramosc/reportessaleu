@@ -383,7 +383,7 @@ def consolidar(registros):
 COL_SALEU_BITACORA = "Registro en Sale-U"          # antes «Sale-U» (SI/NO de F&I)
 COL_ID_RECHAZOS = "ID en 'MG Colima Rechazos'"      # antes «Fila en 'MG Colima Rechazos'» (el número de fila)
 COL_FILA_VIEJA = "Fila en 'MG Colima Rechazos'"
-BITACORA_COLS = ["Fecha", "Folio", "Cliente", "Teléfono", "Correo", "Vendedor", "Unidad", "Año", "Banco solicitud",
+BITACORA_COLS = ["Fecha", "Cliente", "Teléfono", "Folio", "Correo", "Vendedor", "Unidad", "Año", "Banco solicitud",
                  "Estatus solicitud", "Canal 2", "Estatus final", "Financiera final", "Plazo", "Mensualidad",
                  "Monto a financiar", COL_SALEU_BITACORA, "Comentarios F&I", "Comentarios asesor", "# Factura", "VIN",
                  COL_ID_RECHAZOS, "Fuente en la bitácora"]
@@ -393,7 +393,7 @@ def filas_bitacora(solicitudes, filas_en_rechazos):
     """filas_en_rechazos: {id(solicitud): [IDs de MG Colima Rechazos]} (o números de fila si aún no hay IDs)"""
     out = []
     for s in solicitudes:
-        out.append([s["fecha"], s["folio"], s["cliente"], s["telefono"], s["correo"], s["vendedor"], s["unidad"],
+        out.append([s["fecha"], s["cliente"], s["telefono"], s["folio"], s["correo"], s["vendedor"], s["unidad"],
                     s["anio"], s["banco"], s["est_sol"], s["canal2"], s["est_fin"], s["fin_banco"], s["plazo"],
                     s["mensualidad"], s["monto"], s["sale_u"], s["com_fi"], s["com_as"], s["factura"], s["vin"],
                     ", ".join(map(str, filas_en_rechazos.get(id(s), []))), s["fuentes"]])

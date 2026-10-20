@@ -287,6 +287,19 @@ class _BaseComun:
         orden += [p for p in self.pestanas() if p not in orden]
         self._ordenar(orden)
 
+    def borrar_columna(self, pestana, col):
+        """Elimina la columna (1-based) con sus datos y formato; las de la derecha se recorren."""
+        if pestana in self.pestanas() and col:
+            self._borrar_columna(pestana, col)
+            self._limpiar_cache(pestana)
+
+    def mover_columna(self, pestana, de, a):
+        """Mueve la columna `de` para que quede en la posición `a` (1-based), con datos, formato, validaciones y
+        colores; las fórmulas que la usan se ajustan solas."""
+        if pestana in self.pestanas() and de and a and de != a:
+            self._mover_columna(pestana, de, a)
+            self._limpiar_cache(pestana)
+
     def congelar(self, pestana, filas=1, columnas=0):
         if pestana in self.pestanas():
             self._congelar(pestana, filas, columnas)
@@ -533,6 +546,18 @@ class BaseGoogle(_BaseComun):
             "properties": {"sheetId": mapa[p].id, "index": i}, "fields": "index"}} for i, p in enumerate(orden)]})
         self._hojas = None
 
+    def _borrar_columna(self, pestana, col):
+        ws = self._hoja(pestana)
+        self.libro.batch_update({"requests": [{"deleteDimension": {"range": {
+            "sheetId": ws.id, "dimension": "COLUMNS", "startIndex": col - 1, "endIndex": col}}}]})
+        self._hojas = None                  # el número de columnas de la hoja cambió
+
+    def _mover_columna(self, pestana, de, a):
+        ws = self._hoja(pestana)
+        self.libro.batch_update({"requests": [{"moveDimension": {
+            "source": {"sheetId": ws.id, "dimension": "COLUMNS", "startIndex": de - 1, "endIndex": de},
+            "destinationIndex": a - 1 if a < de else a}}]})
+
     def _congelar(self, pestana, filas, columnas):
         ws = self._hoja(pestana)
         self.libro.batch_update({"requests": [{"updateSheetProperties": {"properties": {
@@ -757,6 +782,15 @@ class BaseExcel(_BaseComun):
         if visibles:
             self.libro.active = visibles[0]
 
+    def _borrar_columna(self, pestana, col):
+        n = self.libro[pestana].max_column
+        _permutar_excel(self.libro[pestana], {c: (None if c == col else c - (c > col)) for c in range(1, n + 1)})
+
+    def _mover_columna(self, pestana, de, a):
+        orden = list(range(1, self.libro[pestana].max_column + 1))
+        orden.insert(a - 1, orden.pop(de - 1))
+        _permutar_excel(self.libro[pestana], {viejo: nuevo for nuevo, viejo in enumerate(orden, start=1)})
+
     def _congelar(self, pestana, filas, columnas):
         from openpyxl.utils import get_column_letter
         self.libro[pestana].freeze_panes = f"{get_column_letter(columnas + 1)}{filas + 1}"
@@ -864,6 +898,90 @@ class BaseExcel(_BaseComun):
         buf = io.BytesIO()
         self.libro.save(buf)
         return buf.getvalue()
+
+
+# =============================================================================
+# Columnas reacomodadas: referencias de celdas
+# =============================================================================
+_REF_CELDA = re.compile(r"(?<![A-Za-z_!.'\d$])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\d(])")
+_REF_OTRA_HOJA = re.compile(r"((?:'[^']+'|[A-Za-z_][\w.]*)!\$?[A-Z]{1,3}\$?\d*(?::\$?[A-Z]{1,3}\$?\d*)?)")
+_REF_COLUMNAS = re.compile(r"(?<![A-Za-z_!.'\d$])(\$?)([A-Z]{1,3}):(\$?)([A-Z]{1,3})(?![A-Za-z\d(])")
+
+
+def _num_col(letras):
+    n = 0
+    for ch in letras:
+        n = n * 26 + ord(ch) - 64
+    return n
+
+
+def cambiar_referencias(texto, mapa):
+    """Cambia las letras de columna de referencias sin pestaña («C5», «$D$2:$D9», «C:C») según mapa
+    {columna vieja: columna nueva o None si se borró}. No toca lo que está entre comillas."""
+    if not isinstance(texto, str):
+        return texto
+    m = lambda l: (lambda n: "#REF!" if n is None else letra(n))(mapa.get(_num_col(l), _num_col(l)))
+    def cambiar(t):
+        t = _REF_COLUMNAS.sub(lambda x: f"{x.group(1)}{m(x.group(2))}:{x.group(3)}{m(x.group(4))}", t)
+        return _REF_CELDA.sub(lambda x: f"{x.group(1)}{m(x.group(2))}{x.group(3)}{x.group(4)}", t)
+
+    partes = texto.split('"')
+    for i in range(0, len(partes), 2):        # fuera de comillas; lo que apunta a otra pestaña (Hoja!A1:B2) no
+        trozos = _REF_OTRA_HOJA.split(partes[i])
+        partes[i] = "".join(t if j % 2 else cambiar(t) for j, t in enumerate(trozos))
+    return '"'.join(partes)
+
+
+def _permutar_excel(ws, mapa):
+    """Reacomoda las columnas de una hoja de openpyxl: mapa {columna vieja: nueva o None (se borra)}. Mueve valores,
+    estilos, anchos, colores condicionales y validaciones, y ajusta las fórmulas de la hoja."""
+    from copy import copy
+    from openpyxl.formatting.formatting import ConditionalFormattingList
+    from openpyxl.styles.cell_style import StyleArray
+    from openpyxl.worksheet.cell_range import CellRange, MultiCellRange
+    n, filas = ws.max_column, ws.max_row
+    celdas = {(c.row, c.column): (c.value, copy(c._style)) for fila in ws.iter_rows(1, filas, 1, n) for c in fila}
+    anchos = {c: ws.column_dimensions[letra(c)].width for c in range(1, n + 1)}
+    for (f, c), (v, _) in celdas.items():
+        ws.cell(f, c).value, ws.cell(f, c)._style = None, StyleArray()
+    for (f, c), (v, estilo) in celdas.items():
+        nueva = mapa.get(c, c)
+        if nueva is None:
+            continue
+        celda = ws.cell(f, nueva)
+        celda.value = cambiar_referencias(v, mapa) if isinstance(v, str) and v.startswith("=") else v
+        celda._style = estilo
+    for c, w in anchos.items():
+        nueva = mapa.get(c, c)
+        if nueva is not None:
+            ws.column_dimensions[letra(nueva)].width = w
+
+    def rangos(sqref):
+        out = []
+        for r in sqref.ranges:
+            for c in range(r.min_col, r.max_col + 1):
+                nueva = mapa.get(c, c)
+                if nueva is not None:
+                    out.append(CellRange(min_col=nueva, max_col=nueva, min_row=r.min_row, max_row=r.max_row).coord)
+        return " ".join(out)
+
+    nuevas = ConditionalFormattingList()
+    for cf in ws.conditional_formatting:
+        rng = rangos(cf.sqref)
+        if rng:
+            for regla in cf.rules:
+                regla.formula = [cambiar_referencias(f, mapa) for f in (regla.formula or [])]
+                nuevas.add(rng, regla)
+    ws.conditional_formatting = nuevas
+    for dv in list(ws.data_validations.dataValidation):
+        rng = rangos(dv.sqref)
+        if rng:
+            dv.sqref = MultiCellRange(rng)
+            dv.formula1 = cambiar_referencias(dv.formula1, mapa)
+        else:
+            ws.data_validations.dataValidation.remove(dv)
+    if ws.auto_filter.ref:
+        ws.auto_filter.ref = f"A1:{letra(max(v for v in mapa.values() if v))}{filas}"
 
 
 def a_excel(base, pestanas):

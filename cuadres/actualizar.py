@@ -250,7 +250,7 @@ def filas_bitacora_del_sheet(base, fila_de_sol):
         banco = "" if r["Fin_sol"] == "SIN FINANCIERA" else r["Fin_sol"]
         tel = to_phone(r["Telefono"])
         fecha = to_date(r["Fecha"]) if isinstance(r["Fecha"], dt.date) else None
-        out.append([fecha, to_folio(r["Folio"]), r["Nombre"], tel, r["Correo"] or None,
+        out.append([fecha, r["Nombre"], tel, to_folio(r["Folio"]), r["Correo"] or None,
                     None if r["Vendedor"] == "(sin vendedor)" else r["Vendedor"], r["Vehiculo"] or None, None,
                     banco, estatus, None, estatus, banco, r["Plazo"], r["Mensualidad"], None, None, None, None,
                     None, None, fila_rech, fuente])

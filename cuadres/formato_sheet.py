@@ -3,6 +3,8 @@
 Ajustes de estructura y formato del Google Sheet de seguimiento (se corren una vez con un botón; repetirlos no
 duplica nada).
 
+  0. Fecha, nombre y teléfono como primeras columnas de Rechazos y Bitacora (Finalizados: nombre y teléfono, sin
+     MARCA), congeladas (cuadres/columnas.py).
   1. Encabezado del registro en Sale-U con el mismo nombre en las dos pestañas («Registro en Sale-U»).
   2. MG Colima Rechazos: columnas Reingreso e ID al final (ver cuadres/ids.py).
   3. CONTESTA 1/2/3: opción «No responde» y color cuando hay fecha de contacto pero no se capturó si contestó.
@@ -33,6 +35,9 @@ FILAS = ids.FILAS_FORMULA
 def aplicar(base):
     """Aplica los ajustes que falten. Devuelve una lista de frases con lo que hizo."""
     hecho = []
+    # 0. fecha, nombre y teléfono al inicio (congelados) y sin la columna MARCA en Finalizados
+    from cuadres import columnas
+    hecho += columnas.reacomodar(base)
     pestanas = set(base.pestanas())
     respaldadas = set()
 

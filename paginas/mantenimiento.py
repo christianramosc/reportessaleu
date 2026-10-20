@@ -19,12 +19,23 @@ base = conexion.panel_base()
 if base is None:
     st.stop()
 
+try:
+    from cuadres import columnas
+    falta_orden = columnas.pendiente(base)
+except Exception:
+    falta_orden = []
+if falta_orden:
+    st.warning("Falta acomodar las columnas de " + ", ".join(f"«{h}»" for h in falta_orden)
+               + " (fecha, nombre y teléfono al inicio). Presiona **Rehacer dashboard y formato**.",
+               icon=":material/view_column:")
+
 if st.session_state.get("msg_mant"):
     st.success("Listo:\n" + "\n".join(f"- {m}" for m in st.session_state.pop("msg_mant")) + aviso_excel(base))
 
 with st.container(border=True):
     st.markdown("**Rehacer dashboard y formato**")
-    st.caption("Rehace la pestaña Resumen (gráficas e indicadores) y da mantenimiento al Sheet: columnas, colores y "
+    st.caption("Rehace la pestaña Resumen (gráficas e indicadores) y da mantenimiento al Sheet: fecha, nombre y teléfono como "
+               "primeras columnas (congeladas) y sin MARCA en Finalizados, columnas, colores y "
                "fechas, un solo respaldo por pestaña, columnas calculadas y Bitacora protegidas (solo advertencia), "
                "encabezados congelados, vistas por asesor, Finalizados ligados a su rechazo y pestañas en orden. "
                "Úsalo si agregaste un asesor o una financiera al catálogo, o una vez al mes. No duplica nada.")

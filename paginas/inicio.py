@@ -2,8 +2,8 @@
 """
 Página: Inicio
 
-Lo más importante al abrir la app: los indicadores del año, las prioridades, qué archivos faltan por subir y el
-resumen ejecutivo de una página en PDF.
+Lo más importante al abrir la app: los indicadores del año, las prioridades, qué archivos faltan por subir, un
+tablero de gráficas interactivas (sin nombres de clientes ni de asesores) y el resumen ejecutivo en PDF.
 """
 import datetime as dt
 import re
@@ -13,7 +13,8 @@ import streamlit as st
 import ui
 import conexion
 from comunes import ESTADO
-from cuadres import cargas, reporte_ejecutivo
+from cuadres import cargas, reporte_ejecutivo, resumen
+import tablero
 
 ui.hero("Inicio", "Lo más importante del seguimiento de MG Colima.", f"Corte {dt.date.today():%d/%m/%Y}")
 
@@ -21,8 +22,10 @@ base = conexion.panel_base()
 if base is None:
     st.stop()
 
+anios = resumen.anios(base)
+anio = st.segmented_control("Año", anios[:4], default=anios[0], key="anio_inicio") or anios[0]
 try:
-    d = reporte_ejecutivo.datos(base)
+    d = reporte_ejecutivo.datos(base, anio=anio)
 except Exception as e:
     st.error(f"No se pudo leer el Sheet: {e}")
     st.stop()
@@ -37,8 +40,8 @@ ui.tarjeta(f1[1], "event_available", "Seguimiento al día", pct(k["al_dia"], k["
            ESTADO["bien"] if al_dia >= 0.9 else ESTADO["aviso"])
 ui.tarjeta(f1[2], "call", "Contacto efectivo", pct(k["contestaron"], k["contactados"]),
            f"{k['contestaron']} de {k['contactados']} contactados")
-ui.tarjeta(f2[0], "how_to_reg", "Registrados en Sale-U", pct(k["registrados"], k["saleu_total"]),
-           f"{k['falta_alta']} falta alta · {k['falta_credito']} falta crédito")
+ui.tarjeta(f2[0], "how_to_reg", "Registrados en Sale-U", pct(k.get("registrados", 0), k.get("saleu_total", 0)),
+           f"{k.get('falta_alta', 0)} falta alta · {k.get('falta_credito', 0)} falta crédito")
 ui.tarjeta(f2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]), f"{len(k['por_vencer'])} vencen en 15 días",
            ESTADO["critico"] if len(k["vencidos"]) else ESTADO["bien"])
 ui.tarjeta(f2[2], "rule", "Pendientes en Revision", k["pendientes"], "por resolver",
@@ -64,6 +67,8 @@ with c2.container(border=True):
         st.page_link("paginas/actualizar.py", label="Ir a Actualizar", icon=":material/arrow_forward:")
     except Exception:  # fuera de la navegación (pruebas) no hay a dónde ligar
         pass
+
+tablero.mostrar(reporte_ejecutivo.tablero(d), anio)
 
 if st.button("Resumen ejecutivo (PDF)", type="primary", icon=":material/picture_as_pdf:", key="btn_ejec"):
     with st.spinner("Armando el resumen…"):
