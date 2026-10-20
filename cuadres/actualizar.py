@@ -444,6 +444,12 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
     except Exception:
         pass
     aviso = None
+    try:                                     # columnas fijas de los rechazos nuevos y liga Finalizados ↔ Rechazos
+        from cuadres import optimizar
+        optimizar.llenar_fijos(base)
+        optimizar.ligar_finalizados(base)
+    except Exception:
+        pass
     try:
         migrar_formalizado(base)
     except Exception as e:  # solo fórmulas y colores del Resumen/Bitacora: no detiene lo demás

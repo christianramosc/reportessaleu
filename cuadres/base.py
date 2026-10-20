@@ -26,7 +26,7 @@ TAB_CAPTURAS = "Capturas Cetelem"
 TAB_FI = "Bitacora F&I"          # copia de los registros de la Bitácora de F&I (para no perderlos entre cargas)
 TAB_HISTORIAL = "Historial"
 HISTORIAL_COLS = ["Fecha", "Origen", "Hoja", "Celda", "Cliente", "Campo", "Antes", "Después", "Motivo"]
-RESPALDOS_A_GUARDAR = 3
+RESPALDOS_A_GUARDAR = 1          # un respaldo por pestaña (el último); los anteriores se borran
 
 _EPOCA = datetime(1899, 12, 30)        # día 0 de Google Sheets / Excel
 
@@ -154,7 +154,8 @@ class _BaseComun:
             if _es_fecha(c):
                 df[c] = df[c].map(de_serial)
             elif _es_telefono(c):          # siempre texto de 10 dígitos (Sheets los da como número o decimal)
-                df[c] = df[c].map(lambda v: tel_texto(v) or (None if v in (None, "") else str(v).strip()))
+                df[c] = df[c].map(lambda v: tel_texto(v) or (None if v is None or (isinstance(v, float) and v != v)
+                                                              or str(v).strip() == "" else str(v).strip()))
         df = df.astype(object)
         return df.where(df.notna(), None)
 
@@ -274,6 +275,34 @@ class _BaseComun:
     def ocultar(self, pestana):
         if pestana in self.pestanas():
             self._ocultar(pestana)
+
+    def borrar(self, pestana):
+        """Elimina la pestaña (si existe)."""
+        if pestana in self.pestanas():
+            self._borrar(pestana)
+
+    def ordenar(self, primeras):
+        """Pone esas pestañas al principio, en ese orden (las demás quedan después, en su orden actual)."""
+        orden = [p for p in primeras if p in self.pestanas()]
+        orden += [p for p in self.pestanas() if p not in orden]
+        self._ordenar(orden)
+
+    def congelar(self, pestana, filas=1, columnas=0):
+        if pestana in self.pestanas():
+            self._congelar(pestana, filas, columnas)
+
+    def proteger(self, pestana, columnas=None, descripcion=""):
+        """Protección «solo advertencia»: si alguien edita esas columnas (o toda la pestaña si columnas es None),
+        Google pide confirmar. No duplica protecciones. En Excel no hace nada."""
+        if pestana in self.pestanas():
+            return self._proteger(pestana, sorted(set(columnas)) if columnas else None, descripcion)
+        return False
+
+    def vista_filtrada(self, pestana, titulo, columna, valor):
+        """Vista filtrada (Google) con columna = valor. No la duplica. En Excel no hace nada."""
+        if pestana in self.pestanas():
+            return self._vista_filtrada(pestana, titulo, columna, valor)
+        return False
 
     def lista_valores(self, pestana, columnas, valores, fila_fin=1000):
         """Validación de lista desplegable en `columnas` (filas 2..fila_fin)."""
@@ -493,6 +522,45 @@ class BaseGoogle(_BaseComun):
     def _ocultar(self, pestana):
         self._hoja(pestana).hide()
 
+    def _borrar(self, pestana):
+        self.libro.del_worksheet(self._hoja(pestana))
+        self._hojas = None
+        self._limpiar_cache(pestana)
+
+    def _ordenar(self, orden):
+        mapa = self._mapa()
+        self.libro.batch_update({"requests": [{"updateSheetProperties": {
+            "properties": {"sheetId": mapa[p].id, "index": i}, "fields": "index"}} for i, p in enumerate(orden)]})
+        self._hojas = None
+
+    def _congelar(self, pestana, filas, columnas):
+        ws = self._hoja(pestana)
+        self.libro.batch_update({"requests": [{"updateSheetProperties": {"properties": {
+            "sheetId": ws.id, "gridProperties": {"frozenRowCount": filas, "frozenColumnCount": columnas}},
+            "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}}]})
+
+    def _proteger(self, pestana, columnas, descripcion):
+        ws = self._hoja(pestana)
+        hechas = {r.get("description") for r in self._meta(ws, "protectedRanges").get("protectedRanges", [])}
+        if descripcion in hechas:
+            return False
+        if columnas:
+            rangos = [self._rango(ws, 1, ws.row_count, c - 1, c) for c in columnas]
+        else:
+            rangos = [{"sheetId": ws.id}]
+        self.libro.batch_update({"requests": [{"addProtectedRange": {"protectedRange": {
+            "range": r, "description": descripcion, "warningOnly": True}}} for r in rangos]})
+        return True
+
+    def _vista_filtrada(self, pestana, titulo, columna, valor):
+        ws = self._hoja(pestana)
+        if titulo in {v.get("title") for v in self._meta(ws, "filterViews").get("filterViews", [])}:
+            return False
+        self.libro.batch_update({"requests": [{"addFilterView": {"filter": {
+            "title": titulo, "range": {"sheetId": ws.id},
+            "criteria": {str(columna - 1): {"condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": valor}]}}}}}}]})
+        return True
+
     def _regla_color(self, pestana, columnas, formula, color, fila_fin, letra_color=None):
         ws = self._hoja(pestana)
         fila_fin = min(fila_fin, ws.row_count)          # un rango más allá de la hoja lo rechaza la API
@@ -680,6 +748,25 @@ class BaseExcel(_BaseComun):
     def _ocultar(self, pestana):
         self.libro[pestana].sheet_state = "hidden"
 
+    def _borrar(self, pestana):
+        self.libro.remove(self.libro[pestana])
+
+    def _ordenar(self, orden):
+        self.libro._sheets = [self.libro[p] for p in orden]
+        visibles = [i for i, ws in enumerate(self.libro._sheets) if ws.sheet_state == "visible"]
+        if visibles:
+            self.libro.active = visibles[0]
+
+    def _congelar(self, pestana, filas, columnas):
+        from openpyxl.utils import get_column_letter
+        self.libro[pestana].freeze_panes = f"{get_column_letter(columnas + 1)}{filas + 1}"
+
+    def _proteger(self, pestana, columnas, descripcion):
+        return False
+
+    def _vista_filtrada(self, pestana, titulo, columna, valor):
+        return False
+
     def _regla_color(self, pestana, columnas, formula, color, fila_fin, letra_color=None):
         from openpyxl.formatting.rule import FormulaRule
         from openpyxl.styles import Font, PatternFill
@@ -760,10 +847,14 @@ class BaseExcel(_BaseComun):
             ws.cell(f, c).comment = None
 
     def respaldar(self, pestana):
-        nombre = f"_resp {pestana[:12]} " + datetime.now().strftime("%m%d %H%M%S")
+        prefijo = f"_resp {pestana[:12]} "
+        nombre = prefijo + datetime.now().strftime("%m%d %H%M%S")
         copia = self.libro.copy_worksheet(self.libro[pestana])
         copia.title = nombre[:31]
         copia.sheet_state = "hidden"
+        viejas = [ws for ws in self.libro.worksheets if ws.title.startswith(prefijo) and ws is not copia]
+        for ws in viejas[:max(0, len(viejas) - (RESPALDOS_A_GUARDAR - 1))]:
+            self.libro.remove(ws)
         return copia.title
 
     def refrescar(self):

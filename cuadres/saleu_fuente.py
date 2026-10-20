@@ -84,6 +84,7 @@ def leer_fuente(ruta):
         "Asesor": df[col("ASESOR")].str.strip() if col("ASESOR") else "",
         "Estatus_Lead": df[col("ESTATUS")].str.strip() if col("ESTATUS") else "",
         "Fuente": df[col("FUENTE")].str.strip() if col("FUENTE") else "",
+        "Correo": df[col("CORREO")].str.strip() if col("CORREO") else "",
         "Fecha_Alta": df[col("FECHA DE ALTA")].str.strip(),
     })
     return _completar(out)
@@ -97,7 +98,9 @@ def _completar(out):
     out["_fecha"] = fecha
     out["Fecha_Alta"] = [f.strftime("%Y-%m-%d %H:%M:%S") if f == f and f is not pd.NaT else str(v or "")
                          for f, v in zip(fecha, out["Fecha_Alta"])]
-    for c in ("Nombre", "Telefono", "Asesor", "Estatus_Lead", "Fuente"):
+    if "Correo" not in out.columns:
+        out["Correo"] = ""
+    for c in ("Nombre", "Telefono", "Asesor", "Estatus_Lead", "Fuente", "Correo"):
         out[c] = out[c].map(lambda v: "" if v is None or (isinstance(v, float) and v != v) else str(v).strip())
     out["Tel_norm"] = out["Telefono"].map(cu.normalizar_tel)
     out["Nombre_norm"] = out["Nombre"].map(cu.normalizar_nombre)
@@ -111,9 +114,9 @@ def _completar(out):
 # Leads guardados en el Sheet (pestaña oculta «Fuente Sale-U»)
 # =============================================================================
 TAB_FUENTE = "Fuente Sale-U"
-COLS_TAB = ["Fecha de Alta", "Nombre", "Telefono", "Asesor", "Fuente", "Estatus"]
+COLS_TAB = ["Fecha de Alta", "Nombre", "Telefono", "Asesor", "Fuente", "Estatus", "Correo"]
 _DE_TAB = {"Fecha de Alta": "Fecha_Alta", "Nombre": "Nombre", "Telefono": "Telefono", "Asesor": "Asesor",
-           "Fuente": "Fuente", "Estatus": "Estatus_Lead"}
+           "Fuente": "Fuente", "Estatus": "Estatus_Lead", "Correo": "Correo"}
 
 
 def guardada(base):
@@ -139,14 +142,14 @@ def combinar(*partes):
     todo["_k"] = todo["Tel_norm"] + "|" + todo["Nombre_norm"] + "|" + todo["Fecha_Alta"].str[:16]
     todo = todo.drop_duplicates("_k", keep="last").drop(columns="_k")
     return _completar(todo.sort_values("_fecha", ascending=False, na_position="last")
-                      [["Nombre", "Telefono", "Asesor", "Estatus_Lead", "Fuente", "Fecha_Alta"]])
+                      [["Nombre", "Telefono", "Asesor", "Estatus_Lead", "Fuente", "Fecha_Alta", "Correo"]])
 
 
 def guardar(base, fu):
     """Guarda los leads en la pestaña oculta «Fuente Sale-U» (la reescribe con todo lo acumulado). Devuelve cuántos."""
     if fu is None or not len(fu):
         return 0
-    filas = [[r["Fecha_Alta"], r["Nombre"], r["Telefono"], r["Asesor"], r["Fuente"], r["Estatus_Lead"]]
+    filas = [[r["Fecha_Alta"], r["Nombre"], r["Telefono"], r["Asesor"], r["Fuente"], r["Estatus_Lead"], r["Correo"]]
              for _, r in fu.iterrows()]
     base.reemplazar(TAB_FUENTE, COLS_TAB, filas, oculta=True)
     return len(filas)
