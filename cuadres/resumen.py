@@ -66,6 +66,7 @@ def _rechazos(base):
              fin=_col(df, "Financiera"), asesor=_col(df, "Asesor de Ventas"), unidad=_col(df, "Unidad"),
              mens=_col(df, "Mensualidad"), correo=_col(df, "Correo"), saleu=_col(df, "Registro en Sale-U"),
              hecho=_col(df, "FECHA REALIZADO 1"), contesta=_col(df, "CONTESTA 1"), com=_col(df, "COMENTARIOS"),
+             canal=_col(df, "CANAL 1"),
              id=_col(df, "ID"))
     g = lambda r, k: r[c[k]] if c[k] else None
     filas = []
@@ -79,6 +80,7 @@ def _rechazos(base):
             unidad=txt(g(r, "unidad")) or "", mens=to_num(g(r, "mens")), correo=txt(g(r, "correo")) or "",
             saleu=norm(g(r, "saleu")), hecho=to_date(g(r, "hecho")) or (None if _vacio(g(r, "hecho")) else True),
             contesta=norm(g(r, "contesta")), com=norm(g(r, "com")), id=txt(g(r, "id")) or "",
+            canal=txt(g(r, "canal")) or "",
             fseg=fecha + dt.timedelta(days=DIAS_SEGUIMIENTO) if fecha else None))
     return pd.DataFrame(filas)
 
@@ -103,7 +105,8 @@ def indicadores(base, anio=None, hoy=None):
         return dict(anio=anio, rechazos=0, por_fin={}, ya_toca=0, al_dia=0, contactados=0, contestaron=0,
                     sin_contesta=0, registrados=0, sin_registro=0, saleu_total=0, sin_registro_rech=0,
                     sin_registro_aprob=0, aprob_sin_dato=0, vencidos=vacio, por_vencer=vacio,
-                    pendientes=0, por_mes=pd.DataFrame(), por_asesor=pd.Series(dtype=int), revision=pd.DataFrame())
+                    pendientes=0, por_mes=pd.DataFrame(), por_asesor=pd.Series(dtype=int), revision=pd.DataFrame(),
+                    sin_hacer=vacio, por_canal={}, no_contestaron=0)
     del_anio = r[r["fecha"].map(lambda f: bool(f) and f.year == anio)]
     hecho = del_anio["hecho"].map(lambda v: v is not None)
     toca = del_anio["fseg"].map(lambda f: bool(f) and f <= hoy)
@@ -133,6 +136,8 @@ def indicadores(base, anio=None, hoy=None):
         contactados=len(contactados), contestaron=contestaron, sin_contesta=sin_contesta,
         **_registro_saleu(base, del_anio, anio),
         vencidos=vencidos, por_vencer=por_vencer, pendientes=len(revision), revision=revision, por_mes=por_mes,
+        sin_hacer=sin_hacer, no_contestaron=len(contactados) - contestaron - sin_contesta,
+        por_canal=contactados["canal"].replace("", "Sin dato").value_counts().to_dict(),
         por_asesor=del_anio["asesor"].replace("", "(sin asesor)").value_counts())
 
 

@@ -3,8 +3,10 @@
 App de Streamlit con una página por herramienta:
 
 1. **Inicio**: los 6 indicadores del año (rechazos, seguimiento al día, contacto efectivo, registrados en Sale-U,
-   seguimientos vencidos y pendientes en Revision), las **prioridades** de la semana, qué archivos faltan por subir
-   y el **resumen ejecutivo de una página** en PDF.
+   seguimientos vencidos y pendientes en Revision), las **prioridades** de la semana, qué archivos faltan por subir,
+   un **tablero** de gráficas interactivas sin nombres (vencidos por días de atraso e ID —clic en un rango para
+   filtrar—, agenda de seguimientos por semana, seguimiento al día, embudo, resultado y canal del contacto, registro
+   en Sale-U y rechazos por financiera) y el **resumen ejecutivo de una página** en PDF.
 2. **Actualizar**: un solo paso para todo lo del día. Subes juntos los archivos que tengas —capturas de Cetelem,
    Bitácora de F&I, `reporteLeadsconCredito` y `ReporteFuentes` de Sale-U, tal cual se descargan— y la app
    **reconoce cada uno** (`cuadres/detectar.py`). *Revisar* muestra:
@@ -49,7 +51,9 @@ streamlit_app.py               # entrada: contraseña opcional y navegación
 ui.py                          # estilos y componentes compartidos
 kpis_core.py                   # lógica de KPIs de capacitación
 paginas/kpis_capacitacion.py   # página de KPIs
-paginas/inicio.py              # Inicio: indicadores, prioridades, archivos que faltan y resumen ejecutivo
+paginas/inicio.py              # Inicio: indicadores, prioridades, archivos que faltan, tablero y PDF
+tablero.py                     # gráficas interactivas (Altair) del Inicio
+cuadres/columnas.py            # orden de las primeras columnas (fecha, nombre, teléfono) y sin MARCA
 paginas/actualizar.py          # Actualizar: todos los archivos del día, revisar y aplicar
 paginas/seguimiento.py         # Seguimiento: resumen, vencidos (PDF por asesor), faltan en Sale-U y pendientes
 paginas/blueservice.py         # cuadre BlueService vs inventario
@@ -139,6 +143,9 @@ Sin esto la app funciona en **modo Excel**: subes el .xlsx de seguimiento y desc
 
 **Formato del Sheet (una vez):** *Mantenimiento → Rehacer dashboard y formato*. Guarda respaldo y, si ya está
 aplicado, no duplica nada:
+- Primeras columnas: *MG Colima Rechazos* **Fecha ingreso, Nombre de Cliente, Celular, Folio**; *Bitacora* **Fecha,
+  Cliente, Teléfono, Folio**; *Créditos Finalizados* sin **MARCA** y con **NOMBRE, TELEFONO** al inicio. Se mueven
+  columnas completas (datos, formato, listas, colores y fórmulas se ajustan) y se congelan fecha, nombre y teléfono.
 - *MG Colima Rechazos*: al final, **Reingreso** («1 de 2», «2 de 2» cuando el celular está en otra solicitud, en
   amarillo) e **ID** (R-0001…, no cambia aunque se ordene la hoja; la *Bitacora* y *Revision* guardan el ID en lugar
   del número de fila). La app le pone ID a las filas nuevas o capturadas a mano cada vez que aplica bitácoras.
@@ -155,7 +162,7 @@ aplicado, no duplica nada:
   «Hoja N»); *Tipo de Plan*, *Tipo de Subvención*, *Accesorios* y *Status 1* se llenan solos donde estén vacíos (también
   en los rechazos nuevos de *Actualizar*); *Créditos Finalizados* lleva **ID en 'MG Colima Rechazos'** (su rechazo
   previo, por teléfono o nombre); columnas calculadas de Rechazos (Fecha de Seguimiento, Efectividad, Reingreso, ID,
-  Registro en Sale-U) y la *Bitacora* completa protegidas con **solo advertencia**; encabezado, fecha, nombre y teléfono congelados (Rechazos, Bitacora; en Finalizados, hasta el nombre);
+  Registro en Sale-U) y la *Bitacora* completa protegidas con **solo advertencia**; encabezado, fecha, nombre y teléfono congelados (en Finalizados, nombre y teléfono);
   una **vista filtrada por asesor** (*Datos → Vistas filtradas*); *Revision resueltos* oculta; pestañas en orden
   Resumen, Rechazos, Finalizados, Bitacora, Revision.
 - El cuadre de Sale-U con el reporte **Fuente** también propone el **correo** que falte (del lead en Sale-U).
