@@ -23,7 +23,7 @@ import re
 import pandas as pd
 
 from cuadres import saleu as cu
-from cuadres.base import TAB_RECHAZOS, TAB_HISTORIAL, letra, norm, canonico
+from cuadres.base import TAB_RECHAZOS, TAB_BITACORA, TAB_HISTORIAL, letra, norm, canonico
 from cuadres.actualizar import leer_rechazos, C
 
 REGISTRADO, FALTA_CREDITO, NO_REGISTRADO = "Registrado", "Falta crédito", "No Registrado"
@@ -113,8 +113,9 @@ def periodo(su):
 
 
 def _aprobados_bitacora(base):
-    """Aprobados de la pestaña Bitacora con la forma de leer_rechazos() (hoja, fila, fecha, nombre, cel, saleu):
-    su Registro en Sale-U se cuadra con el reporte igual que el de los rechazos."""
+    """Aprobados y Rechazados de la pestaña Bitacora con la forma de leer_rechazos() (hoja, fila, fecha, nombre,
+    cel, saleu) más estatus y liga (IDs de MG Colima Rechazos). Los rechazados ligados toman el valor de su fila
+    de Rechazos; los demás se cuadran con el reporte igual que los rechazos."""
     from cuadres.base import TAB_BITACORA
     from cuadres.fuentes import COL_SALEU_BITACORA, to_date, to_phone
     if TAB_BITACORA not in base.pestanas():
@@ -123,22 +124,30 @@ def _aprobados_bitacora(base):
     col = lambda n: next((c for c in df.columns if norm(c) == norm(n)), None)
     c_est, c_nom, c_tel, c_fec, c_su = (col("Estatus final"), col("Cliente"), col("Teléfono"), col("Fecha"),
                                         col(COL_SALEU_BITACORA))
+    c_liga = col("ID en 'MG Colima Rechazos'")
     if not (c_est and c_nom and c_su):
         return []                      # Bitacora con el formato anterior (sin «Registro en Sale-U»)
     out = []
     for _, r in df.iterrows():
-        if not norm(r[c_est]).startswith("APROBAD") or not r[c_nom]:
+        est = norm(r[c_est])
+        if not (est.startswith("APROBAD") or est.startswith("RECHAZAD")) or not r[c_nom]:
             continue
+        liga = []
+        for x in str(r[c_liga] or "").split(",") if c_liga else []:
+            x = x.strip().upper()
+            liga.append(x[:-2] if x.endswith(".0") else x)
         out.append(dict(hoja=TAB_BITACORA, fila=int(r["_fila"]), fecha=to_date(r[c_fec]) if c_fec else None,
                         nombre=" ".join(str(r[c_nom]).split()), cel=to_phone(r[c_tel]) if c_tel else None,
-                        saleu=r[c_su]))
+                        saleu=r[c_su], estatus="APROBADO" if est.startswith("APROBAD") else "RECHAZADO",
+                        liga=[x for x in liga if x]))
     return out
 
 
 def proponer(base, su, ini=None, fin=None, fuente=None):
     """su: DataFrame de cu.leer_saleu(); fuente: DataFrame de saleu_fuente.leer_fuente() (opcional). Devuelve
-    DataFrame con lo que se escribiría: los rechazos de MG Colima Rechazos y los Aprobados de la Bitacora (columna
-    Hoja) cuya fecha cae en el periodo del reporte de Crédito."""
+    DataFrame con lo que se escribiría: los rechazos de MG Colima Rechazos y los Aprobados y Rechazados de la
+    Bitacora (columna Hoja) cuya fecha cae en el periodo del reporte de Crédito. Los rechazados de la Bitacora
+    ligados a una fila de Rechazos toman el mismo valor que esa fila (sin importar la fecha)."""
     from cuadres.saleu_fuente import Buscador, alta_txt
     buscador = Buscador(fuente) if fuente is not None and len(fuente) else None
     p_ini, p_fin = periodo(su)
@@ -150,7 +159,33 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
         if s["Tel_norm"]:
             por_tel.setdefault(s["Tel_norm"], []).append(s)
     filas = []
-    for row in leer_rechazos(base) + _aprobados_bitacora(base):
+    from cuadres import ids
+    id_de_fila = ids.mapa(base)                     # {fila de Rechazos: ID}
+    valor_rech = {}                                 # {ID o fila de Rechazos: Registro en Sale-U después del cuadre}
+    rechazos = leer_rechazos(base)
+    for row in rechazos:
+        valor_rech[str(row["fila"])] = row["saleu"] or ""
+        if row["fila"] in id_de_fila:
+            valor_rech[str(id_de_fila[row["fila"]]).upper()] = row["saleu"] or ""
+    def _anotar(row, valor):            # lo que quedará en Rechazos, para sus rechazos ligados en la Bitacora
+        if row.get("hoja", TAB_RECHAZOS) == TAB_RECHAZOS:
+            valor_rech[str(row["fila"])] = valor
+            if row["fila"] in id_de_fila:
+                valor_rech[str(id_de_fila[row["fila"]]).upper()] = valor
+
+    for row in rechazos + _aprobados_bitacora(base):
+        if row.get("hoja") == TAB_BITACORA and row.get("estatus") == "RECHAZADO":
+            ligados = [valor_rech[x] for x in row.get("liga", []) if x in valor_rech]
+            if ligados:                  # rechazo ligado a MG Colima Rechazos: mismo valor que su fila allá
+                nuevo = next((v for v in (REGISTRADO, FALTA_CREDITO, NO_REGISTRADO) if v in ligados), ligados[0])
+                actual = row["saleu"] or ""
+                if nuevo and actual != nuevo:
+                    filas.append(dict(Hoja=TAB_BITACORA, Fila=row["fila"], Cliente=row["nombre"],
+                                      Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo, Cambia=True,
+                                      Como=f"igual que MG Colima Rechazos ({', '.join(row['liga'])})", Revisar="",
+                                      Cliente_SaleU="", Estatus_SaleU="", Financiera_SaleU="", Cliente_Fuente="",
+                                      Alta_Fuente="", Fuente_Lead=""))
+                continue
         nom = cu.normalizar_nombre(row["nombre"])
         tel = str(row["cel"]) if row["cel"] else ""
         if not row["fecha"] or not (ini <= row["fecha"] <= fin):
@@ -166,6 +201,7 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
                                   Cliente_SaleU="", Estatus_SaleU="", Financiera_SaleU="",
                                   Cliente_Fuente=" ".join(lead["Nombre"].split()), Alta_Fuente=alta_txt(lead),
                                   Fuente_Lead=" ".join(str(lead.get("Fuente") or "").split())))
+                _anotar(row, FALTA_CREDITO)
             continue
         hallado, como = None, ""
         if por_tel.get(tel):                    # mismo teléfono: basta (si el nombre no se parece, se avisa)
@@ -207,6 +243,7 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             Alta_Fuente=alta_txt(lead) if lead is not None else "",
             Fuente_Lead=" ".join(str(lead.get("Fuente") or "").split()) if lead is not None else
             (" ".join(str(hallado.get("Fuente") or "").split()) if hallado is not None else "")))
+        _anotar(row, nuevo)
     df = pd.DataFrame(filas, columns=COLS_PROPUESTA)
     return df, (ini, fin)
 
@@ -217,6 +254,8 @@ COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después
 
 
 def _motivo(r, periodo_txt):
+    if str(r.get("Como") or "").startswith("igual que"):
+        return f"Rechazo ligado: {r['Como']}"
     if r["Revisar"] and r["Después"] == REGISTRADO:
         return f"Ya decía que estaba registrado; se uniformó la palabra (no aparece en el reporte {periodo_txt})"
     if r["Después"] == REGISTRADO:
