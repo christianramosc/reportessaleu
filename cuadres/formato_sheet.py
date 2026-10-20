@@ -150,7 +150,7 @@ def aplicar(base):
         hecho.append(f"ID del rechazo previo en {n} crédito(s) de Finalizados")
     hecho += optimizar.proteger(base)
     n = optimizar.vistas_por_asesor(base)
-    hecho.append("Encabezado y nombre congelados en Rechazos y Finalizados"
+    hecho.append("Encabezado, fecha, nombre y teléfono congelados en Rechazos, Finalizados y Bitacora"
                  + (f"; {n} vista(s) filtrada(s) por asesor" if n else ""))
     if pendientes.TAB_ARCHIVO in base.pestanas():
         base.ocultar(pendientes.TAB_ARCHIVO)
