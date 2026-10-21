@@ -28,7 +28,10 @@ App de Streamlit con una página por herramienta:
 4. **BlueService**: cuadre por VIN de `PDIs_MG_Colima.xlsx` contra el Excel de inventario (hoja ALMACEN o la que
    elijas); detecta VIN mal capturados y dice en qué otra hoja aparece cada unidad.
 5. **Mantenimiento**: *Rehacer dashboard y formato* (pestaña Resumen del Sheet + formato y mantenimiento, ver
-   abajo) e Historial de cambios.
+   abajo), **Cruce de Créditos Finalizados con Pólizas** e Historial de cambios. El cruce compara *MG Colima
+   Créditos Finalizados* con la pestaña **Polizas** (la escribe la app `seguros`): liga por VIN, por teléfono con
+   nombre parecido o por nombre, y propone corregir teléfono, nombre, correo y VIN. Lo que faltaba o estaba mal viene
+   marcado; lo que es distinto en ambas fuentes viene sin marcar. Respalda antes de escribir y anota el Historial.
 6. **KPIs de capacitación**: avance de capacitación de Ventas y Posventa.
 
 Las lecturas del Sheet se reusan entre clics durante 5 minutos (cuota de Google); se vuelven a leer al escribir o
@@ -69,6 +72,7 @@ cuadres/fuentes.py             # bitácoras de Cetelem y Bitácora de F&I → so
 cuadres/actualizar.py          # cambios propuestos y cómo se aplican
 cuadres/saleu_sheet.py         # registro en Sale-U → columna del Sheet
 cuadres/pendientes.py          # limpiar pendientes resueltos de la pestaña Revision y archivarlos
+cuadres/cruce_polizas.py       # Créditos Finalizados vs pestaña Polizas (teléfono, nombre, correo, VIN)
 cuadres/ids.py                 # ID fijo y marca de reingreso en MG Colima Rechazos
 cuadres/formato_sheet.py       # ajustes de estructura y formato del Sheet (botón «Rehacer dashboard y formato»)
 cuadres/dashboard.py           # dashboard de la pestaña Resumen (KPI, lectura, gráficas)
