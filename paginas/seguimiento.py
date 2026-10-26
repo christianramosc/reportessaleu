@@ -50,6 +50,7 @@ with tab_res:
                        + (f" · {k['sin_contesta']} sin dato" if k["sin_contesta"] else ""))
             ui.tarjeta(fila2[0], "how_to_reg", "Registrados en Sale-U", pct(k["registrados"], k["saleu_total"]),
                        f"{k['falta_alta']} falta alta · {k['falta_credito']} falta crédito"
+                       + (f" · {k['sin_revisar']} sin revisar" if k.get("sin_revisar") else "")
                        + (f" · {k['aprob_sin_dato']} por confirmar" if k["aprob_sin_dato"] else ""))
             ui.tarjeta(fila2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]),
                        f"{len(k['por_vencer'])} vencen en 15 días",

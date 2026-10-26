@@ -104,7 +104,7 @@ def indicadores(base, anio=None, hoy=None):
     if r.empty:
         return dict(anio=anio, rechazos=0, por_fin={}, ya_toca=0, al_dia=0, contactados=0, contestaron=0,
                     sin_contesta=0, registrados=0, sin_registro=0, saleu_total=0, sin_registro_rech=0,
-                    sin_registro_aprob=0, aprob_sin_dato=0, vencidos=vacio, por_vencer=vacio,
+                    sin_registro_aprob=0, aprob_sin_dato=0, sin_revisar=0, vencidos=vacio, por_vencer=vacio,
                     pendientes=0, por_mes=pd.DataFrame(), por_asesor=pd.Series(dtype=int), revision=pd.DataFrame(),
                     sin_hacer=vacio, por_canal={}, no_contestaron=0)
     del_anio = r[r["fecha"].map(lambda f: bool(f) and f.year == anio)]
@@ -163,14 +163,14 @@ def _registro_saleu(base, del_anio, anio):
     """Registro en Sale-U por cliente (como la lista «Faltan en Sale-U»): Rechazados del año (MG Colima Rechazos,
     sin los que ya compraron) y Aprobados del año (Bitacora). Un cliente con varias filas cuenta una vez; está
     registrado si alguna fila lo dice. Si también está en Rechazos, cuenta como rechazo."""
-    nivel = {"SI": 2, "CRED": 1}
-    rech = {}                                         # clave de nombre → 2 registrado · 1 falta crédito · 0 falta alta
+    nivel = {"SI": 2, "CRED": 1, "NO": 0}
+    rech = {}            # clave de nombre → 2 registrado · 1 falta crédito · 0 falta alta · -1 sin dato (sin revisar)
     for _, x in del_anio.iterrows():
         if "YA COMPRO" in x["com"]:
             continue
         k = name_key(x["nombre"])
         clave = next((c for c in rech if similar(k, c)), k)
-        rech[clave] = max(rech.get(clave, 0), nivel.get(codigo_saleu(x["saleu"]), 0))
+        rech[clave] = max(rech.get(clave, -1), nivel.get(codigo_saleu(x["saleu"]), -1))
     aprob = {}
     for k, su in _aprobados(base, anio):
         if any(similar(k, c) for c in rech):
@@ -182,7 +182,8 @@ def _registro_saleu(base, del_anio, anio):
     cred_r, alta_r = sum(1 for v in rech.values() if v == 1), sum(1 for v in rech.values() if v == 0)
     reg_a = sum(1 for v in aprob.values() if v == "SI")
     cred_a, alta_a = sum(1 for v in aprob.values() if v == "CRED"), sum(1 for v in aprob.values() if v == "NO")
-    return dict(registrados=reg_r + reg_a, sin_registro=cred_r + alta_r + cred_a + alta_a,
+    sin_revisar = sum(1 for v in rech.values() if v == -1)
+    return dict(registrados=reg_r + reg_a, sin_registro=cred_r + alta_r + cred_a + alta_a, sin_revisar=sin_revisar,
                 saleu_total=len(rech) + len(aprob), sin_registro_rech=cred_r + alta_r, sin_registro_aprob=cred_a + alta_a,
                 falta_alta=alta_r + alta_a, falta_credito=cred_r + cred_a, aprob_sin_dato=len(aprob) - reg_a - cred_a - alta_a)
 

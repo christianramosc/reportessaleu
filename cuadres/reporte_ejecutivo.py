@@ -276,7 +276,8 @@ def pdf(base, anio=None, hoy=None, d=None):
                  f"{k['contestaron']} de {k['contactados']} contestaron", "telefono", NAVY_2)], alto=70),
         Spacer(1, 8),
         Cifras([("Registrados en Sale-U", _pct(k["registrados"], k["saleu_total"]),
-                 f"{k['falta_alta']} dar de alta · {k['falta_credito']} registrar crédito", "aprobado", SERIE[0]),
+                 f"{k['falta_alta']} dar de alta · {k['falta_credito']} registrar crédito"
+                 + (f" · {k['sin_revisar']} sin revisar" if k.get("sin_revisar") else ""), "aprobado", SERIE[0]),
                 ("Seguimientos vencidos", len(k["vencidos"]), f"{len(k['por_vencer'])} vencen en 15 días", "reloj",
                  ESTADO["critico"] if len(k["vencidos"]) else ESTADO["bien"]),
                 ("Pendientes en Revision", k["pendientes"], "por resolver", "info",

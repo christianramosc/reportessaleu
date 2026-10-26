@@ -474,3 +474,38 @@ def deshacer_dudosos(base, dudosos):
         Motivo=f"Se había escrito porque el teléfono coincide con {r['Sale-U']} en Sale-U, pero el nombre es otro")
         for _, r in dudosos.iterrows()])
     return len(dudosos)
+
+
+def llenar_vacios(base, fuente=None):
+    """Rechazos sin «Registro en Sale-U» (p. ej. agregados desde una bitácora cuando en esa carga no venían los
+    reportes de Sale-U): con los leads guardados del reporte Fuente, lead → «Falta crédito»; si no está →
+    «No Registrado». El siguiente cuadre con el reporte de Crédito lo sube a «Registrado» (nunca baja). Solo filas
+    dentro del periodo de los leads guardados y sin «ya compró». Devuelve cuántas llenó."""
+    from cuadres import resumen, saleu_fuente
+    fu = fuente if fuente is not None else saleu_fuente.guardada(base)
+    if fu is None or not len(fu) or TAB_RECHAZOS not in base.pestanas():
+        return 0
+    col = base.col(TAB_RECHAZOS, C["saleu"])
+    r = resumen._rechazos(base)
+    if not col or r.empty:
+        return 0
+    rango = fu.attrs.get("rango")
+    ini = rango[0].date() if rango and hasattr(rango[0], "date") else None
+    buscador = saleu_fuente.Buscador(fu)
+    celdas, hist = [], []
+    for _, x in r.iterrows():
+        if x["saleu"] or "YA COMPRO" in x["com"] or (ini and x["fecha"] and x["fecha"] < ini):
+            continue
+        tel = str(int(x["tel"])) if x["tel"] else ""
+        lead, como = buscador.buscar(x["nombre"], tel)
+        valor = FALTA_CREDITO if lead is not None else NO_REGISTRADO
+        celdas.append((int(x["fila"]), col, valor))
+        hist.append(dict(Origen="App · cuadre Sale-U", Hoja=TAB_RECHAZOS, Celda=f"{letra(col)}{int(x['fila'])}",
+                         Cliente=x["nombre"], Campo=C["saleu"], Antes="", Después=valor,
+                         Motivo=(f"Sin dato: es lead en el reporte Fuente guardado (coincidió por {como}); falta "
+                                 "registrar su crédito" if lead is not None
+                                 else "Sin dato: no está en los leads guardados del reporte Fuente")))
+    if celdas:
+        base.escribir(TAB_RECHAZOS, celdas)
+        base.anotar_historial(hist)
+    return len(celdas)
