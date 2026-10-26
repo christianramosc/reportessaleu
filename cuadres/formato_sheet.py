@@ -115,7 +115,10 @@ def aplicar(base):
     if TAB_BITACORA in pestanas:
         from cuadres.actualizar import estilo_bitacora
         estilo_bitacora(base)
-    from cuadres.saleu_sheet import estilo_registro
+    from cuadres.saleu_sheet import estilo_registro, llenar_vacios
+    n = llenar_vacios(base)
+    if n:
+        hecho.append(f"Registro en Sale-U de {n} rechazo(s) que estaban sin dato (con los leads guardados)")
     estilo_registro(base)                      # Registrado / Falta crédito / No Registrado en Rechazos y Bitacora
 
     # 6c. zona horaria del Sheet (HOY() y las fechas de las fórmulas en hora de México)

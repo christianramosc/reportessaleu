@@ -436,6 +436,11 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi), oculta=True)
         base.dar_formato(TAB_FI, FORMATO_FI)
+    try:                                     # rechazos nuevos sin Registro en Sale-U: con los leads guardados
+        from cuadres.saleu_sheet import llenar_vacios
+        llenar_vacios(base)
+    except Exception:
+        pass
     base.reemplazar(TAB_BITACORA, BITACORA_COLS,
                     filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"], id_de_fila))
     base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)

@@ -41,7 +41,8 @@ ui.tarjeta(f1[1], "event_available", "Seguimiento al día", pct(k["al_dia"], k["
 ui.tarjeta(f1[2], "call", "Contacto efectivo", pct(k["contestaron"], k["contactados"]),
            f"{k['contestaron']} de {k['contactados']} contactados")
 ui.tarjeta(f2[0], "how_to_reg", "Registrados en Sale-U", pct(k.get("registrados", 0), k.get("saleu_total", 0)),
-           f"{k.get('falta_alta', 0)} falta alta · {k.get('falta_credito', 0)} falta crédito")
+           f"{k.get('falta_alta', 0)} falta alta · {k.get('falta_credito', 0)} falta crédito"
+           + (f" · {k['sin_revisar']} sin revisar" if k.get("sin_revisar") else ""))
 ui.tarjeta(f2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]), f"{len(k['por_vencer'])} vencen en 15 días",
            ESTADO["critico"] if len(k["vencidos"]) else ESTADO["bien"])
 ui.tarjeta(f2[2], "rule", "Pendientes en Revision", k["pendientes"], "por resolver",
