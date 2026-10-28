@@ -124,7 +124,6 @@ def encabezado(titulo, subtitulo, derecha="", icono=None):
 <p>{html.escape(subtitulo)}</p></div><div>{eti}</div></div>""", unsafe_allow_html=True)
 
 
-
 def seccion(titulo, descripcion="", numero=None, donde=st):
     """Título de una sección con su descripción en gris."""
     num = f'<span class="num">{numero}</span>' if numero is not None else ""
