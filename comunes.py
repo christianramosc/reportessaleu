@@ -7,11 +7,12 @@ import pandas as pd
 import streamlit as st
 
 import conexion
+import ui
 from cuadres import saleu as cu
 from cuadres import saleu_sheet, saleu_fuente
 from cuadres.salidas import etiqueta
 
-ESTADO = dict(bien="#0ca30c", aviso="#c98500", critico="#d03b3b")
+ESTADO = ui.ESTADO
 HOJA_CORTA = lambda h: "Bitacora" if h == "Bitacora" else ("Finalizados" if "Finalizados" in str(h) else "Rechazos")
 
 
@@ -42,21 +43,27 @@ def aviso_excel(base):
 # =============================================================================
 # Tablas
 # =============================================================================
+# Fondos translúcidos con texto claro: se leen bien sobre el tema oscuro (como las insignias de shadcn).
+VERDE = "background-color: rgba(34,197,94,.16); color: #86efac"
+AMARILLO = "background-color: rgba(234,179,8,.16); color: #fde047"
+ROJO = "background-color: rgba(239,68,68,.16); color: #fca5a5"
+GRIS = "background-color: rgba(161,161,170,.12); color: #d4d4d8"
+
+
 def colorear(valor):
-    verde, amarillo, rojo = "#C6EFCE", "#FFEB9C", "#FFC7CE"
     v = str(valor)
     if v in ("Falta crédito", "Registrar crédito"):
-        return f"background-color: {amarillo}"
+        return AMARILLO
     if v == "Dar de alta":
-        return f"background-color: {rojo}"
+        return ROJO
     if v in ("OK", "Coincide por folio", "Coincide (teléfono y nombre)", "Cuadra"):
-        return f"background-color: {verde}"
+        return VERDE
     if (v.startswith("NO ") or v == "No cuadra" or "pero NO" in v or v.startswith("Falta")
             or v.startswith("En BlueService, no")):
-        return f"background-color: {rojo}"
+        return ROJO
     if (v == "Revisar" or v.startswith("Coincide por") or v.startswith("Posible")
             or v.startswith("Cuadra –")):
-        return f"background-color: {amarillo}"
+        return AMARILLO
     return ""
 
 
@@ -88,14 +95,14 @@ def valor_resumen(resumen, texto):
     return fila["Valor"].iloc[0] if not fila.empty else "—"
 
 
-def descargas(res, prefijo):
-    c1, c2, _ = st.columns([1, 1, 3])
-    c1.download_button("Excel", res["xlsx_bytes"], file_name=res["xlsx_nombre"],
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                       width="stretch", key=f"{prefijo}_x", icon=":material/table_view:")
-    c2.download_button("PDF", res["pdf_bytes"], file_name=res["pdf_nombre"],
-                       mime="application/pdf", width="stretch", key=f"{prefijo}_p",
-                       icon=":material/picture_as_pdf:")
+def descargas(res, prefijo, donde=st):
+    """Botones de Excel y PDF juntos, alineados a la derecha."""
+    fila = ui.barra(donde)
+    fila.download_button("Excel", res["xlsx_bytes"], file_name=res["xlsx_nombre"],
+                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         key=f"{prefijo}_x", icon=":material/table_view:")
+    fila.download_button("PDF", res["pdf_bytes"], file_name=res["pdf_nombre"], mime="application/pdf",
+                         key=f"{prefijo}_p", icon=":material/picture_as_pdf:")
 
 
 # =============================================================================

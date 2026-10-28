@@ -54,10 +54,10 @@ def acceso_permitido():
     return False
 
 
+ui.aplicar_estilo()
+
 if not acceso_permitido():
     st.stop()
-
-ui.aplicar_estilo()
 
 paginas = [
     st.Page("paginas/inicio.py", title="Inicio", icon=":material/home:", url_path="inicio", default=True),

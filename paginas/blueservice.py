@@ -14,7 +14,7 @@ import ui
 from comunes import descargas, guardar_temporal, leer_bytes, tabla, valor_resumen
 from cuadres import blueservice as cb
 
-ui.hero("BlueService", "Cuadre por VIN de los PDIs de BlueService contra el inventario.")
+ui.encabezado("BlueService", "Cuadre por VIN de los PDIs de BlueService contra el inventario.")
 
 
 def ejecutar_bs(archivo_bs, archivo_inv, hoja):
@@ -27,7 +27,9 @@ def ejecutar_bs(archivo_bs, archivo_inv, hoja):
 
 
 if True:
-    c1, c2 = st.columns(2)
+    ui.seccion("Archivos", "El reporte de PDIs de BlueService y el inventario de MG Colima.")
+    caja = st.container(border=True)
+    c1, c2 = caja.columns(2)
     f_pdi = c1.file_uploader("PDIs de BlueService", type=["xlsx"], key="up_pdi",
                              help="Ej. PDIs_MG_Colima.xlsx")
     f_inv = c2.file_uploader("Inventario", type=["xlsx"], key="up_inv",
@@ -41,7 +43,8 @@ if True:
         except Exception as e:
             c2.error(f"No se pudieron leer las hojas: {e}")
 
-    if st.button("Hacer cuadre", type="primary", disabled=not (f_pdi and f_inv and hoja), key="btn_bs"):
+    if ui.barra(caja, alinear="left").button("Hacer cuadre", type="primary", disabled=not (f_pdi and f_inv and hoja),
+                                             key="btn_bs", icon=":material/compare_arrows:"):
         with st.spinner("Cruzando VINs…"):
             try:
                 st.session_state["res_bs"] = ejecutar_bs(f_pdi, f_inv, hoja)
@@ -52,7 +55,9 @@ if True:
     res = st.session_state.get("res_bs")
     if res:
         r, h = res["resumen"], res["hoja"]
-        st.success(f"Hoja: {h}  ·  Corte: {cb.fmt(res['corte'])}")
+        t, d = st.columns([3, 2], vertical_alignment="bottom")
+        ui.seccion("Resultado", f"Hoja: {h}  ·  Corte: {cb.fmt(res['corte'])}", donde=t)
+        descargas(res, "bs", donde=d)
         m = st.columns(5)
         m[0].metric(f"En {h.title()}", valor_resumen(r, "Unidades en la hoja"))
         m[1].metric("Cuadran", valor_resumen(r, f"Unidades de {h} que cuadran"))
@@ -60,7 +65,7 @@ if True:
         m[3].metric("Solo en BS", valor_resumen(r, "En BlueService sin venta"),
                     help="En BlueService sin venta, pero no en el inventario.")
         m[4].metric("A revisar", valor_resumen(r, "Unidades con datos"))
-        descargas(res, "bs")
+        st.write("")
 
         cols_inv = ["Resultado", "VIN", "Modelo_inventario", "Version", "Color", "Ubicacion",
                     "Entrada_inventario", "Ultimo_PDI_inventario", "Proximo_PDI_inventario",
@@ -81,7 +86,7 @@ if True:
                 if sit:
                     df = df[df["Situacion"].isin(sit)]
                 st.bar_chart(res["falta_inv"].groupby("Situacion").size().rename("Unidades"),
-                             color="#C00000", height=200, horizontal=True)
+                             color=ui.ESTADO["critico"], height=200, horizontal=True)
             tabla(df, ["Situacion", "VIN", "Modelo_BS", "Dealer_origen", "Dealer_actual",
                        "Fecha_inventario_BS", "Etapa_BS", "Status_BS", "Aparece_en_inventario",
                        "Observaciones"], ["Situacion"])

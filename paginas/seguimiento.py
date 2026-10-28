@@ -13,24 +13,25 @@ import streamlit as st
 
 import ui
 import conexion
-from comunes import ESTADO, aviso_excel
+from comunes import AMARILLO, ESTADO, GRIS, VERDE, aviso_excel
 from cuadres import pendientes, resumen, saleu_fuente
 from cuadres import saleu as cu
 from cuadres.salidas import telefono
 
-ui.hero("Seguimiento", "Indicadores del Sheet, vencidos, pendientes y quién falta en Sale-U.")
+ui.encabezado("Seguimiento", "Indicadores del Sheet, vencidos, pendientes y quién falta en Sale-U.")
 ui.guia_mes()
 
 base = conexion.panel_base()
 if base is None:
     st.stop()
 
-tab_res, tab_pend = st.tabs(["📊 Resumen", "✅ Pendientes"])
+tab_res, tab_pend = st.tabs([":material/insights: Resumen", ":material/task_alt: Pendientes"])
 
 with tab_res:
     if True:
         try:
             c_anio, _ = st.columns([1, 5])
+            st.write("")
             anio = c_anio.selectbox("Año", resumen.anios(base), key="anio_res")
             k = resumen.indicadores(base, anio)
         except Exception as e:
@@ -59,18 +60,19 @@ with tab_res:
                        ESTADO["aviso"] if k["pendientes"] else ESTADO["bien"])
 
             import altair as alt
-            g1, g2 = st.columns([3, 2])
+            c1, c2 = st.columns([3, 2])
+            g1, g2 = c1.container(border=True, height="stretch"), c2.container(border=True, height="stretch")
             if not k["por_mes"].empty:
                 meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
                 pm = k["por_mes"].assign(Mes=k["por_mes"]["mes"].map(lambda m: meses[m - 1]))
                 orden_fin = ["CETELEM", "BBVA", "Otras"]
-                g1.markdown("**Rechazos por mes**")
+                g1.markdown("**Rechazos por mes**  \n<span class='tenue'>Por financiera</span>", unsafe_allow_html=True)
                 g1.altair_chart(alt.Chart(pm).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, size=22,
-                                                      stroke="white", strokeWidth=2).encode(
+                                                      stroke=ui.CARTA, strokeWidth=2).encode(
                     x=alt.X("Mes:N", sort=meses, title=None, axis=alt.Axis(labelAngle=0)),
                     y=alt.Y("sum(rechazos):Q", title=None, axis=alt.Axis(tickMinStep=1, grid=True)),
                     color=alt.Color("fin:N", title=None, sort=orden_fin, legend=alt.Legend(orient="top"),
-                                    scale=alt.Scale(domain=orden_fin, range=["#2a78d6", "#eb6834", "#1baf7a"])),
+                                    scale=alt.Scale(domain=orden_fin, range=["#3987e5", "#d95926", "#199e70"])),
                     order=alt.Order("orden:Q"),
                     tooltip=[alt.Tooltip("Mes:N"), alt.Tooltip("fin:N", title="Financiera"),
                              alt.Tooltip("rechazos:Q", title="Rechazos")]
@@ -78,15 +80,16 @@ with tab_res:
                     width="stretch")
             embudo = pd.DataFrame({"Etapa": ["Ya cumplieron 180 días", "Con 1er seguimiento", "Contestaron"],
                                    "Clientes": [k["ya_toca"], k["al_dia"], k["contestaron"]]})
-            g2.markdown("**Seguimiento de los que ya cumplieron 180 días**")
+            g2.markdown("**Seguimiento**  \n<span class='tenue'>De los que ya cumplieron 180 días</span>",
+                        unsafe_allow_html=True)
             base_e = alt.Chart(embudo).encode(
                 y=alt.Y("Etapa:N", sort=list(embudo["Etapa"]), title=None, axis=alt.Axis(labelLimit=180)),
                 x=alt.X("Clientes:Q", title=None, axis=None))
             g2.altair_chart((base_e.mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, size=26).encode(
                 color=alt.Color("Etapa:N", legend=None, sort=list(embudo["Etapa"]),
-                                scale=alt.Scale(range=["#86b6ef", "#2a78d6", "#104281"])),
+                                scale=alt.Scale(range=["#86b6ef", "#3987e5", "#1f5fae"])),
                 tooltip=["Etapa", "Clientes"])
-                + base_e.mark_text(align="left", dx=4, fontWeight="bold", color=ui.kc.TEXTO).encode(text="Clientes:Q")
+                + base_e.mark_text(align="left", dx=4, fontWeight="bold", color=ui.TEXTO_2).encode(text="Clientes:Q")
             ).properties(height=260), width="stretch")
 
             def lista(df, cols, nombres):
@@ -95,24 +98,25 @@ with tab_res:
                 return vista
 
             v, pv = k["vencidos"], k["por_vencer"]
+            ui.seccion("Detalle", "Vencidos, por vencer y pendientes de la pestaña Revision.")
             with st.expander(f"Seguimientos vencidos ({len(v)})", icon=":material/alarm:", expanded=bool(len(v))):
                 if v.empty:
                     st.success("No hay seguimientos vencidos.")
                 else:
+                    from cuadres import reporte_vencidos
+                    c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+                    quien = c1.selectbox("PDF de vencidos para", ["Todos los asesores (una página cada uno)"]
+                                         + reporte_vencidos.asesores(v), key="asesor_venc")
+                    elegido = None if quien.startswith("Todos") else quien
+                    c2.download_button("PDF de vencidos", reporte_vencidos.pdf(v, elegido),
+                                       file_name=f"Vencidos_{(elegido or 'todos').replace(' ', '_')}_"
+                                                 f"{dt.date.today():%Y%m%d}.pdf",
+                                       mime="application/pdf", icon=":material/picture_as_pdf:", key="dl_venc",
+                                       width="stretch")
                     st.dataframe(lista(v.assign(tel=v["tel"].map(telefono), fseg=v["fseg"].map(cu.fecha_txt)),
                                        ["nombre", "tel", "asesor", "fseg", "dias", "id"],
                                        ["Cliente", "Celular", "Asesor", "Tocaba el", "Días de atraso", "ID"]),
                                  hide_index=True, width="stretch")
-            if not v.empty:
-                from cuadres import reporte_vencidos
-                c1, c2, _ = st.columns([2, 1, 2])
-                quien = c1.selectbox("PDF de vencidos para", ["Todos los asesores (una página cada uno)"]
-                                     + reporte_vencidos.asesores(v), key="asesor_venc")
-                elegido = None if quien.startswith("Todos") else quien
-                c2.download_button("PDF de vencidos", reporte_vencidos.pdf(v, elegido),
-                                   file_name=f"Vencidos_{(elegido or 'todos').replace(' ', '_')}_{dt.date.today():%Y%m%d}.pdf",
-                                   mime="application/pdf", icon=":material/picture_as_pdf:", key="dl_venc",
-                                   width="stretch")
             with st.expander(f"Vencen en los próximos 15 días ({len(pv)})", icon=":material/schedule:"):
                 if pv.empty:
                     st.info("Ninguno vence en los próximos 15 días.")
@@ -131,10 +135,9 @@ with tab_res:
                                      if c in rv.columns]], hide_index=True, width="stretch")
 
         # ------------------------------------------------ reporte de faltantes en Sale-U
-        st.divider()
-        st.markdown("#### :material/person_add: Faltan en Sale-U")
-        st.caption("Aprobados y Rechazados sin registro, según el Sheet (lo marca el cuadre de Sale-U): «No Registrado» "
-                   "= falta darlos de alta; «Falta crédito» = ya son lead (reporte Fuente), falta su crédito.")
+        ui.seccion("Faltan en Sale-U", "Aprobados y Rechazados sin registro, según el Sheet (lo marca el cuadre de "
+                   "Sale-U): «No Registrado» = falta darlos de alta; «Falta crédito» = ya son lead (reporte Fuente), "
+                   "falta su crédito.")
         try:
             res_su = (st.session_state.get("todo") or {}).get("su") or {}
             fuente_su = res_su.get("fuente_df")
@@ -155,7 +158,8 @@ with tab_res:
                         help="Ya son lead (reporte Fuente); falta registrar su crédito.")
             m[3].metric("Aprobados", int((faltan["Estatus"] == resumen.APROBADO).sum()))
             m[4].metric("Por confirmar", len(confirmar), help="Aprobados sin dato de Sale-U.")
-            if st.button("Generar PDF y Excel", type="primary", icon=":material/picture_as_pdf:", key="btn_pdf_su"):
+            fila = ui.barra()
+            if fila.button("Armar PDF y Excel", icon=":material/picture_as_pdf:", key="btn_pdf_su"):
                 with st.spinner("Armando el reporte…"):
                     try:
                         from cuadres import reporte_saleu
@@ -164,14 +168,17 @@ with tab_res:
                                                       reporte_saleu.excel(faltan, confirmar), nombre + ".xlsx")
                     except Exception as e:
                         st.error(f"No se pudo generar el reporte: {e}")
-            if st.session_state.get("pdf_su") and len(st.session_state["pdf_su"]) == 4:
-                datos_pdf, nombre_pdf, datos_xl, nombre_xl = st.session_state["pdf_su"]
-                d1, d2 = st.columns(2)
-                d1.download_button("Descargar PDF", datos_pdf, file_name=nombre_pdf, mime="application/pdf",
-                                   icon=":material/download:", key="dl_pdf_su", width="stretch")
-                d2.download_button("Descargar Excel", datos_xl, file_name=nombre_xl, icon=":material/download:",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                   key="dl_xl_su", width="stretch")
+            listo = st.session_state.get("pdf_su")
+            listo = listo if listo and len(listo) == 4 else None
+            datos_pdf, nombre_pdf, datos_xl, nombre_xl = listo or (b"", "PorRegistrar_SaleU.pdf", b"",
+                                                                   "PorRegistrar_SaleU.xlsx")
+            ayuda = None if listo else "Primero arma el PDF y el Excel."
+            fila.download_button("Descargar PDF", datos_pdf, file_name=nombre_pdf, mime="application/pdf",
+                                 icon=":material/download:", key="dl_pdf_su", disabled=listo is None,
+                                 type="primary", help=ayuda)
+            fila.download_button("Descargar Excel", datos_xl, file_name=nombre_xl, icon=":material/download:",
+                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                 key="dl_xl_su", disabled=listo is None, help=ayuda)
             if fuente_su is None:
                 st.caption("Para llenar «Cómo está en Sale-U» y «Fuente», sube una vez el reporte Fuente "
                            "en Actualizar: sus leads se guardan en el Sheet (pestaña oculta «Fuente Sale-U»).")
@@ -189,9 +196,10 @@ with tab_res:
 with tab_pend:
     if st.session_state.get("msg_pend"):
         st.success(st.session_state.pop("msg_pend"))
-    st.markdown("Los pendientes de **Revision** que ya tienen el dato (o que marcaste a mano) se dan por resueltos, "
-                "se les quita el morado y la nota, y pasan a «Revision resueltos».")
-    if st.button("Revisar pendientes", type="primary", key="btn_rev_pend"):
+    ui.seccion("Pendientes de Revision", "Los que ya tienen el dato (o que marcaste a mano) se dan por resueltos, "
+               "se les quita el morado y la nota, y pasan a «Revision resueltos».")
+    fila = ui.barra(alinear="left")
+    if fila.button("Revisar pendientes", type="primary", key="btn_rev_pend", icon=":material/search:"):
         with st.spinner("Revisando…"):
             try:
                 st.session_state["pend"] = pendientes.revisar(base)
@@ -211,14 +219,13 @@ with tab_pend:
             k[3].metric("Revisar a mano", int(cuenta.get("Revisar a mano", 0)))
             orden = {"Resuelto": 0, "Quitar marca": 1, "Sigue pendiente": 2, "Revisar a mano": 3}
             vista = pend.sort_values("Resultado", key=lambda x: x.map(orden))
-            colores = {"Resuelto": "#C6EFCE", "Quitar marca": "#C6EFCE", "Sigue pendiente": "#FFEB9C",
-                       "Revisar a mano": "#EDEFF3"}
+            colores = {"Resuelto": VERDE, "Quitar marca": VERDE, "Sigue pendiente": AMARILLO, "Revisar a mano": GRIS}
             st.dataframe(vista[["Resultado", "Hoja", "Celda", "Cliente", "Campo", "Detalle", "Problema"]].style.map(
-                             lambda v: f"background-color: {colores.get(v, '')}" if v in colores else "",
-                             subset=["Resultado"]),
+                             lambda v: colores.get(v, ""), subset=["Resultado"]),
                          hide_index=True, width="stretch", height=min(520, 60 + 35 * len(vista)))
             n = int(pend["Resultado"].isin(["Resuelto", "Quitar marca"]).sum())
-            if st.button(f"Limpiar {n} resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar"):
+            if ui.barra().button(f"Limpiar {n} resuelto(s)", type="primary", disabled=n == 0, key="btn_limpiar",
+                                 icon=":material/cleaning_services:"):
                 with st.spinner("Limpiando…"):
                     try:
                         hechos = pendientes.aplicar(base, pend)

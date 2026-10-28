@@ -16,19 +16,34 @@ from comunes import ESTADO
 from cuadres import cargas, reporte_ejecutivo, resumen
 import tablero
 
-ui.hero("Inicio", "Lo más importante del seguimiento de MG Colima.", f"Corte {dt.date.today():%d/%m/%Y}")
+ui.encabezado("Inicio", "Lo más importante del seguimiento de MG Colima.", f"Corte {dt.date.today():%d/%m/%Y}")
 
 base = conexion.panel_base()
 if base is None:
     st.stop()
 
 anios = resumen.anios(base)
-anio = st.segmented_control("Año", anios[:4], default=anios[0], key="anio_inicio") or anios[0]
+c_anio, c_gen, c_pdf = st.columns([6, 2, 2], vertical_alignment="bottom")
+anio = c_anio.segmented_control("Año", anios[:4], default=anios[0], key="anio_inicio") or anios[0]
 try:
     d = reporte_ejecutivo.datos(base, anio=anio)
 except Exception as e:
     st.error(f"No se pudo leer el Sheet: {e}")
     st.stop()
+
+# resumen ejecutivo: se arma con un clic y se descarga al lado (el del año que se armó)
+if c_gen.button("Armar resumen PDF", icon=":material/picture_as_pdf:", key="btn_ejec", width="stretch"):
+    with st.spinner("Armando el resumen…"):
+        try:
+            st.session_state["pdf_ejec"] = (anio, reporte_ejecutivo.pdf(base, d=d))
+        except Exception as e:
+            st.error(f"No se pudo generar: {e}")
+listo = st.session_state.get("pdf_ejec")
+listo = listo if isinstance(listo, tuple) and listo[0] == anio else None
+c_pdf.download_button("Descargar resumen", listo[1] if listo else b"", disabled=listo is None, type="primary",
+                      file_name=f"Resumen_ejecutivo_MG_Colima_{anio}_{dt.date.today():%Y%m%d}.pdf",
+                      mime="application/pdf", icon=":material/download:", key="dl_ejec", width="stretch",
+                      help=None if listo else "Primero arma el resumen.")
 k = d["k"]
 pct = lambda a, b: f"{a / b:.0%}" if b else "—"
 al_dia = k["al_dia"] / k["ya_toca"] if k["ya_toca"] else 1
@@ -48,13 +63,14 @@ ui.tarjeta(f2[1], "alarm", "Seguimientos vencidos", len(k["vencidos"]), f"{len(k
 ui.tarjeta(f2[2], "rule", "Pendientes en Revision", k["pendientes"], "por resolver",
            ESTADO["aviso"] if k["pendientes"] else ESTADO["bien"])
 
+st.write("")
 c1, c2 = st.columns([3, 2])
-with c1.container(border=True):
+with c1.container(border=True, height="stretch"):
     st.markdown(":material/lightbulb: **Prioridades**")
     prio = reporte_ejecutivo.prioridades(d)
     for p in prio or ["Todo al día."]:
         st.markdown("- " + re.sub(r"</?b>", "**", p))
-with c2.container(border=True):
+with c2.container(border=True, height="stretch"):
     st.markdown(":material/upload_file: **Archivos**")
     try:
         avisos = [e for e in cargas.estado(base) if e["Aviso"]]
@@ -65,19 +81,8 @@ with c2.container(border=True):
     if not avisos:
         st.markdown(":material/check_circle: Todo lo subido está al día.")
     try:
-        st.page_link("paginas/actualizar.py", label="Ir a Actualizar", icon=":material/arrow_forward:")
+        st.page_link("paginas/actualizar.py", label="Ir a Actualizar", icon=":material/arrow_forward:", width="content")
     except Exception:  # fuera de la navegación (pruebas) no hay a dónde ligar
         pass
 
 tablero.mostrar(reporte_ejecutivo.tablero(d), anio)
-
-if st.button("Resumen ejecutivo (PDF)", type="primary", icon=":material/picture_as_pdf:", key="btn_ejec"):
-    with st.spinner("Armando el resumen…"):
-        try:
-            st.session_state["pdf_ejec"] = reporte_ejecutivo.pdf(base, d=d)
-        except Exception as e:
-            st.error(f"No se pudo generar: {e}")
-if st.session_state.get("pdf_ejec"):
-    st.download_button("Descargar resumen ejecutivo", st.session_state["pdf_ejec"],
-                       file_name=f"Resumen_ejecutivo_MG_Colima_{dt.date.today():%Y%m%d}.pdf", mime="application/pdf",
-                       icon=":material/download:", key="dl_ejec")

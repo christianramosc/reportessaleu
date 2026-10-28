@@ -187,15 +187,17 @@ def panel_base(donde=st):
         except Exception as e:
             donde.error(f"No se pudo abrir el Google Sheet: {e}. Compártelo como Editor con la cuenta de servicio.")
             return None
-        c1, c2 = donde.columns([5, 1])
-        c1.success(f"Conectado a **{base.titulo}** · [abrir]({base.url})", icon=":material/cloud_done:")
-        if c2.button("Recargar", icon=":material/refresh:", key=f"recargar_{id(donde)}",
+        c1, c2 = donde.columns([6, 1], vertical_alignment="center")
+        c1.markdown(f":green-badge[:material/cloud_done: Conectado] **{base.titulo}** · "
+                    f"[Abrir en Google Sheets :material/open_in_new:]({base.url})")
+        if c2.button("Recargar", icon=":material/refresh:", key=f"recargar_{id(donde)}", width="stretch",
                      help="Vuelve a leer el Sheet (si lo editaste a mano en los últimos 5 minutos)."):
             recargar()
             st.rerun()
         return base
     caja = donde.container(border=True)
-    caja.markdown("**Modo Excel** · Sube el Excel de seguimiento y al final descarga la versión actualizada.")
+    caja.markdown(":orange-badge[:material/description: Modo Excel] Sube el Excel de seguimiento y al final "
+                  "descarga la versión actualizada.")
     f = caja.file_uploader("Excel de seguimiento", type=["xlsx"], key="up_base_excel")
     if f is not None and st.session_state.get("_base_excel_nombre") != (f.name, f.size):
         st.session_state["base_excel"] = BaseExcel(f.getvalue(), f.name)
@@ -203,6 +205,7 @@ def panel_base(donde=st):
     base = st.session_state.get("base_excel")
     if base is not None:
         caja.download_button("Descargar Excel actualizado", base.guardar(), file_name=base.titulo, icon=":material/download:",
+                             type="primary",
                              mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              key=f"dl_base_{id(donde)}")
     return base
