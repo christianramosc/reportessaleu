@@ -14,7 +14,7 @@ import conexion
 from comunes import aviso_excel
 from cuadres.base import TAB_HISTORIAL
 
-ui.hero("Mantenimiento", "Dashboard, formato y respaldos del Sheet, e historial de cambios.")
+ui.encabezado("Mantenimiento", "Dashboard, formato y respaldos del Sheet, e historial de cambios.")
 
 base = conexion.panel_base()
 if base is None:
@@ -33,8 +33,9 @@ if falta_orden:
 if st.session_state.get("msg_mant"):
     st.success("Listo:\n" + "\n".join(f"- {m}" for m in st.session_state.pop("msg_mant")) + aviso_excel(base))
 
-with st.container(border=True):
-    st.markdown("**Rehacer dashboard y formato**")
+c_mant, c_pol = st.columns(2)
+with c_mant.container(border=True, height="stretch"):
+    st.markdown(":material/dashboard: **Rehacer dashboard y formato**")
     st.caption("Rehace la pestaña Resumen (gráficas e indicadores) y da mantenimiento al Sheet: fecha, nombre y teléfono como "
                "primeras columnas (congeladas) y sin MARCA en Finalizados, columnas, colores y "
                "fechas, un solo respaldo por pestaña, columnas calculadas y Bitacora protegidas (solo advertencia), "
@@ -50,8 +51,8 @@ with st.container(border=True):
             except Exception as e:
                 st.error(f"No se pudo aplicar: {e}")
 
-with st.container(border=True):
-    st.markdown("**Cruce de Créditos Finalizados con Pólizas**")
+with c_pol.container(border=True, height="stretch"):
+    st.markdown(":material/compare_arrows: **Cruce de Créditos Finalizados con Pólizas**")
     st.caption("Compara «MG Colima Créditos Finalizados» con la pestaña «Polizas» (la llena la app de seguros) y "
                "propone corregir teléfono, nombre, correo y VIN. Liga cada cliente por VIN, por teléfono con nombre "
                "parecido o por nombre. Ya vienen marcados los datos que faltaban o estaban mal; los que son "
@@ -65,8 +66,11 @@ with st.container(border=True):
             except Exception as e:
                 st.session_state.pop("cruce_pol", None)
                 st.error(f"No se pudo revisar: {e}")
-    prop_pol = st.session_state.get("cruce_pol")
-    if prop_pol is not None:
+
+prop_pol = st.session_state.get("cruce_pol")
+if prop_pol is not None:
+    with st.container(border=True):
+        st.markdown(":material/fact_check: **Cambios propuestos con Pólizas**")
         if prop_pol.empty:
             st.success("Créditos Finalizados ya coincide con Pólizas.")
         else:
@@ -83,8 +87,8 @@ with st.container(border=True):
                                "Motivo": st.column_config.TextColumn(width="large")})
             prop_pol = prop_pol.assign(Aplicar=vista["Aplicar"].values)
             n = int(prop_pol["Aplicar"].sum())
-            if st.button(f"Aplicar {n} cambio(s)", type="primary", key="btn_aplicar_pol", icon=":material/done:",
-                         disabled=not len(prop_pol)):
+            if ui.barra().button(f"Aplicar {n} cambio(s)", type="primary", key="btn_aplicar_pol",
+                                 icon=":material/done:", disabled=not len(prop_pol)):
                 with st.spinner("Escribiendo en el Sheet…"):
                     try:
                         from cuadres import cruce_polizas
@@ -97,7 +101,7 @@ with st.container(border=True):
                     except Exception as e:
                         st.error(f"No se pudo aplicar: {e}")
 
-st.markdown("#### :material/history: Historial de cambios")
+ui.seccion("Historial de cambios", "Lo último que escribió la app en el Sheet (hasta 500 cambios).")
 if TAB_HISTORIAL in base.pestanas():
     h = base.leer(TAB_HISTORIAL).drop(columns="_fila", errors="ignore")
     if h.empty:

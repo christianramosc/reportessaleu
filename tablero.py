@@ -11,26 +11,31 @@ clientes ni de asesores: los seguimientos se identifican por su ID de «MG Colim
 import altair as alt
 import streamlit as st
 
-from cuadres.reporte_ejecutivo import ESTADO, NAVY, NAVY_2, SERIE, RANGOS, COLOR_RANGO
+import ui
+from cuadres.reporte_ejecutivo import ESTADO, RANGOS, COLOR_RANGO
 
-TINTA, TINTA_2 = "#1B2A41", "#5B6B82"
-FUENTE = "Archivo, sans-serif"
+# Colores para el tema oscuro (el PDF usa los de reporte_ejecutivo, sobre fondo blanco)
+TINTA, TINTA_2, REJILLA = ui.TEXTO_2, ui.TENUE, ui.BORDE
+SERIE = ["#3987e5", "#d95926", "#199e70"]                    # CETELEM, BBVA, otras
+NAVY, NAVY_2 = "#1f5fae", "#86b6ef"
+FUENTE = ui.FUENTE
 
 
 def _estilo(c, alto):
     return (c.properties(height=alto)
             .configure_view(stroke=None)
-            .configure_axis(labelColor=TINTA_2, titleColor=TINTA_2, gridColor="#E3E8EF", domainColor="#E3E8EF",
-                            labelFont=FUENTE, titleFont=FUENTE, labelFontSize=11, titleFontSize=11, tickColor="#E3E8EF")
+            .configure(background="transparent")
+            .configure_axis(labelColor=TINTA_2, titleColor=TINTA_2, gridColor=REJILLA, domainColor=REJILLA,
+                            labelFont=FUENTE, titleFont=FUENTE, labelFontSize=11, titleFontSize=11, tickColor=REJILLA)
             .configure_legend(labelColor=TINTA_2, titleColor=TINTA_2, labelFont=FUENTE, titleFont=FUENTE,
                               labelFontSize=11, orient="bottom", symbolType="circle")
             .configure_text(font=FUENTE))
 
 
 def _caja(titulo, subtitulo=""):
-    caja = st.container(border=True)
-    caja.markdown(f"**{titulo}**" + (f"  \n<span style='color:{TINTA_2};font-size:.85rem'>{subtitulo}</span>"
-                                     if subtitulo else ""), unsafe_allow_html=True)
+    caja = st.container(border=True, height="stretch")
+    caja.markdown(f"**{titulo}**" + (f"  \n<span class='tenue'>{subtitulo}</span>" if subtitulo else ""),
+                  unsafe_allow_html=True)
     return caja
 
 
@@ -61,7 +66,7 @@ def _barras(df, campo, alto=None):
 
 
 def mostrar(t, anio):
-    st.markdown("#### :material/monitoring: Tablero")
+    ui.seccion("Tablero", "Gráficas interactivas del año, sin nombres de clientes ni de asesores.")
 
     # ------------------------------------------------------------ vencidos (filtro cruzado por rango)
     venc, antig = t["vencidos"], t["antiguedad"]
@@ -107,7 +112,7 @@ def mostrar(t, anio):
             x=alt.X("Semana:N", sort=orden, title=None, axis=alt.Axis(labelAngle=0)),
             y=alt.Y("Seguimientos:Q", title=None, axis=alt.Axis(tickMinStep=1)),
             color=alt.Color("Tipo:N", scale=alt.Scale(domain=["Vencido", "Esta semana", "Próximo"],
-                                                      range=[ESTADO["critico"], NAVY_2, SERIE[0]]),
+                                                      range=[ESTADO["critico"], SERIE[0], NAVY]),
                             legend=alt.Legend(title=None)),
             tooltip=["Semana:N", "Seguimientos:Q"])
         txt = alt.Chart(ag[ag["Seguimientos"] > 0]).mark_text(dy=-8, color=TINTA, fontWeight="bold").encode(
@@ -132,7 +137,7 @@ def mostrar(t, anio):
         barras = alt.Chart(e).mark_bar(cornerRadius=4, height=34).encode(
             y=alt.Y("Paso:N", sort=pasos, title=None, axis=alt.Axis(labelLimit=200)),
             x=alt.X("ini:Q", axis=None, scale=alt.Scale(domain=[0, tope])), x2="fin:Q",
-            color=alt.Color("Paso:N", sort=pasos, scale=alt.Scale(range=[NAVY, NAVY_2, SERIE[0], ESTADO["bien"]]),
+            color=alt.Color("Paso:N", sort=pasos, scale=alt.Scale(range=[NAVY_2, SERIE[0], NAVY, ESTADO["bien"]]),
                             legend=None),
             tooltip=["Paso:N", "Clientes:Q", alt.Tooltip("Porcentaje:Q", format=".0%")])
         txt = alt.Chart(e).transform_calculate(
@@ -152,7 +157,7 @@ def mostrar(t, anio):
         if ca.empty:
             _vacio(caja, "Sin contactos capturados")
         else:
-            ca = ca.assign(Color=[ESTADO["neutro"] if c == "Sin dato" else NAVY_2 for c in ca["Canal"]])
+            ca = ca.assign(Color=[ESTADO["neutro"] if c == "Sin dato" else SERIE[0] for c in ca["Canal"]])
             caja.altair_chart(_barras(ca, "Canal"), width="stretch")
 
     # ------------------------------------------------------------ Sale-U y financieras

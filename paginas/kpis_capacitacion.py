@@ -31,11 +31,15 @@ def tarjetas(d):
     st.markdown(f'<div class="kpis">{"".join(celdas)}</div>', unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------------- BARRA LATERAL
-with st.sidebar:
-    st.subheader("Archivo")
+# ---------------------------------------------------------------- ARCHIVO Y DESCARGAS
+guardado = st.session_state.get("_archivo_kpis_archivo")
+ui.encabezado("Avance de capacitación", "Ventas y Posventa, MG Colima",
+              guardado[0] if guardado else "Sin archivo cargado")
+
+c_arch, c_desc = st.columns([3, 2])
+with c_arch:
     archivo = ui.archivo_persistente(
-        "Plan de acción (.xlsx)", "kpis_archivo", ["xlsx", "xlsm"], donde=st.sidebar,
+        "Plan de acción (.xlsx)", "kpis_archivo", ["xlsx", "xlsm"],
         ayuda=f"Debe tener las hojas {kc.HOJAS['VENTAS']} y {kc.HOJAS['POSVENTA']}.")
 
 out = None
@@ -43,13 +47,10 @@ if archivo is not None:
     try:
         out = procesar_kpis(archivo[1])
     except Exception as e:  # noqa: BLE001
-        st.sidebar.error(f"No se pudo leer el archivo. {e}")
-
-ui.hero("Avance de capacitación", "Ventas y Posventa, MG Colima",
-        archivo[0] if archivo is not None else "Sin archivo cargado")
+        st.error(f"No se pudo leer el archivo. {e}")
 
 if out is None:
-    st.markdown("""<div class="vacio"><b>Sube el plan de acción en la barra lateral</b><br>
+    st.markdown("""<div class="vacio"><b>Sube el plan de acción</b><br>
     Verás el avance de DOT, Cápsulas, LOL y Presencial y podrás descargar PDF, imágenes y Excel.</div>""",
                 unsafe_allow_html=True)
     st.stop()
@@ -57,19 +58,19 @@ if out is None:
 areas = out["areas"]
 n_alertas = sum(len(d["alertas"]) for d in areas.values())
 
-with st.sidebar:
-    st.subheader("Descargas")
-    st.download_button("PDF completo", out["pdf"], file_name=kc.SALIDA, mime="application/pdf",
-                       icon=":material/picture_as_pdf:", type="primary", width="stretch")
+with c_desc.container(border=True):
+    st.markdown(":material/download: **Descargas**")
+    fila = ui.barra(alinear="left")
+    fila.download_button("PDF completo", out["pdf"], file_name=kc.SALIDA, mime="application/pdf",
+                         icon=":material/picture_as_pdf:", type="primary")
+    fila.download_button("Excel", out["excel"], file_name="KPIs_Capacitacion_detalle.xlsx",
+                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         icon=":material/table_view:")
+    fila.download_button("ZIP", out["zip"], file_name="KPIs_Capacitacion.zip", mime="application/zip",
+                         icon=":material/folder_zip:")
     for area, d in areas.items():
-        st.download_button(f"Imagen {area.title()}", out["imagenes"][d["png"]], file_name=d["png"],
-                           mime="image/png", icon=":material/image:", width="stretch")
-    st.download_button("Detalle en Excel", out["excel"], file_name="KPIs_Capacitacion_detalle.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                       icon=":material/table_view:", width="stretch")
-    st.download_button("Todo en un ZIP", out["zip"], file_name="KPIs_Capacitacion.zip",
-                       mime="application/zip", icon=":material/folder_zip:", width="stretch")
-    st.divider()
+        fila.download_button(f"Imagen {area.title()}", out["imagenes"][d["png"]], file_name=d["png"],
+                             mime="image/png", icon=":material/image:")
     st.caption(f"Semáforo: verde ≥ {kc.META_VERDE:.0%}, ámbar ≥ {kc.META_AMBAR:.0%}, rojo menor.")
 
 etiqueta_rev = f"Revisión de datos ({n_alertas})" if n_alertas else "Revisión de datos"
@@ -83,9 +84,10 @@ for (area, d), tab in zip(areas.items(), tabs):
             st.warning(f"{n} diferencia(s) con el Excel. Ver *Revisión de datos*.", icon=":material/warning:")
         tarjetas(d)
 
-        st.image(out["imagenes"][d["png"]], width="stretch")
+        with st.container(border=True):
+            st.image(out["imagenes"][d["png"]], width="stretch")
 
-        st.subheader("Detalle por colaborador")
+        ui.seccion("Detalle por colaborador")
         df = d["detalle"]
         c1, c2 = st.columns([1, 2])
         letras = sorted(df["Letra"].unique(), key=lambda l: (l != "P", l))
@@ -120,19 +122,19 @@ with tabs[len(areas)]:
         filas.append({"Módulo": "Total", "Área": area.title(), "Avance": d["general"]})
     comp = pd.DataFrame(filas)
 
-    st.subheader("Avance por módulo")
+    ui.seccion("Avance por módulo")
     base = alt.Chart(comp).encode(
         x=alt.X("Módulo:N", sort=etiquetas, title=None, axis=alt.Axis(labelAngle=0, labelFontSize=13)),
         xOffset=alt.XOffset("Área:N", sort=nombres_area),
         y=alt.Y("Avance:Q", title=None, scale=alt.Scale(domain=[0, 1.08]),
                 axis=alt.Axis(format="%", tickCount=5)),
         color=alt.Color("Área:N", sort=nombres_area, title=None,
-                        scale=alt.Scale(domain=nombres_area, range=[kc.AZUL_OSCURO, "#7FA7D9"]),
+                        scale=alt.Scale(domain=nombres_area, range=["#3987e5", "#86b6ef"]),
                         legend=alt.Legend(orient="top")),
         tooltip=["Área", "Módulo", alt.Tooltip("Avance:Q", format=".0%")],
     )
     barras = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-    textos = base.mark_text(dy=-8, fontSize=12, fontWeight="bold", color=kc.TEXTO).encode(
+    textos = base.mark_text(dy=-8, fontSize=12, fontWeight="bold", color=ui.TEXTO_2).encode(
         text=alt.Text("Avance:Q", format=".0%"))
     st.altair_chart((barras + textos).properties(height=380), width="stretch")
 
@@ -148,7 +150,7 @@ with tabs[len(areas)]:
 with tabs[-1]:
     st.write("Diferencias entre las fórmulas del Excel y el recálculo por colaborador. El reporte usa el recálculo.")
     for area, d in areas.items():
-        st.subheader(area.title())
+        ui.seccion(area.title())
         if not d["alertas"]:
             st.success("Sin diferencias.", icon=":material/check_circle:")
         for a in d["alertas"]:
