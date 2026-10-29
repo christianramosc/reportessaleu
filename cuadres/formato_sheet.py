@@ -163,6 +163,10 @@ def aplicar(base):
     if pendientes.TAB_ARCHIVO in base.pestanas():
         base.ocultar(pendientes.TAB_ARCHIVO)
         hecho.append(f"«{pendientes.TAB_ARCHIVO}» oculta")
+    filtros = [h for h in (TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, pendientes.TAB_REVISION)
+               if h in base.pestanas() and base.filtro_completo(h)]
+    if filtros:
+        hecho.append("Filtro sobre toda la hoja (ya no se corta en una fila) en " + ", ".join(f"«{h}»" for h in filtros))
     base.ordenar([TAB_RESUMEN, TAB_RECHAZOS, TAB_FINALIZADOS, TAB_BITACORA, pendientes.TAB_REVISION])
     hecho.append("Pestañas en orden: Resumen, Rechazos, Finalizados, Bitacora, Revision")
     return hecho

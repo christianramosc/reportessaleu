@@ -311,6 +311,14 @@ class _BaseComun:
             return self._proteger(pestana, sorted(set(columnas)) if columnas else None, descripcion)
         return False
 
+    def filtro_completo(self, pestana, solo_si_hay=False):
+        """Filtro de la pestaña sobre TODA la hoja (todas las filas y columnas, también las que se agreguen
+        después). Un filtro con rango fijo (p. ej. A1:W121) deja fuera filas y columnas nuevas y la hoja se ve
+        «seccionada». solo_si_hay: solo lo corrige si la pestaña ya tiene filtro. Devuelve True si lo puso."""
+        if pestana in self.pestanas():
+            return self._filtro_completo(pestana, solo_si_hay)
+        return False
+
     def vista_filtrada(self, pestana, titulo, columna, valor):
         """Vista filtrada (Google) con columna = valor. No la duplica. En Excel no hace nada."""
         if pestana in self.pestanas():
@@ -453,6 +461,11 @@ class BaseGoogle(_BaseComun):
         ws.update(tabla, "A1", value_input_option=ValueInputOption.user_entered)
         if oculta:
             ws.hide()
+        else:
+            try:                                   # el filtro debe abarcar las filas nuevas
+                self._filtro_completo(pestana, solo_si_hay=True)
+            except Exception:
+                pass
         self._limpiar_cache(pestana)
 
     def _formulas(self, pestana):
@@ -577,6 +590,17 @@ class BaseGoogle(_BaseComun):
             "range": r, "description": descripcion, "warningOnly": True}}} for r in rangos]})
         return True
 
+    def _filtro_completo(self, pestana, solo_si_hay):
+        ws = self._hoja(pestana)
+        actual = self._meta(ws, "basicFilter").get("basicFilter")
+        if solo_si_hay and not actual:
+            return False
+        rango = (actual or {}).get("range", {})
+        if actual and set(rango) <= {"sheetId"}:
+            return False                          # ya cubre toda la hoja
+        self.libro.batch_update({"requests": [{"setBasicFilter": {"filter": {"range": {"sheetId": ws.id}}}}]})
+        return True
+
     def _vista_filtrada(self, pestana, titulo, columna, valor):
         ws = self._hoja(pestana)
         if titulo in {v.get("title") for v in self._meta(ws, "filterViews").get("filterViews", [])}:
@@ -605,8 +629,24 @@ class BaseGoogle(_BaseComun):
         fila_fin = min(fila_fin, ws.row_count)
         regla = {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in valores]},
                  "showCustomUi": True, "strict": False}
-        self.libro.batch_update({"requests": [{"setDataValidation": {
-            "range": self._rango(ws, 1, fila_fin, c - 1, c), "rule": regla}} for c in columnas]})
+        columnas = [c for c in columnas if self._lista_actual(ws, c) != list(valores)]
+        if columnas:            # si la lista ya es la misma no se toca (así no se pierden los colores de los chips)
+            self.libro.batch_update({"requests": [{"setDataValidation": {
+                "range": self._rango(ws, 1, fila_fin, c - 1, c), "rule": regla}} for c in columnas]})
+
+    def _lista_actual(self, ws, col):
+        """Opciones de la lista desplegable de la fila 2 de esa columna (o None)."""
+        try:
+            meta = self.libro.fetch_sheet_metadata(params={
+                "ranges": f"'{ws.title}'!{letra(col)}2",
+                "fields": "sheets(data(rowData(values(dataValidation))))"})
+            celda = meta["sheets"][0]["data"][0]["rowData"][0]["values"][0]
+            cond = celda.get("dataValidation", {}).get("condition", {})
+            if cond.get("type") != "ONE_OF_LIST":
+                return None
+            return [v.get("userEnteredValue") for v in cond.get("values", [])]
+        except (KeyError, IndexError, TypeError):
+            return None
 
     def _validar_fecha(self, pestana, columnas, fila_fin):
         ws = self._hoja(pestana)
@@ -800,6 +840,16 @@ class BaseExcel(_BaseComun):
 
     def _vista_filtrada(self, pestana, titulo, columna, valor):
         return False
+
+    def _filtro_completo(self, pestana, solo_si_hay):
+        ws = self.libro[pestana]
+        if solo_si_hay and not ws.auto_filter.ref:
+            return False
+        ref = f"A1:{letra(ws.max_column)}{ws.max_row}"
+        if ws.auto_filter.ref == ref:
+            return False
+        ws.auto_filter.ref = ref
+        return True
 
     def _regla_color(self, pestana, columnas, formula, color, fila_fin, letra_color=None):
         from openpyxl.formatting.rule import FormulaRule
