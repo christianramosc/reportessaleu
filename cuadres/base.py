@@ -390,6 +390,10 @@ def _como_texto(v):
 
 
 class BaseGoogle(_BaseComun):
+    # Las listas desplegables se ven como chips con color por opción (puestos en el Sheet); la app no agrega
+    # colores de fondo por valor en esas columnas para no encimarlos.
+    CHIPS = True
+
     def __init__(self, info_cuenta_servicio, url):
         import gspread
         from gspread.http_client import BackOffHTTPClient

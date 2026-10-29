@@ -349,8 +349,8 @@ def estilo_registro(base, hojas=None):
         if not c:
             continue
         L = letra(c)
-        for valor, fondo, tinta in ESTILO_SALEU:
-            if hoja == TAB_BITACORA or valor != f'="{NO_APLICA}"':
+        for valor, fondo, tinta in ([] if getattr(base, "CHIPS", False) else ESTILO_SALEU):
+            if hoja == TAB_BITACORA or valor != f'="{NO_APLICA}"':      # en Google el color lo dan los chips
                 base.regla_color(hoja, [c], f"=${L}2{valor}", fondo, 1000, tinta)
         base.lista_valores(hoja, [c], VALORES + ([NO_APLICA] if hoja == TAB_BITACORA else []), 1000)
 
