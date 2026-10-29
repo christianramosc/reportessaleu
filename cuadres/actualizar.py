@@ -336,7 +336,7 @@ def estilo_bitacora(base):
     if not c:
         return
     L = letra(c)
-    for valor, fondo, tinta in ESTILO_SALEU:
+    for valor, fondo, tinta in ([] if getattr(base, "CHIPS", False) else ESTILO_SALEU):   # Google: chips de color
         base.regla_color(TAB_BITACORA, [c], f"=${L}2{valor}", fondo, 1000, tinta)
     base.lista_valores(TAB_BITACORA, [c], ["Registrado", "Falta crédito", "No Registrado", NO_APLICA], 1000)
 # Formato uniforme de la Bitacora: tipo de número por columna (lo demás, texto)
