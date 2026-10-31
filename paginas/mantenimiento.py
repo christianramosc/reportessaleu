@@ -23,8 +23,9 @@ if base is None:
 try:
     from cuadres import columnas
     falta_orden = columnas.pendiente(base)
-except Exception:
+except Exception as e:
     falta_orden = []
+    ui.error("No se pudo revisar el orden de las columnas", e)
 if falta_orden:
     st.warning("Falta acomodar las columnas de " + ", ".join(f"«{h}»" for h in falta_orden)
                + " (fecha, nombre y teléfono al inicio). Presiona **Rehacer dashboard y formato**.",
@@ -49,7 +50,7 @@ with c_mant.container(border=True, height="stretch"):
                 conexion.recargar()
                 st.rerun()
             except Exception as e:
-                st.error(f"No se pudo aplicar: {e}")
+                ui.error("No se pudo aplicar", e)
 
 with c_pol.container(border=True, height="stretch"):
     st.markdown(":material/compare_arrows: **Cruce de Créditos Finalizados con Pólizas**")
@@ -65,7 +66,7 @@ with c_pol.container(border=True, height="stretch"):
                 st.session_state["cruce_pol"] = cruce_polizas.proponer(base)
             except Exception as e:
                 st.session_state.pop("cruce_pol", None)
-                st.error(f"No se pudo revisar: {e}")
+                ui.error("No se pudo revisar contra Pólizas", e)
 
 prop_pol = st.session_state.get("cruce_pol")
 if prop_pol is not None:
@@ -99,7 +100,7 @@ if prop_pol is not None:
                         conexion.recargar()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"No se pudo aplicar: {e}")
+                        ui.error("No se pudo aplicar", e)
 
 ui.seccion("Historial de cambios", "Lo último que escribió la app en el Sheet (hasta 500 cambios).")
 if TAB_HISTORIAL in base.pestanas():

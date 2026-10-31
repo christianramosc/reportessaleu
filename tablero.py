@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Tablero del Inicio: gráficas interactivas (Altair) con los datos de reporte_ejecutivo.tablero(d). Sin nombres de
-clientes ni de asesores: los seguimientos se identifican por su ID de «MG Colima Rechazos».
+Tablero de la página Seguimiento (sección plegable): gráficas interactivas (Altair) con los datos de
+reporte_ejecutivo.tablero(d). Sin nombres de clientes ni de asesores: los seguimientos se identifican por su ID de «MG Colima Rechazos».
 
   · Atraso de los vencidos por rango (clic en un rango filtra la gráfica de al lado) y días de atraso por ID.
   · Agenda: vencidos y lo que toca cada semana.

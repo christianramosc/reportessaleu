@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """Estilos y componentes compartidos por todas las páginas (tema oscuro al estilo shadcn/ui, paleta zinc)."""
 import html
+import logging
+import traceback
 
 import streamlit as st
+
+log = logging.getLogger("mg_colima")
 
 # Tokens del tema: los mismos de .streamlit/config.toml
 FONDO, CARTA, CARTA_2 = "#09090b", "#0f0f12", "#18181b"
@@ -184,6 +188,15 @@ def tarjeta(donde, icono, titulo, valor, detalle="", color=None):
     caja.markdown(f'<div class="kv" style="color:{color or TEXTO}">{html.escape(str(valor))}</div>'
                   f'<div class="ks" title="{html.escape(detalle)}">{html.escape(detalle) or "&nbsp;"}</div>',
                   unsafe_allow_html=True)
+
+
+def error(mensaje, e, donde=st):
+    """Muestra qué falló en palabras simples y, plegado, el detalle técnico (tipo de error, archivo y línea) para
+    poder corregirlo. También queda en el log de Streamlit Cloud (Manage app → logs)."""
+    log.error("%s: %s", mensaje, e, exc_info=e)
+    donde.error(f"{mensaje}: {e}" if str(e) else f"{mensaje} ({type(e).__name__}).")
+    with donde.expander("Detalle técnico", icon=":material/bug_report:"):
+        st.code("".join(traceback.format_exception(type(e), e, e.__traceback__)), language=None)
 
 
 def barra(donde=st, alinear="right"):

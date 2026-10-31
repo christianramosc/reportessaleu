@@ -12,6 +12,7 @@ Reglas de escritura:
   · Antes de aplicar cambios se guarda una copia oculta de la pestaña (respaldo).
   · Cada cambio queda en la pestaña "Historial".
 """
+import logging
 import io
 import re
 import unicodedata
@@ -40,6 +41,8 @@ FORMATO_NUMERO = {"fecha": ("DATE", "dd/mm/yyyy", "DD/MM/YYYY"), "entero": ("NUM
 # Encabezados que cambiaron de nombre: la app los lee con el nombre nuevo aunque el Sheet todavía tenga el viejo.
 ALIAS_ENCABEZADO = {"CLIENTE CON REGISTRO EN SALESU": "Registro en Sale-U",
                     "CLIENTE CON REGISTRO EN SALE-U": "REGISTRO EN SALE-U"}
+
+log = logging.getLogger("mg_colima")
 
 
 def _rgb(color):
@@ -354,8 +357,8 @@ class _BaseComun:
         self.escribir(TAB_HISTORIAL, celdas)
         try:                                   # la fecha con formato de fecha y hora (no como número)
             self.formato_columnas(TAB_HISTORIAL, {1: "fechahora"})
-        except Exception:
-            pass
+        except Exception as e:                 # solo formato: el Historial ya quedó escrito
+            log.warning("No se pudo dar formato de fecha al Historial", exc_info=e)
 
 
 def _cambiar_texto(obj, cambios):
@@ -468,8 +471,8 @@ class BaseGoogle(_BaseComun):
         else:
             try:                                   # el filtro debe abarcar las filas nuevas
                 self._filtro_completo(pestana, solo_si_hay=True)
-            except Exception:
-                pass
+            except Exception as e:             # solo el rango del filtro: los datos ya quedaron escritos
+                log.warning("No se pudo ampliar el filtro de %s", pestana, exc_info=e)
         self._limpiar_cache(pestana)
 
     def _formulas(self, pestana):
@@ -681,8 +684,8 @@ class BaseGoogle(_BaseComun):
                 {"updateDimensionGroup": {"dimensionGroup": dict(g, collapsed=True), "fields": "collapsed"}}
                 for g in grupos if any(g["range"].get("startIndex", 0) < c <= g["range"].get("endIndex", 0)
                                        for c in nuevos)]})
-        except Exception:
-            pass
+        except Exception as e:          # solo agrupar columnas: ya se agregaron
+            log.warning("No se pudieron agrupar las columnas nuevas de %s", pestana, exc_info=e)
         return len(nuevos)
 
     def _marcar(self, pestana, celdas, color):
@@ -1038,19 +1041,3 @@ def _permutar_excel(ws, mapa):
         ws.auto_filter.ref = f"A1:{letra(max(v for v in mapa.values() if v))}{filas}"
 
 
-def a_excel(base, pestanas):
-    """Arma un .xlsx con las pestañas indicadas (lo usan los módulos de cuadre que leen archivos)."""
-    from openpyxl import Workbook
-    wb = Workbook()
-    wb.remove(wb.active)
-    for p in pestanas:
-        ws = wb.create_sheet(p[:31])
-        valores = base._valores(p)
-        enc = valores[0] if valores else []
-        fechas = {i for i, h in enumerate(enc) if _es_fecha(h)}
-        for fila in valores:
-            ws.append([de_serial(v) if i in fechas and isinstance(v, (int, float)) else v
-                       for i, v in enumerate(fila)])
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()

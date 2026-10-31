@@ -6,6 +6,7 @@ Actualizar la base de seguimiento con las bitácoras de Cetelem y la "Bitácora 
   aplicar(base, propuestas, …) → respalda, escribe lo elegido, anota el Historial y
                                   reescribe las pestañas "Capturas Cetelem" y "Bitacora"
 """
+import logging
 import datetime as dt
 
 import pandas as pd
@@ -25,6 +26,8 @@ C = dict(fecha="Fecha ingreso", folio="Folio", nombre="Nombre de Cliente", cel="
          acc="Accesorios", status="Status 1", mens="Mensualidad", correo="Correo",
          obs="Condición / Observaciones", saleu="Registro en Sale-U", fseg="Fecha de Seguimiento",
          com="COMENTARIOS")
+
+log = logging.getLogger("mg_colima")
 
 
 def _fecha(v):
@@ -436,34 +439,38 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi), oculta=True)
         base.dar_formato(TAB_FI, FORMATO_FI)
-    try:                                     # rechazos nuevos sin Registro en Sale-U: con los leads guardados
+    # Pasos complementarios: si alguno falla, lo principal ya quedó escrito; se avisa qué faltó en lugar de callarlo.
+    avisos = []
+
+    def paso(que, funcion):
+        try:
+            funcion()
+        except Exception as e:
+            log.warning("Actualizar: no se pudo %s", que, exc_info=e)
+            avisos.append(f"No se pudo {que}: {e}")
+
+    def llenar_registro():                   # rechazos nuevos sin Registro en Sale-U: con los leads guardados
         from cuadres.saleu_sheet import llenar_vacios
         llenar_vacios(base)
-    except Exception:
-        pass
-    base.reemplazar(TAB_BITACORA, BITACORA_COLS,
-                    filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"], id_de_fila))
-    base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)
-    try:
-        estilo_bitacora(base)
-    except Exception:
-        pass
-    aviso = None
-    try:                                     # columnas fijas de los rechazos nuevos y liga Finalizados ↔ Rechazos
+
+    def fijos_y_ligas():                     # columnas fijas de los rechazos nuevos y liga Finalizados ↔ Rechazos
         from cuadres import optimizar
         optimizar.llenar_fijos(base)
         optimizar.ligar_finalizados(base)
-    except Exception:
-        pass
-    try:
-        migrar_formalizado(base)
-    except Exception as e:  # solo fórmulas y colores del Resumen/Bitacora: no detiene lo demás
-        aviso = f"No pude actualizar el Resumen a «Formalizado»: {e}"
-    try:
+
+    def dashboard_resumen():                 # el Resumen toma financieras/asesores nuevos
         from cuadres import dashboard
-        dashboard.construir(base)            # el Resumen toma financieras/asesores nuevos
-    except Exception as e:
-        aviso = f"No pude rehacer el dashboard del Resumen: {e}"
+        dashboard.construir(base)
+
+    paso("llenar el Registro en Sale-U de los rechazos nuevos", llenar_registro)
+    base.reemplazar(TAB_BITACORA, BITACORA_COLS,
+                    filas_bitacora_completa(base, solicitudes, contexto["fila_de_sol"], id_de_fila))
+    base.dar_formato(TAB_BITACORA, FORMATO_BITACORA)
+    paso("dar color a la Bitacora", lambda: estilo_bitacora(base))
+    paso("llenar las columnas fijas y ligar Finalizados con Rechazos", fijos_y_ligas)
+    paso("actualizar el Resumen a «Formalizado»", lambda: migrar_formalizado(base))
+    paso("rehacer el dashboard del Resumen", dashboard_resumen)
+    aviso = " · ".join(avisos) or None
     return dict(respaldo=respaldo, aviso=aviso,
                 faltantes=int((elegidas["Tipo"] == "Dato faltante").sum()),
                 correcciones=int(elegidas["Tipo"].isin(["Corrección", "Comentario"]).sum()),

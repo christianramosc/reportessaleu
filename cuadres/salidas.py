@@ -7,6 +7,7 @@ Formato común de los archivos que generan los cuadres (Excel y PDF).
   · PDF con cifras clave al inicio, secciones seguidas (las vacías no ocupan página), texto escapado
     (un «&» o «<» en un comentario ya no rompe el PDF) y número de página.
 """
+import io
 import html
 import re
 from datetime import date, datetime
@@ -173,7 +174,8 @@ def _valor_excel(v, col):
 
 
 def excel(ruta, titulo, subtitulo, hojas, colores=None):
-    """hojas: lista de (nombre, DataFrame, columnas). La primera (Resumen) lleva título y subtítulo."""
+    """hojas: lista de (nombre, DataFrame, columnas). La primera (Resumen) lleva título y subtítulo.
+    ruta=None: no escribe a disco y devuelve los bytes del archivo."""
     colores = colores or {}
     borde = Side(style="thin", color="D9D9D9")
     caja = Border(top=borde, bottom=borde, left=borde, right=borde)
@@ -223,6 +225,10 @@ def excel(ruta, titulo, subtitulo, hojas, colores=None):
         ws.freeze_panes = ws.cell(f0 + 1, 1)
         if not df.empty and cols:
             ws.auto_filter.ref = f"A{f0}:{get_column_letter(len(cols))}{f0 + len(df)}"
+    if ruta is None:
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
     wb.save(ruta)
 
 
@@ -345,6 +351,9 @@ class PDF:
                    self.tabla(filas, ["Concepto", "Valor"], [17, 8.5])]
         if nota:
             el += [Spacer(1, 8), Paragraph(esc(nota), st["sub"])]
-        doc = SimpleDocTemplate(self.ruta, pagesize=landscape(letter), leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+        destino = io.BytesIO() if self.ruta is None else self.ruta
+        doc = SimpleDocTemplate(destino, pagesize=landscape(letter), leftMargin=1.2 * cm, rightMargin=1.2 * cm,
                                 topMargin=1.1 * cm, bottomMargin=1.3 * cm, title=self.titulo, author=PDV)
         doc.build(el, onFirstPage=self._pie, onLaterPages=self._pie)
+        if self.ruta is None:
+            return destino.getvalue()

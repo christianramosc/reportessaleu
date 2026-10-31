@@ -5,7 +5,6 @@ cuadre Sale-U vs el Sheet
 Cuadre de créditos: Sale-U (reporteLeadsconCredito*.csv/xlsx) vs. los clientes de la base de seguimiento
 («MG Colima Rechazos», todas las financieras, y «MG Colima Créditos Finalizados»; ver
 saleu_sheet.solicitudes_del_sheet). Acepta cualquier tabla con la forma de fuentes.solicitudes_de_bitacora().
-Sin base, también acepta los Excel mensuales de Cetelem (JULIO_2026_FINAL.xlsx, …).
 
 Lógica de cruce (por cliente):
   A) Teléfono igual + nombre parecido            -> Coincide
@@ -18,18 +17,15 @@ Lógica de cruce (por cliente):
 Con el reporte Fuente (opcional, ver saleu_fuente.py) los que faltan se separan en «Dar de alta» (no están en
 Sale-U) y «Registrar crédito» (ya son lead, falta su crédito).
 
-Salidas: Cuadre_SaleU_<periodo>_<fecha>.xlsx  y  .pdf (formato común en cuadres/salidas.py)
-
-Uso en Colab: ejecuta la celda y sube todos los archivos (el reporte de Sale-U
-y los Excel mensuales de Cetelem) cuando te lo pida.
+Salidas (en memoria): Cuadre_SaleU_<periodo>_<fecha>.xlsx  y  .pdf (formato común en cuadres/salidas.py)
 """
 
-import io, os, re, glob, unicodedata, subprocess, sys
+import io, re, unicodedata
 from datetime import date, datetime
 from difflib import SequenceMatcher
 import pandas as pd
 
-from cuadres.fuentes import financiera_igual, folio_date, to_folio
+from cuadres.fuentes import financiera_igual
 from cuadres import salidas as sal
 
 # =============================================================================
@@ -53,44 +49,12 @@ ESTATUS_ESPERADO = {
     "ANALISIS": None,
 }
 
-MESES = {"ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6,
-         "JULIO": 7, "AGOSTO": 8, "SEPTIEMBRE": 9, "SETIEMBRE": 9, "OCTUBRE": 10,
-         "NOVIEMBRE": 11, "DICIEMBRE": 12}
-
 PALABRAS_VACIAS = {"DE", "DEL", "LA", "LAS", "LOS", "Y", "SA", "CV", "SAPI", "RL", "MA"}
 
 
 # =============================================================================
 # 1. CARGA DE ARCHIVOS
 # =============================================================================
-def obtener_archivos():
-    """En Colab pide subir archivos; fuera de Colab usa la carpeta actual."""
-    try:
-        from google.colab import files  # noqa
-        print("Sube el reporte de Sale-U y los Excel mensuales de Cetelem:")
-        subidos = files.upload()
-        rutas = list(subidos.keys())
-    except ImportError:
-        rutas = glob.glob("*.csv") + glob.glob("*.xlsx")
-    saleu = [r for r in rutas if "lead" in r.lower() or "saleu" in r.lower()]
-    cetelem = [r for r in rutas if r.lower().endswith((".xlsx", ".xls"))
-               and r not in saleu and not r.startswith("Cuadre_SaleU")]
-    if not saleu:
-        raise FileNotFoundError("No encontré el reporte de Sale-U (nombre con 'lead').")
-    if not cetelem:
-        raise FileNotFoundError("No encontré capturas mensuales de Cetelem.")
-    return saleu[0], cetelem
-
-
-def detectar_mes(nombre_archivo, nombre_hoja):
-    texto = f"{nombre_hoja} {nombre_archivo}".upper()
-    mes = next((MESES[m] for m in MESES if m in texto), 0)
-    anio = re.search(r"20\d{2}", texto)
-    anio = int(anio.group()) if anio else datetime.now().year
-    etiqueta = next((m for m in MESES if MESES[m] == mes and m != "SETIEMBRE"), "SIN MES")
-    return anio * 100 + mes, f"{etiqueta[:3]} {anio}"
-
-
 def _fila_encabezado(filas):
     """Busca la fila que tiene los títulos reales (la que contiene 'Nombre del Cliente')."""
     for i, fila in enumerate(filas):
@@ -100,16 +64,24 @@ def _fila_encabezado(filas):
     raise ValueError("No encontré la fila de encabezados ('Nombre del Cliente', 'Teléfono') en Sale-U.")
 
 
-def leer_saleu(ruta):
+def leer_saleu(archivo, nombre=""):
     """Lee el reporte de Sale-U tal cual se descarga: ignora las líneas de título
-    ('Leads Crédito', 'Agencia:', 'Rango:', renglones vacíos) y arranca en los encabezados."""
-    if ruta.lower().endswith(".csv"):
+    ('Leads Crédito', 'Agencia:', 'Rango:', renglones vacíos) y arranca en los encabezados.
+    archivo: bytes del .csv / .xlsx, (nombre, bytes) o la ruta."""
+    if isinstance(archivo, tuple):
+        nombre, archivo = archivo
+    if isinstance(archivo, str):
+        nombre = nombre or archivo
+        with open(archivo, "rb") as f:
+            archivo = f.read()
+    archivo = bytes(archivo)
+    es_excel = archivo[:2] == b"PK" or str(nombre).lower().endswith((".xlsx", ".xls"))
+    if not es_excel:
         import csv
         texto = None
         for enc in ("utf-8-sig", "latin-1"):
             try:
-                with open(ruta, encoding=enc, newline="") as f:
-                    texto = f.read()
+                texto = archivo.decode(enc)
                 break
             except UnicodeDecodeError:
                 continue
@@ -119,14 +91,12 @@ def leer_saleu(ruta):
         df = pd.read_csv(io.StringIO(texto), dtype=str, skiprows=h, skip_blank_lines=False,
                          keep_default_na=False)
     else:
-        crudo = pd.read_excel(ruta, header=None, dtype=str).fillna("")
+        crudo = pd.read_excel(io.BytesIO(archivo), header=None, dtype=str).fillna("")
         h = _fila_encabezado(crudo.values.tolist())
         info = " ".join(" ".join(map(str, f)) for f in crudo.values.tolist()[:h])
         df = crudo.iloc[h + 1:].copy()
         df.columns = crudo.iloc[h].tolist()
     info = re.sub(r"\s+", " ", info).strip()
-    if info:
-        print(f"Encabezado del reporte Sale-U: {info}")
     df = df[[c for c in df.columns if str(c).strip()]]          # columnas sin título
     df = df[df.apply(lambda r: "".join(map(str, r)).strip() != "", axis=1)]   # renglones vacíos
     df.columns = df.columns.str.strip()
@@ -188,40 +158,6 @@ def convertir_fecha(x):
     if re.match(r"\d{4}-\d{2}-\d{2}", x):
         return pd.to_datetime(x, errors="coerce")
     return pd.to_datetime(x, dayfirst=True, errors="coerce")
-
-
-def leer_cetelem(rutas):
-    partes = []
-    for ruta in rutas:
-        xls = pd.ExcelFile(ruta)
-        for hoja in xls.sheet_names:
-            d = pd.read_excel(ruta, sheet_name=hoja, dtype=str).fillna("")
-            d.columns = d.columns.str.strip()
-            col = {quitar_acentos(c).upper(): c for c in d.columns}
-            req = {"Folio": "FOLIO CCK", "Estatus": "STATUS",
-                   "Nombre": "NOMBRE COMPLETO", "Telefono": "TELEFONO MOVIL",
-                   "Vendedor": "NOMBRE DEL VENDEDOR"}
-            if not all(v in col for v in req.values()):
-                print(f"  ⚠ Hoja '{hoja}' de {ruta} no tiene el formato esperado, se omite.")
-                continue
-            orden, etiqueta = detectar_mes(ruta, hoja)
-            sub = pd.DataFrame({k: d[col[v]] for k, v in req.items()})
-            for extra, nombre in [("VEHICULO", "Vehiculo"),
-                                  ("MONTO TOTAL A FINANCIAR", "Monto_Financiar"), ("PLAZO (MESES)", "Plazo"),
-                                  ("MENSUALIDAD MAXIMA", "Mensualidad"), ("CORREO ELECTRONICO", "Correo")]:
-                sub[nombre] = d[col[extra]] if extra in col else ""
-            sub["Mes"] = etiqueta
-            sub["Fecha"] = sub["Folio"].map(lambda f: folio_date(to_folio(f), orden // 100))  # día del año en el folio
-            sub["Financiera"] = "CETELEM"
-            sub["_orden_mes"] = orden
-            sub = sub[sub["Nombre"].str.strip() != ""]
-            partes.append(sub)
-    df = pd.concat(partes, ignore_index=True)
-    df["Estatus"] = df["Estatus"].str.strip().str.upper()
-    df["Nombre"] = df["Nombre"].str.split().str.join(" ")
-    df["Tel_norm"] = df["Telefono"].map(normalizar_tel)
-    df["Nombre_norm"] = df["Nombre"].map(normalizar_nombre)
-    return df.sort_values(["_orden_mes", "Folio"]).reset_index(drop=True)
 
 
 def desde_bitacora(sol):
@@ -555,7 +491,7 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo, sub
     con_fuente = "Falta" in faltantes
     fu = lambda df: df.assign(Fuente=df["Fuente_SaleU"]) if "Fuente_SaleU" in df else df   # fuente del lead en Sale-U
     cuadre, revisar = fu(cuadre), fu(revisar)
-    sal.excel(ruta, titulo or f"Cuadre Sale-U – {sal.PDV}", sub, [
+    return sal.excel(ruta, titulo or f"Cuadre Sale-U – {sal.PDV}", sub, [
         ("Resumen", resumen, ["Concepto", "Valor"]),
         ("Faltan en Sale-U", _faltantes_con_vendedor(_orden_faltantes(faltantes)),
          (["Falta"] if con_fuente else []) + COLS_FALTANTES[:2] + ["Vendedor"] + COLS_FALTANTES[2:]
@@ -609,7 +545,7 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, f
                 ["Nombre", "Telefono", "Asesor", "Estatus_SaleU", "Financiera", "Fecha_Alta_Credito", "Observaciones"],
                 [5, 2.4, 4, 2.4, 2.6, 3, 6], "#7F7F7F",
                 f"Están en Sale-U con una financiera que sí trae {fuente}, pero no se encontró su solicitud.")
-    pdf.guardar(resumen, f"Cada cliente {de(fuente)} se busca en Sale-U por teléfono o por nombre: basta con que "
+    return pdf.guardar(resumen, f"Cada cliente {de(fuente)} se busca en Sale-U por teléfono o por nombre: basta con que "
                          "coincida uno de los dos (si el otro dato es distinto se avisa para verificar). «Cómo está en "
                          "Sale-U» dice con qué nombre, teléfono, asesor y estatus está capturado. Un cliente que "
                          "aparece en varios meses se cuenta una sola vez con su último estatus.")
@@ -618,24 +554,22 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, f
 # =============================================================================
 # 7. PROGRAMA PRINCIPAL
 # =============================================================================
-def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bitácora", ruta_fuente=None):
-    """Hace todo el cuadre y devuelve un diccionario con tablas y rutas de salida.
-    bitacora: DataFrame de fuentes.solicitudes_de_bitacora() (todas las financieras). Si no se da,
-    se leen los Excel mensuales de Cetelem de `rutas_cet`.
+def procesar(su, bitacora, fuente="la bitácora", fuente_df=None):
+    """Hace todo el cuadre en memoria y devuelve un diccionario con las tablas y el Excel y PDF (bytes).
+    su: reporte de Crédito ya leído con leer_saleu() (o el archivo, que se lee aquí).
+    bitacora: DataFrame de fuentes.solicitudes_de_bitacora() (todas las financieras).
     fuente: cómo se nombra la base en el Resumen y el PDF («la bitácora», «el Sheet»).
-    ruta_fuente: reporte Fuente de Sale-U (opcional) o su DataFrame de saleu_fuente.leer_fuente(); con él, los
+    fuente_df: reporte Fuente de Sale-U ya leído (saleu_fuente.leer_fuente), opcional; con él, los
     faltantes se separan en «Dar de alta» y «Registrar crédito»."""
-    su = leer_saleu(ruta_su)
+    if not isinstance(su, pd.DataFrame):
+        su = leer_saleu(su)
     rango = su.attrs.get("rango")
-    if bitacora is not None:
-        cet = desde_bitacora(bitacora)
-        if rango:   # solo las solicitudes del periodo que cubre el reporte de Sale-U
-            ini, fin = rango
-            en_periodo = cet["Fecha"].map(lambda d: bool(d) and ini.date() <= d <= fin.date())
-            cet = cet[en_periodo | cet["_siempre"]].reset_index(drop=True)
-        cet = cet.drop(columns=["_siempre"])
-    else:
-        cet = leer_cetelem(rutas_cet)
+    cet = desde_bitacora(bitacora)
+    if rango:   # solo las solicitudes del periodo que cubre el reporte de Sale-U
+        ini, fin = rango
+        en_periodo = cet["Fecha"].map(lambda d: bool(d) and ini.date() <= d <= fin.date())
+        cet = cet[en_periodo | cet["_siempre"]].reset_index(drop=True)
+    cet = cet.drop(columns=["_siempre"])
     if cet.empty:
         raise ValueError(f"{fuente[0].upper()}{fuente[1:]} no tiene registros en el periodo del reporte de Sale-U.")
     meses = [m for m in dict.fromkeys(cet.sort_values("_orden_mes")["Mes"]) if m != "SIN FECHA"]
@@ -651,10 +585,8 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bit
 
     encontrados = cuadre["Resultado"] != "NO registrado en Sale-U"
     faltantes = cuadre[~encontrados]
-    fu = None
-    if ruta_fuente is not None:
-        from cuadres.saleu_fuente import leer_fuente
-        fu = ruta_fuente if isinstance(ruta_fuente, pd.DataFrame) else leer_fuente(ruta_fuente)
+    fu = fuente_df if fuente_df is not None and len(fuente_df) else None
+    if fu is not None:
         tels = cli.set_index("id_c")["tels"]
         faltantes = marcar_fuente(faltantes.assign(tels=faltantes["id_c"].map(tels)), fu).drop(columns=["tels"])
         for c in ("Fuente_SaleU", COL_SALEU):          # también en «Cuadre por cliente»
@@ -695,8 +627,6 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bit
 
     periodo = sal.periodo_de_fechas(*rango) if rango else sal.periodo_de_meses(meses)
     base_nombre = sal.nombre_archivo("SaleU", periodo)
-    ruta_xlsx = os.path.join(carpeta, base_nombre + ".xlsx")
-    ruta_pdf = os.path.join(carpeta, base_nombre + ".pdf")
     titulo = f"Cuadre Sale-U vs {fuente.split(' ', 1)[1]} – {sal.PDV}"
     sub = ((f"Periodo del reporte: {rango[0]:%d/%m/%Y} – {rango[1]:%d/%m/%Y} · " if rango else "")
            + f"Meses: {', '.join(meses)} · Financieras: {', '.join(financieras)} · "
@@ -710,30 +640,10 @@ def procesar(ruta_su, rutas_cet=None, carpeta=".", bitacora=None, fuente="la bit
         ("Estatus distinto", len(no_cuadra), "corregir en Sale-U", "aviso" if len(no_cuadra) else "bien"),
         ("A verificar", len(revisar_cruce), "nombre o teléfono distinto", "aviso" if len(revisar_cruce) else "bien"),
     ]
-    exportar_excel(ruta_xlsx, resumen, cuadre, detalle, faltantes, revisar, solo, sub, titulo)
-    exportar_pdf(ruta_pdf, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, fuente,
-                 sub, cifras, titulo)
+    xlsx = exportar_excel(None, resumen, cuadre, detalle, faltantes, revisar, solo, sub, titulo)
+    pdf = exportar_pdf(None, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, fuente,
+                       sub, cifras, titulo)
     return dict(resumen=resumen, cuadre=cuadre, detalle=detalle, faltantes=faltantes,
                 no_cuadra=no_cuadra, revisar_cruce=revisar_cruce, revisar=revisar, solo=solo,
                 solo_cet=solo_cet, meses=meses, financieras=financieras, rango=rango, fuente=fuente,
-                xlsx=ruta_xlsx, pdf=ruta_pdf)
-
-
-def main():
-    ruta_su, rutas_cet = obtener_archivos()
-    print(f"Sale-U: {ruta_su}\nCetelem: {', '.join(rutas_cet)}")
-    r = procesar(ruta_su, rutas_cet)
-    resumen, ruta_xlsx, ruta_pdf = r["resumen"], r["xlsx"], r["pdf"]
-
-    print("\n" + resumen.to_string(index=False))
-    print(f"\n✔ Archivos generados: {ruta_xlsx} y {ruta_pdf}")
-    try:
-        from google.colab import files
-        files.download(ruta_xlsx)
-        files.download(ruta_pdf)
-    except ImportError:
-        pass
-
-
-if __name__ == "__main__":
-    main()
+                xlsx_bytes=xlsx, pdf_bytes=pdf, xlsx_nombre=base_nombre + ".xlsx", pdf_nombre=base_nombre + ".pdf")

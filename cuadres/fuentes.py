@@ -188,18 +188,6 @@ def _orden_mes(hoja):
     return (anio_de(t) or 0) * 100 + mes
 
 
-def capturas_a_archivos(df, carpeta):
-    """Escribe un .xlsx por mes (formato original) para los módulos de cuadre que leen archivos."""
-    import os
-    rutas = []
-    for hoja, g in df.groupby("Hoja", sort=False):
-        nombre = re.sub(r"[^\w\- ]", "", str(hoja)).strip().replace(" ", "_") or "CETELEM"
-        ruta = os.path.join(carpeta, f"{nombre}_CETELEM.xlsx")
-        g[[c for c in CAP_COLS if c in g.columns]].to_excel(ruta, sheet_name=str(hoja)[:31], index=False)
-        rutas.append(ruta)
-    return rutas
-
-
 def registros_capturas(df):
     out = []
     for _, r in df.iterrows():

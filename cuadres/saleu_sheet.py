@@ -17,13 +17,10 @@ bitácora por teléfono o por nombre, se llenan sus celdas vacías (teléfono, c
 mensualidad, asesor…, y en Finalizados el registro en Sale-U). Nunca se sobreescribe un dato.
 """
 
-import datetime as dt
-import re
-
 import pandas as pd
 
 from cuadres import saleu as cu
-from cuadres.base import TAB_RECHAZOS, TAB_BITACORA, TAB_HISTORIAL, letra, norm, canonico
+from cuadres.base import TAB_RECHAZOS, TAB_BITACORA, letra, norm
 from cuadres.actualizar import leer_rechazos, C
 
 REGISTRADO, FALTA_CREDITO, NO_REGISTRADO = "Registrado", "Falta crédito", "No Registrado"
@@ -356,126 +353,8 @@ def estilo_registro(base, hojas=None):
 
 
 # =============================================================================
-# Restaurar lo que una versión anterior bajó a "No Registrado"
+# Rechazos sin Registro en Sale-U
 # =============================================================================
-def bajas_por_error(base):
-    """Filas que el cuadre de Sale-U cambió de Registrado/Sí a "No Registrado" (versión anterior de la app)
-    y que siguen así. Devuelve DataFrame con Fila, Columna, Celda, Cliente, Antes, Fecha."""
-    from cuadres.fuentes import name_key, similar
-    from cuadres.pendientes import _celda
-    cols = ["Fila", "Columna", "Celda", "Cliente", "Antes", "Fecha"]
-    if TAB_HISTORIAL not in base.pestanas():
-        return pd.DataFrame(columns=cols)
-    todo = base.leer(TAB_HISTORIAL)
-    if todo.empty or "Origen" not in todo.columns:
-        return pd.DataFrame(columns=cols)
-    origen = todo["Origen"].astype(str)
-    h = todo[(origen == "App · cuadre Sale-U") & (todo["Después"].astype(str) == NO_REGISTRADO)
-             & (todo["Hoja"].astype(str) == TAB_RECHAZOS)
-             & todo["Antes"].map(ya_registrado)]
-    if h.empty:
-        return pd.DataFrame(columns=cols)
-    restaurados = set(todo.loc[origen == "App · restaurar Sale-U", "Celda"].astype(str))
-    actuales = {r["fila"]: r for r in leer_rechazos(base)}
-    filas, vistas = [], set()
-    for _, r in h.iloc[::-1].iterrows():                  # la anotación más reciente de cada celda
-        ref = _celda(r["Celda"])
-        if not ref or str(r["Celda"]) in vistas:
-            continue
-        vistas.add(str(r["Celda"]))
-        fila, col = ref
-        act = actuales.get(fila)
-        if (act is None or (act["saleu"] or "") != NO_REGISTRADO or str(r["Celda"]) in restaurados
-                or not similar(name_key(act["nombre"]), name_key(r["Cliente"]))):
-            continue                                       # ya cambió, se movió la fila o ya se restauró
-        f = r["Fecha"]
-        filas.append(dict(Fila=fila, Columna=col, Celda=str(r["Celda"]), Cliente=r["Cliente"], Antes=r["Antes"],
-                          Fecha=f.strftime("%d/%m/%Y %H:%M") if isinstance(f, (dt.date, dt.datetime)) else str(f or "")))
-    return pd.DataFrame(filas, columns=cols)
-
-
-def restaurar(base, bajas):
-    """Regresa a "Registrado" las filas de bajas_por_error() y lo anota en el Historial."""
-    if bajas.empty:
-        return 0
-    base.respaldar(TAB_RECHAZOS)
-    base.escribir(TAB_RECHAZOS, [(int(r["Fila"]), int(r["Columna"]), REGISTRADO) for _, r in bajas.iterrows()])
-    base.anotar_historial([dict(
-        Origen="App · restaurar Sale-U", Hoja=TAB_RECHAZOS, Celda=r["Celda"], Cliente=r["Cliente"], Campo=C["saleu"],
-        Antes=NO_REGISTRADO, Después=REGISTRADO,
-        Motivo=f"Decía «{r['Antes']}» y el cuadre de Sale-U del {r['Fecha']} lo bajó a No Registrado (versión anterior)")
-        for _, r in bajas.iterrows()])
-    return len(bajas)
-
-
-# =============================================================================
-# Deshacer lo que se escribió por un teléfono compartido (regla anterior: bastaba una palabra en común)
-# =============================================================================
-_RE_REGISTRO = re.compile(r"^Encontrado en Sale-U por teléfono: (.+) \([^()]*\)$")
-_RE_DATO = re.compile(r"cuadra por teléfono con Sale-U \((.+)\)$")
-
-
-def por_telefono_dudosos(base):
-    """Celdas que el cuadre de Sale-U escribió solo porque el teléfono coincidía con alguien de nombre distinto
-    (menos del 50 % del nombre igual) y que siguen con ese valor. DataFrame con lo necesario para deshacer."""
-    from cuadres.fuentes import name_key, similar
-    from cuadres.pendientes import _celda
-    cols = ["Hoja", "Fila", "Columna", "Celda", "Cliente", "Campo", "Valor", "Regresar a", "Sale-U", "Fecha"]
-    if TAB_HISTORIAL not in base.pestanas():
-        return pd.DataFrame(columns=cols)
-    h = base.leer(TAB_HISTORIAL)
-    if h.empty or "Origen" not in h.columns:
-        return pd.DataFrame(columns=cols)
-    deshechas = {(r["Hoja"], r["Celda"]) for _, r in h[h["Origen"].astype(str) == "App · deshacer Sale-U"].iterrows()}
-    h = h[h["Origen"].astype(str) == "App · cuadre Sale-U"]
-    hojas, filas, vistas = {}, [], set(deshechas)
-    for _, r in h.iloc[::-1].iterrows():
-        motivo = str(r["Motivo"] or "")
-        m = _RE_REGISTRO.match(motivo) or _RE_DATO.search(motivo)
-        ref = _celda(r["Celda"])
-        if not m or not ref or (r["Hoja"], r["Celda"]) in vistas:
-            continue
-        vistas.add((r["Hoja"], r["Celda"]))
-        nom_su = m.group(1)
-        sim, _ = cu.similitud_nombre(cu.normalizar_nombre(r["Cliente"]), cu.normalizar_nombre(nom_su))
-        if sim >= cu.UMBRAL_NOMBRE_CON_TEL or str(r["Antes"] or "") == str(r["Después"] or ""):
-            continue                                    # con la regla actual también cuadra, o no cambió nada
-        hoja = str(r["Hoja"])
-        if hoja not in base.pestanas():
-            continue
-        if hoja not in hojas:
-            hojas[hoja] = {int(x["_fila"]): x for _, x in base.leer(hoja).iterrows()}
-        fila, col = ref
-        actual = hojas[hoja].get(fila)
-        if actual is None:
-            continue
-        nombre_col = next((c for c in actual.index if norm(c) in ("NOMBRE DE CLIENTE", "NOMBRE")), None)
-        campo_col = next((c for c in actual.index if norm(c) == norm(canonico(r["Campo"] or ""))), None)
-        if (not campo_col or str(actual[campo_col] if actual[campo_col] is not None else "") != str(r["Después"])
-                or (nombre_col and not similar(name_key(actual[nombre_col]), name_key(r["Cliente"])))):
-            continue                                    # ya cambió o la fila se movió: no se toca
-        f = r["Fecha"]
-        filas.append({"Hoja": hoja, "Fila": fila, "Columna": col, "Celda": str(r["Celda"]), "Cliente": r["Cliente"],
-                      "Campo": r["Campo"], "Valor": r["Después"], "Regresar a": r["Antes"] or "",
-                      "Sale-U": nom_su,
-                      "Fecha": f.strftime("%d/%m/%Y %H:%M") if isinstance(f, (dt.date, dt.datetime)) else str(f or "")})
-    return pd.DataFrame(filas, columns=cols)
-
-
-def deshacer_dudosos(base, dudosos):
-    if dudosos.empty:
-        return 0
-    for hoja, g in dudosos.groupby("Hoja"):
-        base.respaldar(hoja)
-        base.escribir(hoja, [(int(r["Fila"]), int(r["Columna"]), r["Regresar a"] or None) for _, r in g.iterrows()])
-    base.anotar_historial([dict(
-        Origen="App · deshacer Sale-U", Hoja=r["Hoja"], Celda=r["Celda"], Cliente=r["Cliente"], Campo=r["Campo"],
-        Antes=r["Valor"], Después=r["Regresar a"],
-        Motivo=f"Se había escrito porque el teléfono coincide con {r['Sale-U']} en Sale-U, pero el nombre es otro")
-        for _, r in dudosos.iterrows()])
-    return len(dudosos)
-
-
 def llenar_vacios(base, fuente=None):
     """Rechazos sin «Registro en Sale-U» (p. ej. agregados desde una bitácora cuando en esa carga no venían los
     reportes de Sale-U): con los leads guardados del reporte Fuente, lead → «Falta crédito»; si no está →

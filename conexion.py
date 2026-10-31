@@ -151,26 +151,6 @@ def registros_fi_guardados(base):
     return fuentes.registros_fi_de_tabla(df), fecha
 
 
-def describir_bitacora(sol):
-    """'121 solicitudes · may 2026 – oct 2026 · CETELEM 102, SCOTIA 3, …'"""
-    if sol.empty:
-        return "sin solicitudes"
-    con = sol[sol["_anio"] > 0].sort_values(["_anio", "_mes"])
-    rango = f"{con['Mes'].iloc[0].lower()} – {con['Mes'].iloc[-1].lower()}" if not con.empty else "sin fechas"
-    fin = sol["Fin_sol"].value_counts()
-    fin = ", ".join(f"{k} {v}" for k, v in fin.items())
-    return f"{len(sol)} solicitudes · {rango} · {fin}"
-
-
-def describir_creditos(sol):
-    """'270 créditos · Rechazado 150, Formalizado 60, … · CETELEM 160, BBVA 40, …'"""
-    if sol.empty:
-        return "sin créditos"
-    est = ", ".join(f"{(k or 'sin estatus').capitalize()} {v}" for k, v in sol["Est_fin"].value_counts().items())
-    fin = ", ".join(f"{k} {v}" for k, v in sol["Fin_sol"].value_counts().items())
-    return f"{len(sol)} créditos · {est} · {fin}"
-
-
 def tablas_financiamiento(base):
     """(tablas, titulo) de la Bitácora de F&I si está configurada en Google; si no (None, None)."""
     url = _secret("FINANCIAMIENTO_SHEET_URL")
@@ -185,7 +165,9 @@ def panel_base(donde=st):
         try:
             base = obtener_base()
         except Exception as e:
-            donde.error(f"No se pudo abrir el Google Sheet: {e}. Compártelo como Editor con la cuenta de servicio.")
+            import ui
+            ui.error("No se pudo abrir el Google Sheet (revisa que esté compartido como Editor con la cuenta de "
+                     "servicio)", e, donde=donde)
             return None
         c1, c2 = donde.columns([6, 1], vertical_alignment="center")
         c1.markdown(f":green-badge[:material/cloud_done: Conectado] **{base.titulo}** · "

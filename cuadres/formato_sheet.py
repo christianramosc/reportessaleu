@@ -127,8 +127,8 @@ def aplicar(base):
             base.libro.batch_update({"requests": [{"updateSpreadsheetProperties": {
                 "properties": {"timeZone": "America/Mexico_City"}, "fields": "timeZone"}}]})
             hecho.append("Zona horaria del Sheet: Ciudad de México")
-        except Exception:
-            pass
+        except Exception as e:
+            hecho.append(f"No se pudo poner la zona horaria del Sheet: {e}")
 
     # 7. Revision
     if pendientes.TAB_REVISION in pestanas:

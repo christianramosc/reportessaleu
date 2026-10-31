@@ -47,7 +47,7 @@ if archivo is not None:
     try:
         out = procesar_kpis(archivo[1])
     except Exception as e:  # noqa: BLE001
-        st.error(f"No se pudo leer el archivo. {e}")
+        ui.error("No se pudo leer el archivo", e)
 
 if out is None:
     st.markdown("""<div class="vacio"><b>Sube el plan de acción</b><br>

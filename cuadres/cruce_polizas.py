@@ -21,6 +21,7 @@ Qué se propone:
 Un teléfono de la póliza con NOTA TELÉFONO (incompleto, a nombre de otra persona…) nunca se propone.
 Lo que desmarques queda como «Ignorado» en el Historial y no se vuelve a proponer.
 """
+import logging
 import re
 
 import pandas as pd
@@ -96,7 +97,8 @@ def _ignorados(base):
     from cuadres.actualizar import _ignorados as ign
     try:
         return ign(base)
-    except Exception:
+    except Exception as e:
+        logging.getLogger("mg_colima").warning("No se pudo leer qué cambios de Pólizas se ignoraron", exc_info=e)
         return set()
 
 

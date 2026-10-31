@@ -308,9 +308,8 @@ def contenido(base):
 
     # ------------------------------------------------------------------ lectura del periodo (fórmulas)
     meses, b_mes = f"$A${T1['ini']}:$A${T1['fin']}", f"$B${T1['ini']}:$B${T1['fin']}"
-    fn, fv = f"$A${T2['ini']}:$A${T2['fin']}", f"$B${T2['ini']}:$B${T2['fin']}"
     an, av = f"$F${T3['ini']}:$F${T3['fin']}", f"$K${T3['ini']}:$K${T3['fin']}"
-    sin = f'"Sin rechazos registrados en "&$B$2&"."'
+    sin = '"Sin rechazos registrados en "&$B$2&"."'
     lectura = [
         f'=IF(B{tot}=0,{sin},"En "&$B$2&" van "&B{tot}&" rechazos. El mes con más fue "&INDEX({meses},'
         f'MATCH(MAX({b_mes}),{b_mes},0))&" con "&MAX({b_mes})&" ("&TEXT(MAX({b_mes})/B{tot},"0%")&" del año).")',

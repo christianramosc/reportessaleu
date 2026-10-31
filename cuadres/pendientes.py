@@ -8,6 +8,7 @@ Estado a "Corregido" y lo anota en el Historial.
 
 También quita la marca de los pendientes que alguien ya cambió a mano a "Corregido" o "No aplica".
 """
+import logging
 import re
 import datetime as dt
 
@@ -195,8 +196,8 @@ def aplicar(base, revision):
     base.anotar_historial(hist)
     try:
         archivar(base)          # los resueltos pasan a «Revision resueltos»; en Revision quedan los pendientes
-    except Exception:
-        pass
+    except Exception as e:      # lo principal (quitar marcas) ya quedó; mover a «Revision resueltos» se reintenta la próxima vez
+        logging.getLogger("mg_colima").warning("No se pudieron archivar los resueltos de Revision", exc_info=e)
     return len(hacer)
 
 

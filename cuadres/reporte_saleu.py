@@ -18,7 +18,6 @@ import pandas as pd
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -541,7 +540,6 @@ def pdf(faltan, por_confirmar=None, hoy=None):
 
 def excel(faltan, por_confirmar=None, hoy=None):
     """Bytes del Excel con la misma lista del PDF (una hoja por lo que falta, más los por confirmar)."""
-    import tempfile
     from cuadres import salidas as sal
     hoy = hoy or dt.date.today()
     cols = ["Falta", "Estatus", "Cliente", "Cómo está en Sale-U", "Fuente", "Telefono", "Vendedor", "Financiera", "Unidad",
@@ -553,8 +551,6 @@ def excel(faltan, por_confirmar=None, hoy=None):
             hojas.append((f, vista(faltan[faltan["Falta"] == f]), cols[1:]))
     if por_confirmar is not None and not por_confirmar.empty:
         hojas.append(("Por confirmar", vista(por_confirmar), cols[1:]))
-    with tempfile.TemporaryDirectory() as tmp:
-        ruta = os.path.join(tmp, "x.xlsx")
-        sal.excel(ruta, "Clientes por registrar en Sale-U – MG Colima", f"Corte {hoy:%d/%m/%Y} · {len(faltan)} clientes",
-                  hojas, {FALTA_ALTA: "FFC7CE", FALTA_CREDITO: "FFEB9C"})
-        return open(ruta, "rb").read()
+    return sal.excel(None, "Clientes por registrar en Sale-U – MG Colima",
+                     f"Corte {hoy:%d/%m/%Y} · {len(faltan)} clientes", hojas,
+                     {FALTA_ALTA: "FFC7CE", FALTA_CREDITO: "FFEB9C"})

@@ -4,7 +4,7 @@ Resumen ejecutivo de una página (PDF) con lo más importante del Sheet de segui
 
   · indicadores del año: rechazos, seguimiento al día, contacto efectivo, registro en Sale-U, vencidos, Revision
   · gráficas (sin nombres): seguimientos más atrasados (días por ID), agenda de seguimientos, embudo de contacto y
-    registro en Sale-U. tablero(d) da los datos de esas y de las demás gráficas del Inicio.
+    registro en Sale-U. tablero(d) da los datos de esas y de las demás gráficas del tablero de Seguimiento.
   · «Prioridades de la semana»: frases armadas con los números
 
   pdf(base, anio=None, hoy=None) → bytes del PDF
@@ -57,7 +57,7 @@ def _rango(dias):
 
 
 def tablero(d):
-    """DataFrames de las gráficas del Inicio y del PDF."""
+    """DataFrames de las gráficas del tablero de Seguimiento y del PDF."""
     k, hoy = d["k"], d["hoy"]
     v = k["vencidos"]
     venc = pd.DataFrame({

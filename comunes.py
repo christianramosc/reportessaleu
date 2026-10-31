@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Utilidades compartidas por las páginas (tablas con color, descargas, archivos temporales y el cuadre de Sale-U)."""
-import os
-import tempfile
-
+"""Utilidades compartidas por las páginas (tablas con color, descargas y el cuadre de Sale-U)."""
 import pandas as pd
 import streamlit as st
 
@@ -14,26 +11,6 @@ from cuadres.salidas import etiqueta
 
 ESTADO = ui.ESTADO
 HOJA_CORTA = lambda h: "Bitacora" if h == "Bitacora" else ("Finalizados" if "Finalizados" in str(h) else "Rechazos")
-
-
-# =============================================================================
-# Archivos
-# =============================================================================
-def guardar_temporal(archivos, carpeta):
-    """archivos: [(nombre, bytes)] o UploadedFile. Los guarda con su nombre original y devuelve las rutas."""
-    rutas = []
-    for a in archivos:
-        nombre, datos = (a if isinstance(a, tuple) else (a.name, a.getbuffer()))
-        ruta = os.path.join(carpeta, nombre)
-        with open(ruta, "wb") as f:
-            f.write(datos)
-        rutas.append(ruta)
-    return rutas
-
-
-def leer_bytes(ruta):
-    with open(ruta, "rb") as f:
-        return f.read()
 
 
 def aviso_excel(base):
@@ -110,26 +87,26 @@ def descargas(res, prefijo, donde=st):
 # =============================================================================
 def preparar_saleu(base, credito, fuentes_nuevas, clientes):
     """credito: (nombre, bytes) del reporte de Crédito; fuentes_nuevas: [(nombre, bytes)] reportes Fuente (opcional).
-    Cuadra Sale-U contra el Sheet y propone el Registro en Sale-U y los datos faltantes. No escribe nada."""
-    with tempfile.TemporaryDirectory() as tmp:
-        ruta_su = guardar_temporal([credito], tmp)[0]
-        nuevas = [saleu_fuente.leer_fuente(r) for r in guardar_temporal(fuentes_nuevas, tmp)]
-        fu_nuevo = saleu_fuente.combinar(*nuevas) if nuevas else None
-        # se suma a los leads ya guardados en el Sheet: un reporte del mes no pierde los leads de meses anteriores
-        fu = saleu_fuente.combinar(saleu_fuente.guardada(base), fu_nuevo)
-        res = {}
-        if not clientes.empty:
-            res = cu.procesar(ruta_su, carpeta=tmp, bitacora=clientes, fuente="la bitácora", ruta_fuente=fu)
-            res["xlsx_bytes"], res["pdf_bytes"] = leer_bytes(res["xlsx"]), leer_bytes(res["pdf"])
-            res["xlsx_nombre"], res["pdf_nombre"] = os.path.basename(res["xlsx"]), os.path.basename(res["pdf"])
-        su = cu.leer_saleu(ruta_su)
-    cambios, (ini, fin) = saleu_sheet.proponer(base, su, fuente=fu)
-    res.update(registro=cambios, periodo_saleu=f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}", con_fuente=fu is not None,
-               fuente_df=fu, fuente_subida=fu_nuevo is not None, credito_df=su,
-               periodo_fuente=saleu_fuente.periodo_txt(fu), archivo_credito=credito[0],
-               datos=pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
-                                  columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"]))
+    Cuadra Sale-U contra el Sheet y propone el Registro en Sale-U y los datos faltantes. No escribe nada.
+    Cada reporte se lee una sola vez y el mismo DataFrame sirve para el reporte del cuadre y para lo que se escribe."""
+    su = cu.leer_saleu(credito)
+    nuevas = [saleu_fuente.leer_fuente(f) for f in fuentes_nuevas]
+    fu_nuevo = saleu_fuente.combinar(*nuevas) if nuevas else None
+    # se suma a los leads ya guardados en el Sheet: un reporte del mes no pierde los leads de meses anteriores
+    fu = saleu_fuente.combinar(saleu_fuente.guardada(base), fu_nuevo)
+    res = cu.procesar(su, clientes, fuente="la bitácora", fuente_df=fu) if not clientes.empty else {}
+    res.update(_propuesta_saleu(base, su, fu))
+    res.update(con_fuente=fu is not None, fuente_df=fu, fuente_subida=fu_nuevo is not None, credito_df=su,
+               periodo_fuente=saleu_fuente.periodo_txt(fu), archivo_credito=credito[0])
     return res
+
+
+def _propuesta_saleu(base, su, fu):
+    """Registro en Sale-U y datos por llenar que se escribirían en el Sheet con estos reportes."""
+    cambios, (ini, fin) = saleu_sheet.proponer(base, su, fuente=fu)
+    datos = pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
+                         columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
+    return dict(registro=cambios, datos=datos, periodo_saleu=f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}")
 
 
 def aplicar_saleu(base, res, volver_a_proponer=False):
@@ -142,9 +119,8 @@ def aplicar_saleu(base, res, volver_a_proponer=False):
     reg, datos = res["registro"], res["datos"]
     if volver_a_proponer:
         base.refrescar()
-        reg, _ = saleu_sheet.proponer(base, su, fuente=fu)
-        datos = pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
-                             columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
+        nuevo = _propuesta_saleu(base, su, fu)
+        reg, datos = nuevo["registro"], nuevo["datos"]
     escritos = saleu_sheet.aplicar(base, reg, res["periodo_saleu"])
     datos_escritos = saleu_sheet.aplicar_datos(base, datos.to_dict("records"))
     return escritos, datos_escritos

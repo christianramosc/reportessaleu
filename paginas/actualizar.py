@@ -7,8 +7,6 @@ Fuente). Se suben juntos (la app reconoce cada archivo), se revisan los cambios 
 primero las bitácoras (Rechazos, Finalizados y Bitacora) y después el Registro en Sale-U sobre el Sheet ya
 actualizado.
 """
-import datetime as dt
-
 import pandas as pd
 import streamlit as st
 
@@ -36,7 +34,7 @@ try:
     estado = cargas.estado(base)
 except Exception as e:
     estado = []
-    st.warning(f"No se pudo leer qué archivos se han subido: {e}")
+    ui.error("No se pudo leer qué archivos se han subido", e)
 if estado:
     ui.seccion("Lo último que se subió")
     cols = st.columns(len(estado))
@@ -73,7 +71,7 @@ tablas_fi, titulo_fi = None, None
 try:
     tablas_fi, titulo_fi = conexion.tablas_financiamiento(base)
 except Exception as e:
-    st.warning(f"No se pudo leer la Bitácora de F&I de Google: {e}")
+    ui.error("No se pudo leer la Bitácora de F&I de Google", e)
 if tablas_fi is not None:
     caja_archivos.caption(f":material/link: La Bitácora de F&I se lee sola de Google: **{titulo_fi}**.")
 elif clasif.get("fi"):
@@ -118,10 +116,7 @@ def revisar():
                                    Registros=len(su["credito_df"])))
     if clasif.get("fuente"):
         from cuadres import saleu_fuente
-        import tempfile
-        from comunes import guardar_temporal
-        with tempfile.TemporaryDirectory() as tmp:
-            nuevas_fu = [saleu_fuente.leer_fuente(r) for r in guardar_temporal(clasif["fuente"], tmp)]
+        nuevas_fu = [saleu_fuente.leer_fuente(f) for f in clasif["fuente"]]
         if "su" not in todo:         # sin reporte de Crédito: solo se guardan los leads
             todo["solo_fuente"] = saleu_fuente.combinar(saleu_fuente.guardada(base), *nuevas_fu)
         for (n, _), f in zip(clasif["fuente"], nuevas_fu):
@@ -136,7 +131,7 @@ if fila.button("Revisar cambios", type="primary", disabled=not puede, key="btn_r
             st.session_state["todo"] = revisar()
         except Exception as e:
             st.session_state.pop("todo", None)
-            st.error(f"No se pudo revisar: {e}")
+            ui.error("No se pudo revisar", e)
 if not puede:
     fila.caption("Sube al menos un archivo.")
 
@@ -263,4 +258,4 @@ if todo:
                     st.session_state["aviso_todo"] = aviso
                 st.rerun()
             except Exception as e:
-                st.error(f"No se pudo aplicar: {e}")
+                ui.error("No se pudo aplicar", e)

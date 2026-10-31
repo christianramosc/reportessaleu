@@ -14,7 +14,6 @@ leads con nombres cortos: con 2 palabras salen falsos parecidos).
 import csv
 import datetime as dt
 import io
-import re
 
 import pandas as pd
 
@@ -23,8 +22,7 @@ from cuadres import saleu as cu
 MIN_PALABRAS_SOLO_NOMBRE = 3
 
 
-def _texto(ruta_o_bytes):
-    datos = ruta_o_bytes if isinstance(ruta_o_bytes, bytes) else open(ruta_o_bytes, "rb").read()
+def _texto(datos):
     for enc in ("utf-8-sig", "latin-1"):
         try:
             return datos.decode(enc)
@@ -33,11 +31,20 @@ def _texto(ruta_o_bytes):
     return datos.decode("utf-8", "ignore")
 
 
-def _filas(ruta):
-    if str(ruta).lower().endswith((".xlsx", ".xls")):
-        crudo = pd.read_excel(ruta, header=None, dtype=str).fillna("")
+def _filas(archivo):
+    """archivo: bytes del .csv / .xlsx, (nombre, bytes) o la ruta → lista de filas de texto."""
+    nombre = ""
+    if isinstance(archivo, tuple):
+        nombre, archivo = archivo
+    if isinstance(archivo, str):
+        nombre = archivo
+        with open(archivo, "rb") as f:
+            archivo = f.read()
+    archivo = bytes(archivo)
+    if archivo[:2] == b"PK" or str(nombre).lower().endswith((".xlsx", ".xls")):
+        crudo = pd.read_excel(io.BytesIO(archivo), header=None, dtype=str).fillna("")
         return [[str(x) for x in f] for f in crudo.values.tolist()]
-    return list(csv.reader(io.StringIO(_texto(ruta))))
+    return list(csv.reader(io.StringIO(_texto(archivo))))
 
 
 def _encabezado(filas):
@@ -49,18 +56,10 @@ def _encabezado(filas):
     return None
 
 
-def es_fuente(ruta):
-    """True si el archivo es el reporte Fuente (no el de Leads con Crédito)."""
-    try:
-        return _encabezado(_filas(ruta)) is not None
-    except Exception:
-        return False
-
-
-def leer_fuente(ruta):
-    """DataFrame del reporte Fuente: Nombre, Telefono, Asesor, Estatus_Lead, Fuente, Fecha_Alta (texto), _fecha,
+def leer_fuente(archivo):
+    """archivo: bytes, (nombre, bytes) o ruta del reporte Fuente. DataFrame del reporte Fuente: Nombre, Telefono, Asesor, Estatus_Lead, Fuente, Fecha_Alta (texto), _fecha,
     Tel_norm, Nombre_norm. attrs["rango"] = (primera, última fecha de alta)."""
-    filas = _filas(ruta)
+    filas = _filas(archivo)
     h = _encabezado(filas)
     if h is None:
         raise ValueError("No es el reporte Fuente de Sale-U (faltan los títulos «Fecha de Alta», «Nombre», "
@@ -254,11 +253,3 @@ def describir_credito(nombre, tel="", asesor="", estatus="", financiera="", alta
     return describir(nombre, como, tel)
 
 
-def tel_como_texto(v):
-    """Teléfono del Sheet (puede venir como número 3121234567.0) a texto de dígitos."""
-    if v is None or (isinstance(v, float) and v != v):
-        return ""
-    s = str(v)
-    if re.fullmatch(r"\d+\.0", s):
-        s = s[:-2]
-    return s

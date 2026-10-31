@@ -8,21 +8,17 @@ vs. Excel de inventario de MG Colima (hoja de inventario físico, p. ej. ALMACEN
 Para cada VIN dice si cuadra, si falta en BlueService, si BlueService lo tiene y
 el inventario no (y en qué otra hoja del inventario aparece: VENDIDOS, TRASLADOS…),
 detecta VIN mal capturados con el dígito verificador y compara el avance de PDIs.
-
-Uso en Colab: python blueservice.py  (pide subir los dos archivos)
+Todo en memoria: recibe los archivos como bytes y devuelve el Excel y el PDF como bytes.
 """
 
-import os, re, glob, unicodedata, subprocess, sys, warnings
+import io, re, unicodedata, warnings
 from datetime import datetime
 import pandas as pd
 
-try:
-    from cuadres import salidas as sal
-except ModuleNotFoundError:          # corrido suelto (Colab): python cuadres/blueservice.py
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from cuadres import salidas as sal
+from cuadres import salidas as sal
 
-warnings.filterwarnings("ignore")
+# openpyxl avisa de validaciones y formatos que no entiende en los Excel de inventario; no afectan la lectura
+warnings.filterwarnings("ignore", module="openpyxl")
 
 PDV = "MG COLIMA"
 ETAPAS_PDI = ["PDI ARRIBO", "PDI 1", "PDI 2", "PDI 3"]
@@ -87,8 +83,17 @@ def fmt(f):
 # =============================================================================
 # Lectura
 # =============================================================================
-def leer_blueservice(ruta):
-    crudo = pd.read_excel(ruta, header=None, dtype=str).fillna("")
+def _excel(archivo):
+    """Bytes (o UploadedFile) → objeto que pandas puede leer; cada lectura arranca desde el principio."""
+    if isinstance(archivo, (bytes, bytearray)):
+        return io.BytesIO(archivo)
+    if hasattr(archivo, "getvalue"):
+        return io.BytesIO(archivo.getvalue())
+    return archivo
+
+
+def leer_blueservice(archivo):
+    crudo = pd.read_excel(_excel(archivo), header=None, dtype=str).fillna("")
     h = next(i for i, r in crudo.iterrows() if any(norm_txt(c) == "VIN" for c in r))
     df = crudo.iloc[h + 1:].copy()
     df.columns = [norm_txt(c).rstrip(".") for c in crudo.iloc[h]]
@@ -110,8 +115,8 @@ def leer_blueservice(ruta):
     return bs.drop_duplicates("VIN").reset_index(drop=True)
 
 
-def hojas_inventario(ruta):
-    return pd.ExcelFile(ruta).sheet_names
+def hojas_inventario(archivo):
+    return pd.ExcelFile(_excel(archivo)).sheet_names
 
 
 def hoja_por_defecto(hojas):
@@ -122,10 +127,10 @@ def hoja_por_defecto(hojas):
     return hojas[0]
 
 
-def leer_hoja(ruta, hoja):
+def leer_hoja(archivo, hoja):
     """Lee una hoja con uno o varios bloques (encabezado con 'VIN' + filas).
     Regresa los registros con VIN, la fecha de corte y el bloque (mes) de cada fila."""
-    crudo = pd.read_excel(ruta, sheet_name=hoja, header=None, dtype=str).fillna("")
+    crudo = pd.read_excel(_excel(archivo), sheet_name=hoja, header=None, dtype=str).fillna("")
     registros, encabezado, col_vin, bloque, corte = [], None, None, "", pd.NaT
     for i, fila in crudo.iterrows():
         celdas = [str(c).strip() for c in fila]
@@ -161,13 +166,13 @@ def leer_hoja(ruta, hoja):
     return pd.DataFrame(registros), corte
 
 
-def leer_inventario(ruta, hoja_principal):
-    hojas = hojas_inventario(ruta)
-    principal, corte = leer_hoja(ruta, hoja_principal)
+def leer_inventario(archivo, hoja_principal):
+    hojas = hojas_inventario(archivo)
+    principal, corte = leer_hoja(archivo, hoja_principal)
     otras = []
     for h in hojas:
         if h != hoja_principal:
-            d, _ = leer_hoja(ruta, h)
+            d, _ = leer_hoja(archivo, h)
             if not d.empty:
                 otras.append(d)
     otras = pd.concat(otras, ignore_index=True) if otras else pd.DataFrame(columns=["VIN", "Hoja"])
@@ -320,7 +325,7 @@ COLS_BS = ["Resultado", "Situacion", "VIN", "Modelo_BS", "Dealer_origen", "Deale
 
 def exportar_excel(ruta, resumen, cuadre_inv, solo_bs, revisar, sub="", titulo=""):
     cols_bs = [c for c in COLS_BS if c in solo_bs.columns]
-    sal.excel(ruta, titulo or f"Cuadre BlueService vs Inventario – {sal.PDV}", sub, [
+    return sal.excel(ruta, titulo or f"Cuadre BlueService vs Inventario – {sal.PDV}", sub, [
         ("Resumen", resumen, ["Concepto", "Valor"]),
         ("Faltan en BlueService", cuadre_inv[cuadre_inv["Resultado"] == R_FALTA_BS], COLS_INV),
         ("Solo en BlueService", solo_bs[solo_bs["Resultado"] == R_FALTA_INV], cols_bs),
@@ -348,7 +353,7 @@ def exportar_pdf(ruta, resumen, falta_bs, falta_inv, revisar, hoja, sub="", cifr
                 "Excel de inventario.",
                 [("Por situación", falta_inv.groupby("Situacion").size().sort_values(ascending=False))]
                 if not falta_inv.empty else None)
-    pdf.guardar(resumen, "El cruce es por VIN. Si un VIN del inventario no existe en BlueService, se busca uno que "
+    return pdf.guardar(resumen, "El cruce es por VIN. Si un VIN del inventario no existe en BlueService, se busca uno que "
                          "difiera en uno o dos caracteres y se usa el dígito verificador (posición 9) para saber cuál "
                          "está bien capturado.")
 
@@ -356,10 +361,12 @@ def exportar_pdf(ruta, resumen, falta_bs, falta_inv, revisar, hoja, sub="", cifr
 # =============================================================================
 # Proceso
 # =============================================================================
-def procesar(ruta_bs, ruta_inv, carpeta=".", hoja=None):
-    hoja = hoja or hoja_por_defecto(hojas_inventario(ruta_inv))
-    bs = leer_blueservice(ruta_bs)
-    inv, otras, corte = leer_inventario(ruta_inv, hoja)
+def procesar(archivo_bs, archivo_inv, hoja=None):
+    """archivo_bs / archivo_inv: bytes del reporte de PDIs y del inventario. Devuelve las tablas y el Excel y PDF
+    (bytes)."""
+    hoja = hoja or hoja_por_defecto(hojas_inventario(archivo_inv))
+    bs = leer_blueservice(archivo_bs)
+    inv, otras, corte = leer_inventario(archivo_inv, hoja)
     if inv.empty:
         raise ValueError(f"No encontré VINs en la hoja '{hoja}'.")
     cuadre_inv, solo_bs = cruzar(bs, inv, otras, corte, hoja)
@@ -387,8 +394,6 @@ def procesar(ruta_bs, ruta_inv, carpeta=".", hoja=None):
     ], columns=["Concepto", "Valor"])
 
     base_nombre = sal.nombre_archivo("BlueService", f"Corte{corte.day:02d}{sal.MESES_CORTOS[corte.month - 1]}{corte.year}")
-    rx = os.path.join(carpeta, base_nombre + ".xlsx")
-    rp = os.path.join(carpeta, base_nombre + ".pdf")
     sub = f"Hoja de inventario: {hoja} · Fecha de corte: {fmt(corte)} · Generado: {datetime.now():%d/%m/%Y %H:%M}"
     cifras = [
         (f"Unidades en {hoja.title()}", len(cuadre_inv), "inventario físico", "neutro"),
@@ -397,32 +402,8 @@ def procesar(ruta_bs, ruta_inv, carpeta=".", hoja=None):
         ("Solo en BlueService", len(falta_inv), f"no están en {hoja.lower()}", "aviso" if len(falta_inv) else "bien"),
         ("A revisar", len(revisar), "VIN o PDI", "aviso" if len(revisar) else "bien"),
     ]
-    exportar_excel(rx, resumen, cuadre_inv, solo_bs, revisar, sub)
-    exportar_pdf(rp, resumen, falta_bs, falta_inv, revisar, hoja, sub, cifras)
+    xlsx = exportar_excel(None, resumen, cuadre_inv, solo_bs, revisar, sub)
+    pdf = exportar_pdf(None, resumen, falta_bs, falta_inv, revisar, hoja, sub, cifras)
     return dict(resumen=resumen, cuadre_inv=cuadre_inv, solo_bs=solo_bs, falta_bs=falta_bs,
                 falta_inv=falta_inv, vendidas=vendidas, revisar=revisar, corte=corte, hoja=hoja,
-                xlsx=rx, pdf=rp)
-
-
-def main():
-    try:
-        from google.colab import files
-        print("Sube el reporte de PDIs de BlueService y el Excel de inventario:")
-        rutas = list(files.upload().keys())
-    except ImportError:
-        rutas = glob.glob("*.xlsx")
-    rutas = [r for r in rutas if not r.startswith("Cuadre_")]
-    ruta_bs = next(r for r in rutas if "PDI" in r.upper())
-    ruta_inv = next(r for r in rutas if "INVENTARIO" in r.upper())
-    r = procesar(ruta_bs, ruta_inv)
-    print(r["resumen"].to_string(index=False))
-    print(f"\n✔ Archivos generados: {r['xlsx']} y {r['pdf']}")
-    try:
-        from google.colab import files
-        files.download(r["xlsx"]); files.download(r["pdf"])
-    except ImportError:
-        pass
-
-
-if __name__ == "__main__":
-    main()
+                xlsx_bytes=xlsx, pdf_bytes=pdf, xlsx_nombre=base_nombre + ".xlsx", pdf_nombre=base_nombre + ".pdf")
