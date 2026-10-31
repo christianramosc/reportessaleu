@@ -138,7 +138,8 @@ with tabs[len(areas)]:
         text=alt.Text("Avance:Q", format=".0%"))
     grafica = (
         (barras + textos)
-        .properties(height=380, background="white", padding=16)
+        .properties(height=380, background="white",
+                    padding={"left": 16, "right": 16, "top": 16, "bottom": 16})
         .configure_view(fill="white", stroke=None)
         .configure_axis(labelColor="#3f3f46", titleColor="#3f3f46", gridColor="#e4e4e7",
                         domainColor="#d4d4d8", tickColor="#d4d4d8")
