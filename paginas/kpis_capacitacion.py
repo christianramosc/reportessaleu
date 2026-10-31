@@ -134,9 +134,17 @@ with tabs[len(areas)]:
         tooltip=["Área", "Módulo", alt.Tooltip("Avance:Q", format=".0%")],
     )
     barras = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-    textos = base.mark_text(dy=-8, fontSize=12, fontWeight="bold", color=ui.TEXTO_2).encode(
+    textos = base.mark_text(dy=-8, fontSize=12, fontWeight="bold", color="#27272a").encode(
         text=alt.Text("Avance:Q", format=".0%"))
-    st.altair_chart((barras + textos).properties(height=380), width="stretch")
+    grafica = (
+        (barras + textos)
+        .properties(height=380, background="white", padding=16)
+        .configure_view(fill="white", stroke=None)
+        .configure_axis(labelColor="#3f3f46", titleColor="#3f3f46", gridColor="#e4e4e7",
+                        domainColor="#d4d4d8", tickColor="#d4d4d8")
+        .configure_legend(labelColor="#27272a", titleColor="#27272a")
+    )
+    st.altair_chart(grafica, width="stretch", theme=None)
 
     tabla = comp.pivot(index="Módulo", columns="Área", values="Avance").reindex(etiquetas)[nombres_area]
     if len(nombres_area) == 2:
