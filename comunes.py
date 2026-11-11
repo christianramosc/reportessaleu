@@ -6,7 +6,7 @@ import streamlit as st
 import conexion
 import ui
 from cuadres import saleu as cu
-from cuadres import saleu_sheet, saleu_fuente
+from cuadres import saleu_sheet, saleu_fuente, saleu_rechazos
 from cuadres.salidas import etiqueta
 
 ESTADO = ui.ESTADO
@@ -94,8 +94,16 @@ def preparar_saleu(base, credito, fuentes_nuevas, clientes):
     fu_nuevo = saleu_fuente.combinar(*nuevas) if nuevas else None
     # se suma a los leads ya guardados en el Sheet: un reporte del mes no pierde los leads de meses anteriores
     fu = saleu_fuente.combinar(saleu_fuente.guardada(base), fu_nuevo)
-    res = cu.procesar(su, clientes, fuente="la bitácora", fuente_df=fu) if not clientes.empty else {}
-    res.update(_propuesta_saleu(base, su, fu))
+    propuesta = _propuesta_saleu(base, su, fu)
+    # Registro en Sale-U de MG Colima Rechazos: sus hojas van dentro del Excel del cuadre y tiene su propio PDF
+    rech = saleu_rechazos.reporte(base, propuesta["registro"], propuesta["_periodo"],
+                                  cu.leer_saleu(credito, quitar_duplicados=False), fu)
+    res = (cu.procesar(su, clientes, fuente="la bitácora", fuente_df=fu,
+                       hojas_extra=saleu_rechazos.hojas_excel(rech)) if not clientes.empty else {})
+    if not res:                        # sin cuadre contra la bitácora: el Excel lleva solo las hojas de Rechazos
+        rech["xlsx_bytes"] = saleu_rechazos.excel(rech)
+    res.update(propuesta)
+    res["rechazos"] = rech
     res.update(con_fuente=fu is not None, fuente_df=fu, fuente_subida=fu_nuevo is not None, credito_df=su,
                periodo_fuente=saleu_fuente.periodo_txt(fu), archivo_credito=credito[0])
     return res
@@ -106,7 +114,7 @@ def _propuesta_saleu(base, su, fu):
     cambios, (ini, fin) = saleu_sheet.proponer(base, su, fuente=fu)
     datos = pd.DataFrame(saleu_sheet.proponer_datos(base, su, fuente=fu),
                          columns=["Hoja", "Fila", "Cliente", "Campo", "Antes", "Después", "Motivo", "_valor"])
-    return dict(registro=cambios, datos=datos, periodo_saleu=f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}")
+    return dict(registro=cambios, datos=datos, periodo_saleu=f"{ini:%d/%m/%Y} – {fin:%d/%m/%Y}", _periodo=(ini, fin))
 
 
 def aplicar_saleu(base, res, volver_a_proponer=False):

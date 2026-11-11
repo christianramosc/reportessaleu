@@ -214,7 +214,7 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             if mejor[0] >= cu.UMBRAL_NOMBRE_FUERTE and mejor[1] >= 2:
                 hallado, como = mejor[2], "nombre (teléfono distinto)"
         actual = row["saleu"] or ""
-        revisar, lead = "", None
+        revisar, lead, como_lead = "", None, ""
         if hallado is None and buscador is not None:
             lead, como_lead = buscador.buscar(row["nombre"], tel)
         if hallado is not None:
@@ -234,6 +234,9 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
             Hoja=row.get("hoja", TAB_RECHAZOS), Fila=row["fila"], Cliente=row["nombre"], Fecha_ingreso=row["fecha"], Antes=actual, Después=nuevo,
             Cambia=actual != nuevo, Como=como, Revisar=revisar,
             Cliente_SaleU=hallado["Nombre"] if hallado is not None else "",
+            Tel_SaleU=hallado["Telefono"] if hallado is not None else "",
+            Tel_Fuente=lead["Telefono"] if lead is not None else "",
+            Como_Fuente=como_lead if lead is not None else "",
             Estatus_SaleU=hallado["Estatus_SaleU"] if hallado is not None else "",
             Financiera_SaleU=hallado["Financiera"] if hallado is not None else "",
             Cliente_Fuente=" ".join(lead["Nombre"].split()) if lead is not None else "",
@@ -246,8 +249,8 @@ def proponer(base, su, ini=None, fin=None, fuente=None):
 
 
 COLS_PROPUESTA = ["Hoja", "Fila", "Cliente", "Fecha_ingreso", "Antes", "Después", "Cambia", "Como", "Revisar",
-                  "Cliente_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Alta_Fuente",
-                  "Fuente_Lead"]
+                  "Cliente_SaleU", "Tel_SaleU", "Estatus_SaleU", "Financiera_SaleU", "Cliente_Fuente", "Tel_Fuente",
+                  "Como_Fuente", "Alta_Fuente", "Fuente_Lead"]
 
 
 def _motivo(r, periodo_txt):

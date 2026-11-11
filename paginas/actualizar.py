@@ -215,6 +215,38 @@ if todo:
                 vista["Fecha"] = vista["Fecha"].map(cu.fecha_txt)
                 tabla(vista, (["Falta"] if "Falta" in vista else []) + ["Fecha", "Nombre", "Vendedor", "Celular",
                       "Financiera", "Estatus", cu.COL_SALEU, "Fuente"], ["Falta"])
+        rech = su.get("rechazos")
+        if rech is not None:
+            with st.container(border=True):
+                t, d = st.columns([3, 2], vertical_alignment="center")
+                t.markdown(":material/fact_check: **Registro en Sale-U · MG Colima Rechazos**  \n"
+                           "<span class='tenue'>Cómo está cada rechazo en Sale-U: créditos por financiera, estatus y "
+                           "con qué nombre y teléfono está capturado."
+                           + (" Sus hojas («Rechazos · …») van en el Excel del reporte de arriba."
+                              if "xlsx_bytes" in su else "") + "</span>", unsafe_allow_html=True)
+                if "xlsx_bytes" in rech:
+                    descargas(rech, "su_rech", donde=d)
+                else:
+                    ui.barra(d).download_button("PDF", rech["pdf_bytes"], file_name=rech["pdf_nombre"],
+                                                mime="application/pdf", key="su_rech_p",
+                                                icon=":material/picture_as_pdf:")
+                det = rech["detalle"]
+                cuenta = lambda k: int((det["_clave"] == k).sum()) if len(det) else 0
+                m = st.columns(5)
+                m[0].metric("Rechazos", len(det))
+                m[1].metric("Registrado", int((det["Registro_cuadre"] == saleu_sheet.REGISTRADO).sum()) if len(det) else 0)
+                m[2].metric("No Registrado", cuenta("alta"))
+                m[3].metric("Otra financiera / estatus", cuenta("otra_fin") + cuenta("estatus"),
+                            help="En Sale-U el crédito está con otra financiera, o con la misma pero no rechazado.")
+                m[4].metric("Nombre o teléfono distinto", cuenta("dato"))
+                pr = rech["por_revisar"]
+                if len(pr):
+                    pr = pr.assign(_o=pr["_clave"].map(rech["orden"])).sort_values(["_o", "Fila"])
+                    tabla(pr.assign(Fecha_ingreso=pr["Fecha_ingreso"].map(cu.fecha_txt)),
+                          ["Situacion", "Fila", "Fecha_ingreso", "Cliente", "Celular", "Financiera", "Asesor",
+                           "Creditos_SaleU", "Como_en_SaleU", "Observaciones"])
+                else:
+                    st.success("Todos los rechazos del periodo cuadran con Sale-U.")
     elif todo.get("solo_fuente") is not None:
         ui.seccion("Sale-U", numero=2)
         st.info(f"Solo subiste el reporte Fuente: sus leads se guardan al aplicar "
