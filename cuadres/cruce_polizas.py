@@ -19,7 +19,8 @@ Qué se propone:
   · CORREO vacío → el de la póliza.                                                (marcado)
   · VIN vacío (si existe la columna) y ligado por teléfono → el de la póliza.      (marcado)
   · VEHÍCULO vacío → el de la póliza (modelo, versión y año).                       (marcado)
-    Si Finalizados no tiene la columna VEHÍCULO, se agrega al final al aplicar.
+    Si Finalizados no tiene la columna VEHÍCULO, se agrega al aplicar, justo a la derecha de REGISTRO EN SALE-U
+    (acomodar_vehiculo; también la regresa ahí si alguien la mueve).
   · VEHÍCULO distinto al de la póliza → el de la póliza, para que tú decidas.      (sin marcar)
 Un teléfono de la póliza con NOTA TELÉFONO (incompleto, a nombre de otra persona…) nunca se propone.
 Lo que desmarques queda como «Ignorado» en el Historial y no se vuelve a proponer.
@@ -37,6 +38,7 @@ TAB_POLIZAS = "Polizas"
 ORIGEN = "App · pólizas"
 COLS_VIN = ("VIN", "SERIE", "NUMERO DE SERIE", "NO DE SERIE", "NO. DE SERIE", "NIV")
 COL_VEHICULO = "VEHÍCULO"          # columna nueva de Finalizados: descripción del auto y año, tal como en la póliza
+COL_DESPUES_DE = "REGISTRO EN SALE-U"   # VEHÍCULO va justo a su derecha
 UMBRAL_SOLO_NOMBRE = 0.80
 
 
@@ -186,6 +188,28 @@ def proponer(base):
     return prop.sort_values(["Aplicar", "Fila"], ascending=[False, True]).reset_index(drop=True)
 
 
+def acomodar_vehiculo(base, respaldar=None):
+    """Deja VEHÍCULO justo a la derecha de REGISTRO EN SALE-U en Finalizados (mueve la columna completa y ajusta las
+    celdas de Revision). respaldar(pestana) se llama antes de mover. Devuelve True si la movió."""
+    if TAB_FINALIZADOS not in base.pestanas():
+        return False
+    de, ref = base.col(TAB_FINALIZADOS, COL_VEHICULO), base.col(TAB_FINALIZADOS, COL_DESPUES_DE)
+    if not de or not ref:
+        return False
+    a = ref + 1 if de > ref else ref          # si está a la izquierda, al quitarla la referencia se recorre una
+    if de == a:
+        return False
+    n = len(base.columnas(TAB_FINALIZADOS))
+    orden = list(range(1, n + 1))
+    orden.insert(a - 1, orden.pop(de - 1))
+    if respaldar:
+        respaldar(TAB_FINALIZADOS)
+    base.mover_columna(TAB_FINALIZADOS, de, a)
+    from cuadres.columnas import _ajustar_revision
+    _ajustar_revision(base, {TAB_FINALIZADOS: {viejo: nuevo for nuevo, viejo in enumerate(orden, start=1)}})
+    return True
+
+
 def aplicar(base, propuestas):
     """Escribe lo marcado. Devuelve (escritos, ignorados)."""
     if propuestas is None or propuestas.empty:
@@ -196,7 +220,10 @@ def aplicar(base, propuestas):
     if len(elegidas):
         base.respaldar(TAB_FINALIZADOS)
         if (elegidas["Campo"].map(norm) == norm(COL_VEHICULO)).any():
-            base.agregar_columna(TAB_FINALIZADOS, COL_VEHICULO)    # no hace nada si ya existe
+            if not base.col(TAB_FINALIZADOS, COL_VEHICULO):
+                c = base.agregar_columna(TAB_FINALIZADOS, COL_VEHICULO)
+                base.quitar_validacion(TAB_FINALIZADOS, [c])       # no heredar la de la columna vecina (p. ej. fecha)
+            acomodar_vehiculo(base)
     for _, p in elegidas.iterrows():
         c = base.col(TAB_FINALIZADOS, p["Campo"])
         if not c:

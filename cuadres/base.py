@@ -335,6 +335,11 @@ class _BaseComun:
     def validar_fecha(self, pestana, columnas, fila_fin=1000):
         self._validar_fecha(pestana, columnas, fila_fin)
 
+    def quitar_validacion(self, pestana, columnas, fila_fin=1000):
+        """Quita la validación de datos (lista, fecha…) de `columnas` (filas 2..fila_fin)."""
+        if pestana in self.pestanas() and columnas:
+            self._quitar_validacion(pestana, columnas, fila_fin)
+
     def agrupar_columnas(self, pestana, columnas):
         """Agrupa y contrae cada columna (se abre con el «+» de arriba). No duplica grupos. Devuelve cuántas agrupó."""
         return self._agrupar_columnas(pestana, sorted(set(columnas)))
@@ -662,6 +667,12 @@ class BaseGoogle(_BaseComun):
             "range": self._rango(ws, 1, fila_fin, c - 1, c),
             "rule": {"condition": {"type": "DATE_IS_VALID"}, "strict": False}}} for c in columnas]})
 
+    def _quitar_validacion(self, pestana, columnas, fila_fin):
+        ws = self._hoja(pestana)
+        fila_fin = min(fila_fin, ws.row_count)
+        self.libro.batch_update({"requests": [{"setDataValidation": {"range": self._rango(ws, 1, fila_fin, c - 1, c)}}
+                                              for c in columnas]})
+
     def _agrupar_columnas(self, pestana, columnas):
         ws = self._hoja(pestana)
         agrupadas = set()
@@ -884,6 +895,9 @@ class BaseExcel(_BaseComun):
                     dv.sqref = MultiCellRange(" ".join(r.coord for r in quedan))
                 else:
                     ws.data_validations.dataValidation.remove(dv)
+
+    def _quitar_validacion(self, pestana, columnas, fila_fin):
+        self._quitar_validaciones(self.libro[pestana], columnas, fila_fin)
 
     def _lista_valores(self, pestana, columnas, valores, fila_fin):
         from openpyxl.worksheet.datavalidation import DataValidation
