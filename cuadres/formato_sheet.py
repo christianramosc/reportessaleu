@@ -94,6 +94,10 @@ def aplicar(base):
         base.formato_columnas(TAB_FINALIZADOS, {c: "fecha"}, FILAS)
         base.validar_fecha(TAB_FINALIZADOS, [c], FILAS)
         hecho.append("Columna FECHA DE ENTREGA en MG Colima Créditos Finalizados")
+    if TAB_FINALIZADOS in pestanas:
+        from cuadres.cruce_polizas import acomodar_vehiculo
+        if acomodar_vehiculo(base, respaldar):
+            hecho.append("Columna VEHÍCULO junto a REGISTRO EN SALE-U en MG Colima Créditos Finalizados")
 
     # 6. fechas que se veían como número
     if TAB_HISTORIAL in pestanas:
