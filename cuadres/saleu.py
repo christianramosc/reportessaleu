@@ -64,10 +64,11 @@ def _fila_encabezado(filas):
     raise ValueError("No encontré la fila de encabezados ('Nombre del Cliente', 'Teléfono') en Sale-U.")
 
 
-def leer_saleu(archivo, nombre=""):
+def leer_saleu(archivo, nombre="", quitar_duplicados=True):
     """Lee el reporte de Sale-U tal cual se descarga: ignora las líneas de título
     ('Leads Crédito', 'Agencia:', 'Rango:', renglones vacíos) y arranca en los encabezados.
-    archivo: bytes del .csv / .xlsx, (nombre, bytes) o la ruta."""
+    archivo: bytes del .csv / .xlsx, (nombre, bytes) o la ruta.
+    quitar_duplicados=False: deja todos los créditos (un cliente puede tener uno por financiera)."""
     if isinstance(archivo, tuple):
         nombre, archivo = archivo
     if isinstance(archivo, str):
@@ -130,7 +131,9 @@ def leer_saleu(archivo, nombre=""):
     # Duplicados exactos (mismo teléfono y nombre): se queda el más reciente
     df = df.sort_values("_fecha", ascending=False)
     df["Veces_registrado"] = df.groupby(["Tel_norm", "Nombre_norm"])["Nombre"].transform("size")
-    df = df.drop_duplicates(["Tel_norm", "Nombre_norm"]).reset_index(drop=True)
+    if quitar_duplicados:
+        df = df.drop_duplicates(["Tel_norm", "Nombre_norm"])
+    df = df.reset_index(drop=True)
     df["id_s"] = range(len(df))
     df.attrs["rango"] = rango_reporte(info) or (
         (df["_fecha"].min().to_pydatetime(), df["_fecha"].max().to_pydatetime()) if df["_fecha"].notna().any() else None)
@@ -487,7 +490,7 @@ def _orden_faltantes(faltantes):
                                  else ["Vendedor", "Cliente_bitacora"])
 
 
-def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo, sub="", titulo=""):
+def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo, sub="", titulo="", hojas_extra=None):
     con_fuente = "Falta" in faltantes
     fu = lambda df: df.assign(Fuente=df["Fuente_SaleU"]) if "Fuente_SaleU" in df else df   # fuente del lead en Sale-U
     cuadre, revisar = fu(cuadre), fu(revisar)
@@ -500,6 +503,7 @@ def exportar_excel(ruta, resumen, cuadre, detalle, faltantes, revisar, solo, sub
         ("Solo en Sale-U", solo, COLS_SOLO),
         ("Detalle por mes", detalle, list(detalle.columns)),
         ("Cuadre por cliente", cuadre, COLS_CUADRE),
+        *(hojas_extra or []),
     ], COLORES)
 
 
@@ -554,13 +558,15 @@ def exportar_pdf(ruta, resumen, faltantes, no_cuadra, revisar_cruce, solo_cet, f
 # =============================================================================
 # 7. PROGRAMA PRINCIPAL
 # =============================================================================
-def procesar(su, bitacora, fuente="la bitácora", fuente_df=None):
+def procesar(su, bitacora, fuente="la bitácora", fuente_df=None, hojas_extra=None):
     """Hace todo el cuadre en memoria y devuelve un diccionario con las tablas y el Excel y PDF (bytes).
     su: reporte de Crédito ya leído con leer_saleu() (o el archivo, que se lee aquí).
     bitacora: DataFrame de fuentes.solicitudes_de_bitacora() (todas las financieras).
     fuente: cómo se nombra la base en el Resumen y el PDF («la bitácora», «el Sheet»).
     fuente_df: reporte Fuente de Sale-U ya leído (saleu_fuente.leer_fuente), opcional; con él, los
-    faltantes se separan en «Dar de alta» y «Registrar crédito»."""
+    faltantes se separan en «Dar de alta» y «Registrar crédito».
+    hojas_extra: [(nombre, DataFrame, columnas)] que se agregan al final del Excel (p. ej. el Registro en Sale-U de
+    MG Colima Rechazos, saleu_rechazos.hojas_excel)."""
     if not isinstance(su, pd.DataFrame):
         su = leer_saleu(su)
     rango = su.attrs.get("rango")
@@ -640,7 +646,7 @@ def procesar(su, bitacora, fuente="la bitácora", fuente_df=None):
         ("Estatus distinto", len(no_cuadra), "corregir en Sale-U", "aviso" if len(no_cuadra) else "bien"),
         ("A verificar", len(revisar_cruce), "nombre o teléfono distinto", "aviso" if len(revisar_cruce) else "bien"),
     ]
-    xlsx = exportar_excel(None, resumen, cuadre, detalle, faltantes, revisar, solo, sub, titulo)
+    xlsx = exportar_excel(None, resumen, cuadre, detalle, faltantes, revisar, solo, sub, titulo, hojas_extra)
     pdf = exportar_pdf(None, resumen, faltantes.copy(), no_cuadra.copy(), revisar_cruce.copy(), solo_cet, fuente,
                        sub, cifras, titulo)
     return dict(resumen=resumen, cuadre=cuadre, detalle=detalle, faltantes=faltantes,
