@@ -18,6 +18,9 @@ Qué se propone:
   · NOMBRE escrito distinto, ligado por VIN o teléfono → el de la póliza.           (marcado solo si fue por VIN)
   · CORREO vacío → el de la póliza.                                                (marcado)
   · VIN vacío (si existe la columna) y ligado por teléfono → el de la póliza.      (marcado)
+  · VEHÍCULO vacío → el de la póliza (modelo, versión y año).                       (marcado)
+    Si Finalizados no tiene la columna VEHÍCULO, se agrega al final al aplicar.
+  · VEHÍCULO distinto al de la póliza → el de la póliza, para que tú decidas.      (sin marcar)
 Un teléfono de la póliza con NOTA TELÉFONO (incompleto, a nombre de otra persona…) nunca se propone.
 Lo que desmarques queda como «Ignorado» en el Historial y no se vuelve a proponer.
 """
@@ -33,6 +36,7 @@ from cuadres import saleu as cu
 TAB_POLIZAS = "Polizas"
 ORIGEN = "App · pólizas"
 COLS_VIN = ("VIN", "SERIE", "NUMERO DE SERIE", "NO DE SERIE", "NO. DE SERIE", "NIV")
+COL_VEHICULO = "VEHÍCULO"          # columna nueva de Finalizados: descripción del auto y año, tal como en la póliza
 UMBRAL_SOLO_NOMBRE = 0.80
 
 
@@ -120,6 +124,7 @@ def proponer(base):
     df = base.leer(TAB_FINALIZADOS)
     c_nom, c_tel, c_cor = _col(df, "NOMBRE"), _col(df, "TELEFONO"), _col(df, "CORREO")
     c_vin = _col(df, *COLS_VIN)
+    c_veh = _col(df, COL_VEHICULO)
     if not c_nom:
         raise ValueError(f"No encuentro la columna NOMBRE en «{TAB_FINALIZADOS}».")
     ignorados = _ignorados(base)
@@ -167,6 +172,15 @@ def proponer(base):
         # VIN
         if c_vin and p["vin"] and not vin_fin and como == "teléfono":
             add(r, c_vin, r[c_vin], p["vin"], f"Faltaba el VIN; {detalle}", True, como)
+        # vehículo (si no existe la columna se crea al aplicar)
+        if p["vehiculo"]:
+            antes = r[c_veh] if c_veh else None
+            de = f"póliza de {p['nombre']}"
+            if vacio(antes) or not str(antes).strip():
+                add(r, c_veh or COL_VEHICULO, antes, p["vehiculo"], f"Faltaba el vehículo; {de}", True, como)
+            elif norm(antes) != norm(p["vehiculo"]):
+                add(r, c_veh, antes, p["vehiculo"], f"Vehículo distinto al de la {de}; confirma cuál es el bueno",
+                    False, como)
 
     prop = pd.DataFrame(out, columns=cols)
     return prop.sort_values(["Aplicar", "Fila"], ascending=[False, True]).reset_index(drop=True)
@@ -181,6 +195,8 @@ def aplicar(base, propuestas):
     celdas, historial = [], []
     if len(elegidas):
         base.respaldar(TAB_FINALIZADOS)
+        if (elegidas["Campo"].map(norm) == norm(COL_VEHICULO)).any():
+            base.agregar_columna(TAB_FINALIZADOS, COL_VEHICULO)    # no hace nada si ya existe
     for _, p in elegidas.iterrows():
         c = base.col(TAB_FINALIZADOS, p["Campo"])
         if not c:
