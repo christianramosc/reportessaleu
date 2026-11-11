@@ -55,7 +55,8 @@ with c_mant.container(border=True, height="stretch"):
 with c_pol.container(border=True, height="stretch"):
     st.markdown(":material/compare_arrows: **Cruce de Créditos Finalizados con Pólizas**")
     st.caption("Compara «MG Colima Créditos Finalizados» con la pestaña «Polizas» (la llena la app de seguros) y "
-               "propone corregir teléfono, nombre, correo y VIN. Liga cada cliente por VIN, por teléfono con nombre "
+               "propone corregir teléfono, nombre, correo y VIN, y llenar la columna VEHÍCULO (modelo, versión y "
+               "año; se crea si no existe). Liga cada cliente por VIN, por teléfono con nombre "
                "parecido o por nombre. Ya vienen marcados los datos que faltaban o estaban mal; los que son "
                "distintos en las dos fuentes vienen sin marcar, para que decidas tú. Lo que desmarques no se vuelve "
                "a proponer.")
