@@ -127,4 +127,13 @@ def estado(base, hoy=None):
                     Aviso=(f"El reporte Fuente tiene {(hoy - f_fu.date()).days} días" if f_fu
                            else "Sube el reporte Fuente de Sale-U (de enero a la fecha la primera vez)")
                     if viejo else ""))
+
+    # Pólizas de seguro (solo informativo: se actualizan cuando hay pólizas nuevas)
+    u = _ultima(base, "polizas")
+    f_pol = _a_fecha(u["Fecha de carga"]) if u is not None else None
+    if f_pol or "Polizas" in pestanas:
+        out.append(dict(Archivo="Pólizas de seguro", Último=f"{f_pol:%d/%m/%Y}" if f_pol else "—",
+                        Detalle=(f"{u['Registros']} pólizas · subido {_hace(f_pol, hoy)}" if u is not None
+                                 else "pestaña Polizas (de la app de seguros)"),
+                        Nivel="ok", Aviso=""))
     return out
