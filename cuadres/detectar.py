@@ -7,6 +7,7 @@ Reconoce qué archivo se subió, sin importar en qué campo se ponga ni cómo se
   cetelem  → captura mensual de Cetelem (alguna hoja con la columna «Folio CCK»)
   fi       → Bitácora de F&I (hojas DETALLE / CIERRE con «INGRESOS · VENDEDOR · … · CLIENTE»)
   base     → el propio Excel de seguimiento (pestaña «MG Colima Rechazos»)
+  polizas  → Excel de pólizas de seguro (Polizas_extraidas.xlsx: hoja «Contacto» con CLIENTE y SERIE)
 """
 import csv
 import io
@@ -14,7 +15,8 @@ import io
 from cuadres.base import TAB_RECHAZOS, norm
 
 NOMBRES = {"credito": "Sale-U · Crédito", "fuente": "Sale-U · Fuente", "cetelem": "Captura de Cetelem",
-           "fi": "Bitácora de F&I", "base": "Excel de seguimiento", None: "No reconocido"}
+           "fi": "Bitácora de F&I", "base": "Excel de seguimiento",
+           "polizas": "Pólizas de seguro", None: "No reconocido"}
 
 
 def _texto(datos):
@@ -57,6 +59,9 @@ def tipo(nombre, datos):
     try:
         if TAB_RECHAZOS in wb.sheetnames:
             return "base"
+        from cuadres.polizas_excel import es_excel_polizas
+        if es_excel_polizas(wb):
+            return "polizas"
         from cuadres.fuentes import _formato
         encontrado = None
         for ws in wb.worksheets:

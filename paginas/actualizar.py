@@ -2,10 +2,10 @@
 """
 Página: Actualizar
 
-Un solo paso para todo lo que llega en el día: capturas de Cetelem, Bitácora de F&I y reportes de Sale-U (Crédito y
-Fuente). Se suben juntos (la app reconoce cada archivo), se revisan los cambios y se aplican con un solo botón:
-primero las bitácoras (Rechazos, Finalizados y Bitacora) y después el Registro en Sale-U sobre el Sheet ya
-actualizado.
+Un solo paso para todo lo que llega en el día: capturas de Cetelem, Bitácora de F&I, reportes de Sale-U (Crédito y
+Fuente) y el Excel de pólizas de seguro. Se suben juntos (la app reconoce cada archivo), se revisan los cambios y se
+aplican con un solo botón: primero las bitácoras (Rechazos, Finalizados y Bitacora), después el Registro en Sale-U
+sobre el Sheet ya actualizado y al final la pestaña Polizas (cuadres/polizas_excel.py).
 """
 import pandas as pd
 import streamlit as st
@@ -14,7 +14,7 @@ import ui
 import conexion
 from comunes import (HOJA_CORTA, aviso_excel, aplicar_saleu, descargas, filtro_vendedor, preparar_saleu, tabla,
                      valor_resumen)
-from cuadres import actualizar, cargas, detectar, fuentes, saleu_sheet
+from cuadres import actualizar, cargas, detectar, fuentes, polizas_excel, saleu_sheet
 from cuadres import saleu as cu
 from cuadres.base import TAB_FINALIZADOS
 
@@ -47,13 +47,14 @@ if estado:
             caja.markdown(f":orange[:material/notification_important: {e['Aviso']}]")
 
 # ---------------------------------------------------------------- archivos
-ui.seccion("Archivos del día", "Capturas de Cetelem, Bitácora de F&I y reportes de Sale-U (Crédito y Fuente), "
-           "tal cual se descargan. Puedes subir uno o todos.")
+ui.seccion("Archivos del día", "Capturas de Cetelem, Bitácora de F&I, reportes de Sale-U (Crédito y Fuente) y tu "
+           "Excel de pólizas de seguro, tal cual se descargan. Puedes subir uno o todos.")
 caja_archivos = st.container(border=True)
 archivos = caja_archivos.file_uploader(
     "Archivos del día", type=["xlsx", "csv"], accept_multiple_files=True, key="up_todo", label_visibility="collapsed",
     help="Capturas de Cetelem (JULIO_2026_FINAL.xlsx…), Bitácora de F&I, reporteLeadsconCredito y ReporteFuentes de "
-         "Sale-U, tal cual se descargan. Puedes subir uno o todos; la app reconoce cada uno.")
+         "Sale-U y Polizas_extraidas.xlsx (pólizas de seguro), tal cual se descargan. Puedes subir uno o todos; la app "
+         "reconoce cada uno.")
 clasif = detectar.clasificar([(f.name, f.getvalue()) for f in archivos or []])
 if archivos:
     filas = [(n, detectar.NOMBRES[t]) for t, lista in clasif.items() for n, _ in lista]
@@ -66,6 +67,8 @@ if archivos:
                 if conexion.google_configurado() else "; súbelo arriba, en «Modo Excel»."))
     if len(clasif.get("credito", [])) > 1:
         caja_archivos.warning(f"Subiste {len(clasif['credito'])} reportes de Crédito; se usa «{clasif['credito'][0][0]}».")
+    if len(clasif.get("polizas", [])) > 1:
+        caja_archivos.warning(f"Subiste {len(clasif['polizas'])} Excel de pólizas; se usa «{clasif['polizas'][0][0]}».")
 
 tablas_fi, titulo_fi = None, None
 try:
@@ -83,7 +86,7 @@ elif clasif.get("fi"):
 guardadas = conexion.capturas_guardadas(base)
 fi_guardados, _ = conexion.registros_fi_guardados(base)
 hay_bitacoras = bool(clasif.get("cetelem")) or not guardadas.empty or tablas_fi is not None or bool(fi_guardados)
-puede = hay_bitacoras or bool(clasif.get("credito")) or bool(clasif.get("fuente"))
+puede = hay_bitacoras or bool(clasif.get("credito")) or bool(clasif.get("fuente")) or bool(clasif.get("polizas"))
 
 
 def revisar():
@@ -121,6 +124,10 @@ def revisar():
             todo["solo_fuente"] = saleu_fuente.combinar(saleu_fuente.guardada(base), *nuevas_fu)
         for (n, _), f in zip(clasif["fuente"], nuevas_fu):
             todo["cargas"].append(dict(Tipo="fuente", Archivo=n, Periodo=saleu_fuente.periodo_txt(f), Registros=len(f)))
+    if clasif.get("polizas"):
+        nombre, datos = clasif["polizas"][0]
+        todo["pol"] = polizas_excel.proponer(base, nombre, datos)
+        todo["cargas"].append(dict(Tipo="polizas", Archivo=nombre, Periodo="", Registros=len(todo["pol"]["df"])))
     return todo
 
 
@@ -252,16 +259,45 @@ if todo:
         st.info(f"Solo subiste el reporte Fuente: sus leads se guardan al aplicar "
                 f"({len(todo['solo_fuente'])} acumulados). Para revisar el Registro en Sale-U sube también el de Crédito.")
 
+    # ------------------------------------------------ 3. pólizas de seguro
+    pol = todo.get("pol")
+    conservar = True
+    if pol:
+        ui.seccion("Pólizas de seguro", f"«{pol['nombre']}» → pestaña Polizas del Sheet", numero=3)
+        m = st.columns(4)
+        m[0].metric("Pólizas en el Excel", len(pol["df"]), help="Una fila por crédito (hoja Contacto).")
+        m[1].metric("En la pestaña hoy", len(pol["actual"]))
+        m[2].metric("Nuevas", len(pol["altas"]), help="Ligadas por SERIE (VIN) o, si no hay, por nombre.")
+        m[3].metric("Con teléfono", pol["con_tel"])
+        if len(pol["altas"]):
+            with st.expander(f"Pólizas nuevas ({len(pol['altas'])})"):
+                st.dataframe(pol["altas"][[c for c in ("CLIENTE", "TELÉFONO", "VEHÍCULO", "SERIE", "ASEGURADORA")
+                                           if c in pol["altas"].columns]].astype(str),
+                             hide_index=True, width="stretch")
+        quedan = pol["solo_pestana"]
+        if len(quedan):
+            conservar = st.checkbox(f"Conservar {len(quedan)} póliza(s) que están en la pestaña y no vienen en este "
+                                    "Excel", value=True, key="pol_conservar",
+                                    help="Desmárcalo si tu Excel ya trae a todos y quieres que la pestaña quede igual "
+                                         "al Excel (como lo deja la app de seguros).")
+            with st.expander(f"Están en la pestaña, pero no en el Excel ({len(quedan)})"):
+                st.dataframe(quedan[[c for c in ("CLIENTE", "TELÉFONO", "VEHÍCULO", "SERIE") if c in quedan.columns]]
+                             .astype(str), hide_index=True, width="stretch")
+        st.caption("Al aplicar, la pestaña Polizas se reescribe (antes se guarda un respaldo oculto). Después ve a "
+                   "**Mantenimiento → Revisar contra Pólizas** para pasar teléfonos, correos y vehículos a "
+                   "Créditos Finalizados.")
+
     # ------------------------------------------------ aplicar todo
     st.write("")
     n_act = int(prop["Aplicar"].sum()) if not prop.empty else 0
     hay_algo = (n_act or n_su or (act and (act["cambia_capturas"] or act.get("regs_fi") is not None))
-                or todo.get("solo_fuente") is not None or todo["cargas"])
-    etiqueta = f"Aplicar todo ({n_act + n_su} cambio(s))" if n_act + n_su else "Guardar archivos"
+                or todo.get("solo_fuente") is not None or todo["cargas"] or pol)
+    etiqueta = (f"Aplicar todo ({n_act + n_su} cambio(s))" if n_act + n_su
+                else "Actualizar pólizas" if pol and not (act or su) else "Guardar archivos")
     pie = st.container(border=True)
     t, b = pie.columns([3, 1], vertical_alignment="center")
-    t.markdown(":material/done_all: **Aplicar al Sheet**  \n<span class='tenue'>Primero las bitácoras y después el "
-               "Registro en Sale-U, sobre el Sheet ya actualizado. Queda en el Historial.</span>",
+    t.markdown(":material/done_all: **Aplicar al Sheet**  \n<span class='tenue'>Primero las bitácoras, después el "
+               "Registro en Sale-U sobre el Sheet ya actualizado y al final las pólizas. Queda en el Historial.</span>",
                unsafe_allow_html=True)
     if b.button(etiqueta, type="primary", disabled=not hay_algo, key="btn_aplicar_todo", icon=":material/done_all:",
                 width="stretch"):
@@ -281,6 +317,12 @@ if todo:
                     from cuadres import saleu_fuente
                     n = saleu_fuente.guardar(base, todo["solo_fuente"])
                     partes.append(f"{n} leads de Fuente guardados")
+                if pol:
+                    rp = polizas_excel.aplicar(base, pol, conservar=conservar)
+                    partes.append(f"Pólizas: {rp['filas']} en la pestaña ({rp['altas']} nueva(s)"
+                                  + (f", {rp['conservadas']} conservada(s)" if rp["conservadas"] else "") + ")")
+                    if rp["aviso"]:
+                        aviso = f"{aviso}\n\n{rp['aviso']}" if aviso else rp["aviso"]
                 cargas.anotar(base, todo["cargas"])
                 conexion.recargar()
                 st.session_state.pop("todo", None)
