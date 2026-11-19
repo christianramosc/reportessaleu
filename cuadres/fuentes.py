@@ -233,6 +233,12 @@ def tablas_de_google(cliente, url):
 _POS_DETALLE = dict(vendedor=2, fecha=3, cliente=4, unidad=6, anio=7, telefono=9, banco=10, estatus=11,
                     comentario_fi=13, monto=14, folio=16, canal2=18, estatus_canal2=19, comentario_asesor=21,
                     sale_u=22, correo=27, plazo=28, factura=29, vin=30, mensualidad=31)
+# DETALLE desde nov 2026: agrega RFC, Correo, Seminuevo y Folio antes del Banco; si el Banco es «OTROS», la financiera
+# va en «OTRO» con su resultado en «ESTATUS 1»; «CANAL 2» / «ESTATUS 1» (cols. 19-20) es una tercera financiera.
+_POS_DETALLE_RFC = dict(vendedor=2, fecha=3, cliente=4, telefono=6, correo=7, unidad=9, anio=10, folio=12, banco=13,
+                        estatus=14, canal2=16, estatus_canal2=17, comentario_fi=18, canal3=19, estatus_canal3=20,
+                        comentario_asesor=21, sale_u=22, monto=23, mensualidad=24, plazo=25, gap=27, accesorios=28,
+                        factura=32, vin=33)
 # Formato de cierre mensual (CIERRE AGOSTO…)
 _POS_CIERRE = dict(vendedor=2, fecha=3, cliente=4, unidad=7, anio=8, telefono=10, banco=19, estatus=12,
                    comentario_fi=14, monto=15, folio=17, canal2=19, estatus_canal2=21, comentario_asesor=22,
@@ -244,6 +250,8 @@ def _formato(encabezado):
     if e[0] == "INGRESOS" and e[1] == "VENDEDOR" and e[3] == "CLIENTE":
         if e[4] == "MODELO":
             return "DETALLE"
+        if e[4] == "RFC":
+            return "DETALLE_RFC"
         if e[4] == "PAGADA":
             return "CIERRE"
     return None
@@ -259,7 +267,7 @@ def registros_financiamiento(tablas):
         fmt = _formato(filas[0])
         if not fmt:
             continue
-        pos = _POS_DETALLE if fmt == "DETALLE" else _POS_CIERRE
+        pos = {"DETALLE": _POS_DETALLE, "DETALLE_RFC": _POS_DETALLE_RFC}.get(fmt, _POS_CIERRE)
         usadas = 0
         for n, fila in enumerate(filas[1:], start=2):
             g = lambda k: fila[pos[k] - 1] if len(fila) >= pos[k] else None
@@ -269,12 +277,16 @@ def registros_financiamiento(tablas):
             fecha = to_date(g("fecha"))
             if fmt == "CIERRE" and not fecha:
                 continue            # tablas de resumen al pie de la hoja
-            if fmt == "DETALLE" and not txt(g("estatus")):
+            if fmt.startswith("DETALLE") and not txt(g("estatus")):
                 continue
             banco = txt(g("banco"))
             if fmt == "CIERRE":
                 banco = txt(fila[18]) if len(fila) > 18 and txt(fila[18]) else txt(fila[10]) if len(fila) > 10 else None
             anio = g("anio")
+            com_fi = txt(g("comentario_fi"))
+            if fmt == "DETALLE_RFC" and txt(g("canal3")):          # tercera financiera: se deja en el comentario
+                extra = f"Canal 2: {txt(g('canal3'))} {txt(g('estatus_canal3')) or ''}".strip()
+                com_fi = f"{com_fi}; {extra}" if com_fi else extra
             out.append(dict(
                 origen=f"{hoja} fila {n}", fecha=fecha, folio=to_folio(g("folio")), cliente=cliente,
                 telefono=to_phone(g("telefono")), correo=mail(g("correo")), vendedor=txt(g("vendedor")),
@@ -282,8 +294,10 @@ def registros_financiamiento(tablas):
                 banco=banco, estatus=estatus(g("estatus")), canal2=txt(g("canal2")), estatus_canal2=txt(g("estatus_canal2")),
                 plazo=to_num(g("plazo")), mensualidad=to_num(g("mensualidad")), monto=to_num(g("monto")),
                 sale_u=norm(g("sale_u")) if norm(g("sale_u")) in ("SI", "NO") else None,
-                comentario_fi=txt(g("comentario_fi")), comentario_asesor=txt(g("comentario_asesor")),
-                factura=txt(g("factura")), vin=txt(g("vin")), gap=None, accesorios=None, tipo_persona=None,
+                comentario_fi=com_fi, comentario_asesor=txt(g("comentario_asesor")),
+                factura=txt(g("factura")), vin=txt(g("vin")),
+                gap=txt(g("gap")) if "gap" in pos else None,
+                accesorios=txt(g("accesorios")) if "accesorios" in pos else None, tipo_persona=None,
                 key=name_key(cliente)))
             usadas += 1
         if usadas:
