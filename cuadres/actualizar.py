@@ -6,7 +6,9 @@ Actualizar la base de seguimiento con las bitácoras de Cetelem y la "Bitácora 
   aplicar(base, propuestas, …) → respalda, escribe lo elegido, anota el Historial y
                                   reescribe las pestañas "Capturas Cetelem" y "Bitacora"
 """
+import difflib
 import logging
+import re
 import datetime as dt
 
 import pandas as pd
@@ -82,21 +84,76 @@ def es_valor_catalogo(v):
     return bool(t) and t not in ("None", "nan") and len(t) <= 60 and not any(ch in t for ch in "();:")
 
 
-def _asesor(corto, catalogo):
-    """Nombre completo del asesor según Catalogos: 'CARLA' → 'CARLA YOVET CARDENAS AHUMADA',
-    'JESSICA MACHUCA' → 'JESSICA ELIZABETH MACHUCA ROQUE'. Si no hay uno solo que corresponda, se deja igual."""
-    c = norm(corto)
+def _limpiar_asesor(v):
+    """«MIRIAM CRISTAL /» → «MIRIAM CRISTAL»; sin espacios dobles."""
+    return re.sub(r"[\s/,;.\-]+$", "", " ".join(str(v or "").split()))
+
+
+def _palabra_parecida(a, b):
+    """Misma palabra o error de dedo (MAXIMILANO ~ MAXIMILIANO, ORTIN ~ ORTIZ)."""
+    if a == b:
+        return True
+    return min(len(a), len(b)) >= 4 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.8
+
+
+def _candidatos_asesor(corto, catalogo):
+    """Nombres del catálogo que corresponden a lo escrito: exacto; todas sus palabras dentro de un nombre del catálogo
+    («JESSICA MACHUCA»); o lo mismo admitiendo errores de dedo."""
+    c = norm(_limpiar_asesor(corto))
     if not c:
-        return None
+        return []
     exact = [a for a in catalogo if norm(a) == c]
     if exact:
-        return exact[0]
+        return exact[:1]
     palabras = c.split()
-    contiene = [a for a in catalogo if set(palabras) <= set(norm(a).split())]     # todas sus palabras están
-    if len(contiene) == 1:
-        return contiene[0]
-    mismo = [a for a in catalogo if norm(a).split()[0] == palabras[0]]
-    return mismo[0] if len(mismo) == 1 and len(palabras) == 1 else str(corto).strip()
+    contiene = [a for a in catalogo if set(palabras) <= set(norm(a).split())]
+    if contiene:
+        return contiene
+    return [a for a in catalogo
+            if all(any(_palabra_parecida(p, q) for q in norm(a).split()) for p in palabras)]
+
+
+def _asesor(corto, catalogo):
+    """Nombre completo del asesor según Catalogos: 'CARLA' → 'CARLA YOVET CARDENAS AHUMADA',
+    'JESSICA MACHUCA' → 'JESSICA ELIZABETH MACHUCA ROQUE', 'MAXIMILANO' → 'MAXIMILIANO RODRIGUEZ TAROZZI'.
+    Si no hay uno solo que corresponda (p. ej. «LUIS» con dos Luis en el catálogo), se deja igual."""
+    if not norm(corto):
+        return None
+    cand = _candidatos_asesor(corto, catalogo)
+    return cand[0] if len(cand) == 1 else _limpiar_asesor(corto)
+
+
+class Asesores:
+    """Normaliza vendedores con el catálogo. Cuando lo escrito corresponde a varios asesores («LUIS»), desempata con
+    el asesor que tiene asignado el lead del cliente en Sale-U (reporte Fuente guardado en el Sheet)."""
+
+    def __init__(self, base, catalogo=None):
+        self.catalogo = catalogo if catalogo is not None else _catalogo_asesores(base)
+        self._base, self._buscador, self._cache = base, None, {}
+
+    def _lead(self, cliente, tel):
+        if self._buscador is None:
+            from cuadres import saleu_fuente
+            fu = saleu_fuente.guardada(self._base)
+            self._buscador = saleu_fuente.Buscador(fu) if fu is not None and len(fu) else False
+        if not self._buscador:
+            return None
+        lead, _ = self._buscador.buscar(cliente or "", str(tel or ""))
+        return lead
+
+    def nombre(self, corto, tel=None, cliente=None):
+        if not norm(corto) or not self.catalogo:
+            return _limpiar_asesor(corto) or None
+        llave = (norm(corto), str(tel or ""), norm(cliente))
+        if llave not in self._cache:
+            cand = _candidatos_asesor(corto, self.catalogo)
+            if len(cand) > 1 and (tel or cliente):
+                lead = self._lead(cliente, tel)
+                if lead is not None:
+                    del_lead = _candidatos_asesor(lead["Asesor"], cand)
+                    cand = del_lead if len(del_lead) == 1 else cand
+            self._cache[llave] = cand[0] if len(cand) == 1 else _limpiar_asesor(corto)
+        return self._cache[llave]
 
 
 def proponer(base, solicitudes):
@@ -105,6 +162,10 @@ def proponer(base, solicitudes):
     por_folio = {s["folio"]: s for s in solicitudes if s["folio"]}
     ignor = _ignorados(base)
     catalogo = _catalogo_asesores(base)
+    asesores = Asesores(base, catalogo)
+    for sol in solicitudes:          # F&I escribe «CARLA», «LUIS», «MAXIMILANO»: el nombre del catálogo
+        if sol.get("vendedor"):
+            sol["vendedor"] = asesores.nombre(sol["vendedor"], sol.get("telefono"), sol.get("cliente"))
     prop = []
 
     def add(tipo, row, campo, antes, despues, motivo, aplicar=True, payload=None, sol=None, hoja=TAB_RECHAZOS):
@@ -196,13 +257,35 @@ def proponer(base, solicitudes):
     # las celdas vacías se llenan con su dato (aunque sea otra solicitud del mismo cliente).
     from cuadres import completar
     ya = {(p["Hoja"], p["Fila"], norm(p["Campo"])) for p in prop if p["Fila"] is not None}
-    regs = completar.registros_de_solicitudes(solicitudes, lambda v: _asesor(v, catalogo))
+    regs = completar.registros_de_solicitudes(solicitudes, lambda v: asesores.nombre(v))
     for c in completar.proponer(base, regs):
         if (c["Hoja"], c["Fila"], norm(c["Campo"])) in ya:
             continue
         ya.add((c["Hoja"], c["Fila"], norm(c["Campo"])))
         add("Dato faltante", dict(nombre=c["Cliente"], fila=c["Fila"]), c["Campo"], None, c["_valor"], c["Motivo"],
             hoja=c["Hoja"])
+
+    # ---------------------------------------------------------------- asesor según Catalogos
+    # Filas que ya están en Rechazos y Créditos Finalizados con el asesor escrito distinto al catálogo
+    # («AARON ORTIN», «JESSICA MACHUCA», «LUIS»…). Solo si corresponde a un asesor del catálogo.
+    for hoja, c_ase, c_nom, c_tel in [(TAB_RECHAZOS, C["asesor"], C["nombre"], C["cel"]),
+                                      (TAB_FINALIZADOS, "ASESOR", "NOMBRE", "TELEFONO")]:
+        if hoja not in base.pestanas() or not catalogo:
+            continue
+        df_h = base.leer(hoja)
+        col_n = lambda n: next((c for c in df_h.columns if norm(c) == norm(n)), None)
+        ca, cn, ct = col_n(c_ase), col_n(c_nom), col_n(c_tel)
+        if not (ca and cn):
+            continue
+        for _, r in df_h.iterrows():
+            actual = r[ca]
+            if not norm(actual) or not norm(r[cn]):
+                continue
+            nuevo = asesores.nombre(actual, to_phone(r[ct]) if ct else None, r[cn])
+            if nuevo in catalogo and nuevo != str(actual).strip() and (hoja, int(r["_fila"]), norm(c_ase)) not in ya:
+                ya.add((hoja, int(r["_fila"]), norm(c_ase)))
+                add("Corrección", dict(nombre=str(r[cn]).strip(), fila=int(r["_fila"])), ca, actual, nuevo,
+                    "Nombre del asesor según Catalogos", hoja=hoja)
 
     df = pd.DataFrame(prop, columns=["Aplicar", "Tipo", "Hoja", "Fila", "Cliente", "Campo", "Antes", "Después",
                                      "Motivo", "_valor", "_payload", "_sol"])
@@ -357,14 +440,15 @@ def filas_bitacora_completa(base, solicitudes, fila_de_sol, id_de_fila=None):
     id_de_fila: {fila: ID}; la Bitacora guarda el ID del rechazo (si no hay, el número de fila).
     Registro en Sale-U: igual que en MG Colima Rechazos (Registrado / No Registrado) para Aprobados y Rechazados;
     «No aplica» para los demás estatus."""
-    catalogo = _catalogo_asesores(base)
+    asesores = Asesores(base)
     id_de_fila = id_de_fila or {}
     ids_de_sol = {k: [id_de_fila.get(f, f) for f in filas] for k, filas in fila_de_sol.items()}
     filas = filas_bitacora(solicitudes, ids_de_sol) + filas_bitacora_del_sheet(base, fila_de_sol)
     registro, previo = _registro_de_rechazos(base), _registro_previo(base)
     for f in filas:
-        if f[COL_VENDEDOR] and catalogo:
-            f[COL_VENDEDOR] = _asesor(f[COL_VENDEDOR], catalogo)
+        if f[COL_VENDEDOR]:
+            f[COL_VENDEDOR] = asesores.nombre(f[COL_VENDEDOR], f[BITACORA_COLS.index("Teléfono")],
+                                              f[BITACORA_COLS.index("Cliente")])
         f[COL_SALEU] = _registro_saleu(f, registro, previo)
     filas.sort(key=lambda f: (f[0] is None or f[0] == "", f[0] or dt.date.max))
     return filas
@@ -437,6 +521,10 @@ def aplicar(base, propuestas, solicitudes, contexto, capturas=None, registros_fi
         base.reemplazar(TAB_CAPTURAS, CAP_COLS + CAP_EXTRA,
                         capturas[CAP_COLS + CAP_EXTRA].fillna("").values.tolist(), oculta=True)
     if registros_fi:       # copia de la Bitácora de F&I: así no se pierde si la próxima vez no se sube
+        asesores = Asesores(base)
+        for r in registros_fi:           # la copia de F&I también con el nombre del catálogo
+            if r.get("vendedor"):
+                r["vendedor"] = asesores.nombre(r["vendedor"], r.get("telefono"), r.get("cliente"))
         base.reemplazar(TAB_FI, FI_COLS, filas_fi(registros_fi), oculta=True)
         base.dar_formato(TAB_FI, FORMATO_FI)
     # Pasos complementarios: si alguno falla, lo principal ya quedó escrito; se avisa qué faltó en lugar de callarlo.
